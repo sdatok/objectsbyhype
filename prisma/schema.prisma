@@ -1,0 +1,184 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model Product {
+  id          String             @id @default(cuid())
+  slug        String             @unique
+  name        String
+  brand       String
+  description String             @db.Text
+  price       Decimal            @db.Decimal(10, 2)
+  category    String
+  status      ProductStatus      @default(DRAFT)
+  sizes       String[]
+  sizePricing Json?
+  /// Legacy aggregate; sum of sizeStocks is authoritative for inventory
+  quantity    Int                @default(0)
+  consignment Boolean            @default(false)
+  images      ProductImage[]
+  sizeStocks  ProductSizeStock[]
+  lineItems   OrderLineItem[]
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  @@index([status])
+  @@index([category])
+}
+
+model ProductSizeStock {
+  id        String  @id @default(cuid())
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  size      String
+  quantity  Int     @default(0)
+
+  @@unique([productId, size])
+  @@index([productId])
+}
+
+model ProductImage {
+  id           String  @id @default(cuid())
+  productId    String
+  product      Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  url          String
+  displayOrder Int     @default(0)
+
+  @@index([productId])
+}
+
+model WtfImage {
+  id           String   @id @default(cuid())
+  url          String
+  displayOrder Int      @default(0)
+  featured     Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  @@index([displayOrder])
+  @@index([featured])
+}
+
+model CustomerProfile {
+  clerkUserId         String   @id
+  email               String
+  welcomeDiscountUsed Boolean  @default(false)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([email])
+}
+
+model PromoCode {
+  id               String    @id @default(cuid())
+  code             String    @unique
+  type             PromoType
+  /// PERCENT: 0–100 whole order; FIXED: USD off order subtotal
+  value            Decimal     @db.Decimal(10, 2)
+  active           Boolean     @default(true)
+  expiresAt        DateTime?
+  maxRedemptions   Int?
+  perCustomerLimit Int?
+  minSubtotal      Decimal?    @db.Decimal(10, 2)
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+  orders           Order[]
+}
+
+model Order {
+  id                     String          @id @default(cuid())
+  status                 OrderStatus     @default(PENDING)
+  subtotal               Decimal         @db.Decimal(10, 2)
+  discountTotal          Decimal         @default(0) @db.Decimal(10, 2)
+  total                  Decimal         @db.Decimal(10, 2)
+  email                  String?
+  stripeSessionId        String?         @unique
+  stripePaymentIntentId  String?         @unique
+  clerkUserId            String?
+  supplierOrderReference String?
+  supplierOrderedAt      DateTime?
+  supplierShippedAt      DateTime?
+  deliveredAt            DateTime?
+  shippingCarrier        String?
+  trackingNumber         String?
+  fulfillmentNotes       String?         @db.Text
+  welcomeDiscountApplied Boolean         @default(false)
+  promoCodeId            String?
+  promo                  PromoCode?      @relation(fields: [promoCodeId], references: [id], onDelete: SetNull)
+  lineItems              OrderLineItem[]
+  createdAt              DateTime        @default(now())
+  updatedAt              DateTime        @updatedAt
+
+  @@index([status])
+  @@index([createdAt])
+  @@index([clerkUserId])
+}
+
+model OrderLineItem {
+  id        String  @id @default(cuid())
+  orderId   String
+  order     Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+  size      String
+  quantity  Int
+  unitPrice Decimal @db.Decimal(10, 2)
+  name      String
+  brand     String
+
+  @@index([orderId])
+  @@index([productId])
+}
+
+model Submission {
+  id           String           @id @default(cuid())
+  name         String
+  email        String
+  phone        String?
+  itemName     String
+  brand        String
+  description  String           @db.Text
+  askingPrice  Decimal?         @db.Decimal(10, 2)
+  condition    String
+  imageUrls    String[]
+  status       SubmissionStatus @default(PENDING)
+  adminNotes   String?          @db.Text
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  @@index([status])
+}
+
+enum PromoType {
+  PERCENT
+  FIXED
+}
+
+enum SubmissionStatus {
+  PENDING
+  REVIEWING
+  ACCEPTED_BUY
+  ACCEPTED_CONSIGN
+  DECLINED
+}
+
+enum ProductStatus {
+  DRAFT
+  ACTIVE
+  SOLD
+  ARCHIVED
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  SUPPLIER_ORDERED
+  SUPPLIER_SHIPPED
+  DELIVERED
+  CANCELLED
+}
