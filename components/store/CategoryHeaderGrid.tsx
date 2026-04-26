@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 
 type CategoryTile = {
   label: string;
@@ -10,38 +11,32 @@ const CATEGORY_TILES: CategoryTile[] = [
   {
     label: "Carpets",
     href: "/shop?category=Carpets",
-    imageUrl:
-      "https://images.unsplash.com/photo-1575414003591-ece8d0416c7a?auto=format&fit=crop&w=1600&q=80",
+    imageUrl: "/objectsbyhype_images/037b23a4a8083da4f4ef166c8e2cace1.jpg",
   },
   {
     label: "Cushions",
     href: "/shop?category=Cushions",
-    imageUrl:
-      "https://images.unsplash.com/photo-1484101403633-562f891dc89a?auto=format&fit=crop&w=1600&q=80",
+    imageUrl: "/objectsbyhype_images/c5b15ffe2698740b1e6a3cbdba7bc074.jpg",
   },
   {
     label: "Lamps",
     href: "/shop?category=Lamps",
-    imageUrl:
-      "https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?auto=format&fit=crop&w=1600&q=80",
+    imageUrl: "/objectsbyhype_images/98ad6a19f0eb4bc102adf96ededd9072.jpg",
   },
   {
     label: "Chairs",
     href: "/shop?category=Chairs",
-    imageUrl:
-      "https://images.unsplash.com/photo-1567538096630-e0c55bd6374c?auto=format&fit=crop&w=1600&q=80",
+    imageUrl: "/objectsbyhype_images/3b713453ec591d795b66f2d3e75e1bf2.jpg",
   },
   {
     label: "Tables",
     href: "/shop?category=Tables",
-    imageUrl:
-      "https://images.unsplash.com/photo-1538688423619-a81d3f23454b?auto=format&fit=crop&w=1600&q=80",
+    imageUrl: "/objectsbyhype_images/7fcaf64bd28f2c7623a97e8e34144992.jpg",
   },
   {
     label: "Decor",
     href: "/shop?category=Decor",
-    imageUrl:
-      "https://images.unsplash.com/photo-1513519245088-0e12902e5a38?auto=format&fit=crop&w=1600&q=80",
+    imageUrl: "/objectsbyhype_images/e609a34b5a107b660f1deb08b07865a9.jpg",
   },
 ];
 
@@ -73,10 +68,12 @@ export default function CategoryHeaderGrid() {
               href={tile.href}
               className="group relative h-[220px] md:h-[260px] overflow-hidden border border-neutral-200"
             >
-              <img
+              <Image
                 src={tile.imageUrl}
                 alt={tile.label}
-                className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+                fill
+                sizes="(max-width: 768px) 100vw, (max-width: 1280px) 50vw, 33vw"
+                className="object-cover transition-transform duration-500 group-hover:scale-105"
               />
               <div className="absolute inset-0 bg-black/35 transition-colors group-hover:bg-black/45" />
               <div className="absolute inset-0 p-5 flex items-end">

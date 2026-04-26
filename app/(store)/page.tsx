@@ -5,6 +5,7 @@ import ProductGrid from "@/components/store/ProductGrid";
 import Reviews from "@/components/store/Reviews";
 import StoreFaq from "@/components/store/StoreFaq";
 import CategoryHeaderGrid from "@/components/store/CategoryHeaderGrid";
+import HomeEditorialGallery from "@/components/store/HomeEditorialGallery";
 import type { Product } from "@/types";
 import { toStoreProduct } from "@/lib/map-product";
 
@@ -44,6 +45,7 @@ export default async function HomePage() {
   return (
     <div>
       <CategoryHeaderGrid />
+      <HomeEditorialGallery />
 
       {featured.length > 0 && (
         <section>
