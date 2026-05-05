@@ -1,10 +1,6 @@
 /**
- * Seed script: inserts initial Objectsbyhype furniture products.
+ * Seed script: creates/updates initial Objectsbyhype furniture products.
  * Run with: npm run seed
- *
- * Images are served from /public/products/ as static files.
- * When you set up Vercel Blob later, re-upload the images via the admin panel
- * and update the URLs to Blob URLs.
  */
 
 import { PrismaClient } from "@prisma/client";
@@ -38,7 +34,10 @@ const products = [
     category: "Chairs",
     status: "ACTIVE" as const,
     sizes: ["One Size"],
-    images: [{ url: "/products/valepink.jpg", displayOrder: 0 }],
+    images: [
+      { url: "/objectsbyhype_images/3b713453ec591d795b66f2d3e75e1bf2.jpg", displayOrder: 0 },
+      { url: "/objectsbyhype_images/111d8e13c2a0849202a060351e11a234.webp", displayOrder: 1 },
+    ],
   },
   {
     slug: "nova-arched-floor-lamp-brushed-chrome",
@@ -51,8 +50,8 @@ const products = [
     status: "ACTIVE" as const,
     sizes: ["Floor"],
     images: [
-      { url: "/products/valedreams.jpg", displayOrder: 0 },
-      { url: "/products/valedreamsback.jpg", displayOrder: 1 },
+      { url: "/objectsbyhype_images/98ad6a19f0eb4bc102adf96ededd9072.jpg", displayOrder: 0 },
+      { url: "/objectsbyhype_images/d9e9530052e73a8a617ee58b47056869.jpg", displayOrder: 1 },
     ],
   },
   {
@@ -66,8 +65,8 @@ const products = [
     status: "ACTIVE" as const,
     sizes: ["Large"],
     images: [
-      { url: "/products/valesun.jpg", displayOrder: 0 },
-      { url: "/products/valesunback.jpg", displayOrder: 1 },
+      { url: "/objectsbyhype_images/037b23a4a8083da4f4ef166c8e2cace1.jpg", displayOrder: 0 },
+      { url: "/objectsbyhype_images/7fcaf64bd28f2c7623a97e8e34144992.jpg", displayOrder: 1 },
     ],
   },
 ];
@@ -76,37 +75,60 @@ async function main() {
   console.log("Seeding database...\n");
 
   for (const product of products) {
-    const existing = await prisma.product.findUnique({
-      where: { slug: product.slug },
-    });
-
-    if (existing) {
-      console.log(`  ⚠  Skipped (already exists): ${product.name}`);
-      continue;
-    }
-
-    const created = await prisma.product.create({
-      data: {
-        slug: product.slug,
-        name: product.name,
-        brand: product.brand,
-        description: product.description,
-        price: product.price,
-        category: product.category,
-        status: product.status,
-        sizes: product.sizes,
-        quantity: product.sizes.length,
-        images: { create: product.images },
-        sizeStocks: {
-          create: product.sizes.map((size) => ({
-            size,
-            quantity: 1,
-          })),
+    const upserted = await prisma.$transaction(async (tx) => {
+      const saved = await tx.product.upsert({
+        where: { slug: product.slug },
+        update: {
+          name: product.name,
+          brand: product.brand,
+          description: product.description,
+          price: product.price,
+          category: product.category,
+          status: product.status,
+          sizes: product.sizes,
+          quantity: product.sizes.length,
         },
-      },
+        create: {
+          slug: product.slug,
+          name: product.name,
+          brand: product.brand,
+          description: product.description,
+          price: product.price,
+          category: product.category,
+          status: product.status,
+          sizes: product.sizes,
+          quantity: product.sizes.length,
+        },
+      });
+
+      await tx.productImage.deleteMany({
+        where: { productId: saved.id },
+      });
+
+      await tx.productImage.createMany({
+        data: product.images.map((img) => ({
+          productId: saved.id,
+          url: img.url,
+          displayOrder: img.displayOrder,
+        })),
+      });
+
+      await tx.productSizeStock.deleteMany({
+        where: { productId: saved.id },
+      });
+
+      await tx.productSizeStock.createMany({
+        data: product.sizes.map((size) => ({
+          productId: saved.id,
+          size,
+          quantity: 1,
+        })),
+      });
+
+      return saved;
     });
 
-    console.log(`  ✓  Created: ${created.name}`);
+    console.log(`  ✓  Upserted: ${upserted.name}`);
   }
 
   await prisma.$disconnect();
