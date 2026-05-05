@@ -6,14 +6,54 @@ interface ProductCardProps {
   product: Product;
   /** Smaller type + image hints for narrow grids (e.g. “You may also like”). */
   compact?: boolean;
+  /** Dense grid: square image, product name only (Yeezy-style homepage). */
+  minimal?: boolean;
 }
 
-export default function ProductCard({ product, compact }: ProductCardProps) {
+export default function ProductCard({
+  product,
+  compact,
+  minimal,
+}: ProductCardProps) {
   const sorted = [...product.images].sort(
     (a, b) => a.displayOrder - b.displayOrder
   );
   const primaryImage = sorted[0];
   const secondaryImage = sorted[1];
+
+  if (minimal) {
+    return (
+      <Link
+        href={`/product/${product.slug}`}
+        className="group block h-full flex flex-col min-w-0"
+      >
+        <div className="relative aspect-square bg-white overflow-hidden">
+          {primaryImage ? (
+            <Image
+              src={primaryImage.url}
+              alt={product.name}
+              fill
+              className="object-contain"
+              sizes="(max-width: 640px) 50vw, (max-width: 1280px) 25vw, 16vw"
+              quality={88}
+            />
+          ) : (
+            <div className="w-full h-full bg-neutral-50" aria-hidden />
+          )}
+          {product.status === "SOLD" && (
+            <div className="absolute inset-0 bg-white/70 flex items-center justify-center">
+              <span className="text-[9px] uppercase tracking-widest font-medium">
+                Sold Out
+              </span>
+            </div>
+          )}
+        </div>
+        <p className="text-center font-mono text-[9px] sm:text-[10px] uppercase tracking-[0.08em] text-black py-2.5 sm:py-3 px-1 leading-snug border-t border-neutral-100">
+          {product.name}
+        </p>
+      </Link>
+    );
+  }
 
   return (
     <Link href={`/product/${product.slug}`} className="group block">
