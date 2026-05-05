@@ -48,7 +48,7 @@ export default function ProductCard({
             </div>
           )}
         </div>
-        <p className="text-center font-mono text-[9px] sm:text-[10px] uppercase tracking-[0.08em] text-black py-2.5 sm:py-3 px-1 leading-snug border-t border-neutral-100">
+        <p className="text-center font-mono text-[9px] sm:text-[10px] uppercase tracking-[0.08em] text-black pt-2.5 sm:pt-3 px-1 leading-snug">
           {product.name}
         </p>
       </Link>

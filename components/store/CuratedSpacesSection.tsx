@@ -51,6 +51,7 @@ export default function CuratedSpacesSection() {
                 fill
                 sizes="(max-width: 768px) 50vw, 25vw"
                 className="object-cover"
+                unoptimized
               />
             </button>
           ))}
@@ -85,6 +86,7 @@ export default function CuratedSpacesSection() {
               className="object-contain"
               sizes="100vw"
               priority
+              unoptimized
             />
           </div>
         </div>
