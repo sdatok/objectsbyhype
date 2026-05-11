@@ -2,7 +2,8 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import ProductDetail from "@/components/store/ProductDetail";
 import RelatedProductsStrip from "@/components/store/RelatedProductsStrip";
-import type { Product } from "@/types";
+import type { Product, ProductStatus } from "@/types";
+import { STORE_VISIBLE_STATUSES } from "@/types";
 import type { Metadata } from "next";
 import { toStoreProduct } from "@/lib/map-product";
 
@@ -33,19 +34,27 @@ async function getRelated(
 ): Promise<Product[]> {
   try {
     const products = await prisma.product.findMany({
-      where: { status: "ACTIVE", category, id: { not: excludeId } },
+      where: {
+        status: { in: STORE_VISIBLE_STATUSES },
+        category,
+        id: { not: excludeId },
+      },
       include: {
         images: { orderBy: { displayOrder: "asc" } },
         sizeStocks: true,
       },
       take: 4,
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ status: "asc" }, { createdAt: "desc" }],
     });
     return products.map((p) => toStoreProduct(p));
   } catch (err) {
     console.error("[getRelated]", err);
     return [];
   }
+}
+
+function isPubliclyVisible(status: ProductStatus): boolean {
+  return STORE_VISIBLE_STATUSES.includes(status);
 }
 
 export async function generateMetadata({
@@ -67,6 +76,8 @@ export default async function ProductPage({ params }: ProductPageProps) {
   const { slug } = await params;
   const product = await getProduct(slug);
   if (!product) notFound();
+  // DRAFT / ARCHIVED products should not be reachable by direct URL.
+  if (!isPubliclyVisible(product.status)) notFound();
 
   const related = await getRelated(product.category, product.id);
 

@@ -1,12 +1,13 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { brandsForShowcase } from "@/lib/brands";
+import { STORE_VISIBLE_STATUSES } from "@/types";
 
 export default async function BrandShowcase() {
   let inventoryBrands: string[] = [];
   try {
     const rows = await prisma.product.findMany({
-      where: { status: "ACTIVE" },
+      where: { status: { in: STORE_VISIBLE_STATUSES } },
       select: { brand: true },
       distinct: ["brand"],
     });

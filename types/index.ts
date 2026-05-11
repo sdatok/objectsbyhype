@@ -1,4 +1,11 @@
 export type ProductStatus = "DRAFT" | "ACTIVE" | "SOLD" | "ARCHIVED";
+
+/**
+ * Statuses that should appear on storefront product lists.
+ * SOLD items remain visible (with a Sold Out indicator) so buyers see
+ * historical inventory and that products move; DRAFT/ARCHIVED are hidden.
+ */
+export const STORE_VISIBLE_STATUSES: ProductStatus[] = ["ACTIVE", "SOLD"];
 export type OrderStatus =
   | "PENDING"
   | "PAID"

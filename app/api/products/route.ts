@@ -7,18 +7,19 @@ import {
   syncProductAggregateQuantity,
   type SizeQuantityMap,
 } from "@/lib/size-stock";
+import { STORE_VISIBLE_STATUSES } from "@/types";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
     const products = await prisma.product.findMany({
-      where: { status: "ACTIVE" },
+      where: { status: { in: STORE_VISIBLE_STATUSES } },
       include: {
         images: { orderBy: { displayOrder: "asc" } },
         sizeStocks: true,
       },
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ status: "asc" }, { createdAt: "desc" }],
     });
     return NextResponse.json(products);
   } catch (err) {

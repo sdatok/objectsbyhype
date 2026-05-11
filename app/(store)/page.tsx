@@ -7,17 +7,19 @@ import HomeCatalogClient from "@/components/store/HomeCatalogClient";
 import HomeHero from "@/components/store/HomeHero";
 import BrandShowcase from "@/components/store/BrandShowcase";
 import type { Product } from "@/types";
+import { STORE_VISIBLE_STATUSES } from "@/types";
 import { toStoreProduct } from "@/lib/map-product";
 
 async function getHomeProducts(): Promise<Product[]> {
   try {
     const products = await prisma.product.findMany({
-      where: { status: "ACTIVE" },
+      where: { status: { in: STORE_VISIBLE_STATUSES } },
       include: {
         images: { orderBy: { displayOrder: "asc" } },
         sizeStocks: true,
       },
-      orderBy: { createdAt: "desc" },
+      // ACTIVE < SOLD alphabetically — keep in-stock items first, then newest within each bucket.
+      orderBy: [{ status: "asc" }, { createdAt: "desc" }],
     });
 
     return products.map((p) => toStoreProduct(p));

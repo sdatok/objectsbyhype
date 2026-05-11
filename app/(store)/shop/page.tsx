@@ -2,7 +2,7 @@ import { prisma } from "@/lib/db";
 import ProductGrid from "@/components/store/ProductGrid";
 import ShopFilters from "@/components/store/ShopFilters";
 import type { Product } from "@/types";
-import { CATEGORIES } from "@/types";
+import { CATEGORIES, STORE_VISIBLE_STATUSES } from "@/types";
 import { toStoreProduct } from "@/lib/map-product";
 
 interface ShopPageProps {
@@ -19,7 +19,9 @@ async function getProducts(filters: {
   sort?: string;
 }): Promise<{ products: Product[]; brands: string[] }> {
   try {
-    const where: Record<string, unknown> = { status: "ACTIVE" };
+    const where: Record<string, unknown> = {
+      status: { in: STORE_VISIBLE_STATUSES },
+    };
 
     if (filters.category && filters.category !== "All") {
       where.category = filters.category;
@@ -28,10 +30,13 @@ async function getProducts(filters: {
       where.brand = { contains: filters.brand, mode: "insensitive" };
     }
 
-    let orderBy: Record<string, string> = { createdAt: "desc" };
-    if (filters.sort === "price-asc") orderBy = { price: "asc" };
-    if (filters.sort === "price-desc") orderBy = { price: "desc" };
-    if (filters.sort === "name") orderBy = { name: "asc" };
+    let sortBy: Record<string, string> = { createdAt: "desc" };
+    if (filters.sort === "price-asc") sortBy = { price: "asc" };
+    if (filters.sort === "price-desc") sortBy = { price: "desc" };
+    if (filters.sort === "name") sortBy = { name: "asc" };
+
+    // Always keep available products ahead of SOLD ones (ACTIVE < SOLD alphabetically).
+    const orderBy = [{ status: "asc" as const }, sortBy];
 
     const [products, allBrands] = await Promise.all([
       prisma.product.findMany({
@@ -43,7 +48,7 @@ async function getProducts(filters: {
         orderBy,
       }),
       prisma.product.findMany({
-        where: { status: "ACTIVE" },
+        where: { status: { in: STORE_VISIBLE_STATUSES } },
         select: { brand: true },
         distinct: ["brand"],
         orderBy: { brand: "asc" },
