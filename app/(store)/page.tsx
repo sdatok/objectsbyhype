@@ -6,7 +6,6 @@ import CuratedSpacesSection from "@/components/store/CuratedSpacesSection";
 import HomeCatalogClient from "@/components/store/HomeCatalogClient";
 import HomeHero from "@/components/store/HomeHero";
 import BrandShowcase from "@/components/store/BrandShowcase";
-import { CURATED_SPACE_ITEMS } from "@/lib/curated-spaces";
 import type { Product } from "@/types";
 import { toStoreProduct } from "@/lib/map-product";
 
@@ -28,23 +27,17 @@ async function getHomeProducts(): Promise<Product[]> {
   }
 }
 
-function pickHero() {
-  const idx = Math.floor(Math.random() * CURATED_SPACE_ITEMS.length);
-  return CURATED_SPACE_ITEMS[idx];
-}
-
 export default async function HomePage() {
   unstable_noStore();
   const products = await getHomeProducts();
-  const hero = pickHero();
 
   return (
     <div className="bg-white">
-      <HomeHero src={hero.src} alt={hero.alt} />
+      <HomeHero />
 
       <HomeCatalogClient products={products} />
 
-      <CuratedSpacesSection excludeSrc={hero.src} />
+      <CuratedSpacesSection />
 
       <BrandShowcase />
 
