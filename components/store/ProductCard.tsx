@@ -42,7 +42,6 @@ function ColorDots({
             href={href}
             aria-label={`View ${product.name} in ${v.colorName}`}
             title={v.colorName}
-            onClick={(e) => e.stopPropagation()}
             className="inline-block leading-none transition-transform duration-150 hover:scale-110"
           >
             {v.colorHex ? (
