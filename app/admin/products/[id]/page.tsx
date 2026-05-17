@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import ProductForm from "@/components/admin/ProductForm";
 import type { Product } from "@/types";
-import { toStoreProduct } from "@/lib/map-product";
+import { toStoreProduct, PRODUCT_INCLUDE } from "@/lib/map-product";
 
 export const dynamic = "force-dynamic";
 
@@ -15,10 +15,7 @@ async function getProduct(id: string): Promise<Product | null> {
   try {
     const product = await prisma.product.findUnique({
       where: { id },
-      include: {
-        images: { orderBy: { displayOrder: "asc" } },
-        sizeStocks: true,
-      },
+      include: PRODUCT_INCLUDE,
     });
     if (!product) return null;
     return toStoreProduct(product);

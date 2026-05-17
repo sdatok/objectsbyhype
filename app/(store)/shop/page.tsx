@@ -3,7 +3,7 @@ import ProductGrid from "@/components/store/ProductGrid";
 import ShopFilters from "@/components/store/ShopFilters";
 import type { Product } from "@/types";
 import { CATEGORIES, STORE_VISIBLE_STATUSES } from "@/types";
-import { toStoreProduct } from "@/lib/map-product";
+import { toStoreProduct, PRODUCT_INCLUDE } from "@/lib/map-product";
 
 interface ShopPageProps {
   searchParams: Promise<{
@@ -41,10 +41,7 @@ async function getProducts(filters: {
     const [products, allBrands] = await Promise.all([
       prisma.product.findMany({
         where,
-        include: {
-          images: { orderBy: { displayOrder: "asc" } },
-          sizeStocks: true,
-        },
+        include: PRODUCT_INCLUDE,
         orderBy,
       }),
       prisma.product.findMany({

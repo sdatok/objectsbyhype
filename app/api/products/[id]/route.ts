@@ -7,6 +7,8 @@ import {
   syncProductAggregateQuantity,
   type SizeQuantityMap,
 } from "@/lib/size-stock";
+import { replaceProductVariants, type VariantInput } from "@/lib/variants";
+import { PRODUCT_INCLUDE } from "@/lib/map-product";
 
 export const dynamic = "force-dynamic";
 
@@ -19,10 +21,7 @@ export async function GET(_req: Request, { params }: RouteParams) {
   try {
     const product = await prisma.product.findUnique({
       where: { id },
-      include: {
-        images: { orderBy: { displayOrder: "asc" } },
-        sizeStocks: true,
-      },
+      include: PRODUCT_INCLUDE,
     });
     if (!product) return NextResponse.json({ error: "Not found" }, { status: 404 });
     return NextResponse.json(product);
@@ -56,6 +55,9 @@ export async function PUT(request: Request, { params }: RouteParams) {
 
     const sizeList: string[] = sizes ?? [];
     const stockMap: SizeQuantityMap = sizeStocks ?? {};
+    const variants: VariantInput[] = Array.isArray(body.variants)
+      ? body.variants
+      : [];
 
     const product = await prisma.$transaction(async (tx) => {
       await tx.productImage.deleteMany({ where: { productId: id } });
@@ -86,6 +88,7 @@ export async function PUT(request: Request, { params }: RouteParams) {
         include: { images: true },
       });
       await replaceProductSizeStocks(tx, id, sizeList, stockMap);
+      await replaceProductVariants(tx, id, variants);
       return p;
     });
 
@@ -93,7 +96,7 @@ export async function PUT(request: Request, { params }: RouteParams) {
 
     const full = await prisma.product.findUnique({
       where: { id },
-      include: { images: true, sizeStocks: true },
+      include: PRODUCT_INCLUDE,
     });
 
     revalidateProductPages(product.slug);

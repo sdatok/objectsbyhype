@@ -35,11 +35,17 @@ export async function syncProductAggregateQuantity(
   prisma: PrismaClient,
   productId: string
 ) {
-  const agg = await prisma.productSizeStock.aggregate({
-    where: { productId },
-    _sum: { quantity: true },
-  });
-  const sum = agg._sum.quantity ?? 0;
+  const [agg, variantAgg] = await Promise.all([
+    prisma.productSizeStock.aggregate({
+      where: { productId },
+      _sum: { quantity: true },
+    }),
+    prisma.productVariantSizeStock.aggregate({
+      where: { variant: { productId } },
+      _sum: { quantity: true },
+    }),
+  ]);
+  const sum = (agg._sum.quantity ?? 0) + (variantAgg._sum.quantity ?? 0);
   await prisma.product.update({
     where: { id: productId },
     data: { quantity: sum },

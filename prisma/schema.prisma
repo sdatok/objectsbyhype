@@ -19,17 +19,63 @@ model Product {
   status      ProductStatus      @default(DRAFT)
   sizes       String[]
   sizePricing Json?
-  /// Legacy aggregate; sum of sizeStocks is authoritative for inventory
+  /// Legacy aggregate; sum of sizeStocks + variant stocks is authoritative for inventory
   quantity    Int                @default(0)
   consignment Boolean            @default(false)
   images      ProductImage[]
   sizeStocks  ProductSizeStock[]
+  variants    ProductVariant[]
   lineItems   OrderLineItem[]
   createdAt   DateTime           @default(now())
   updatedAt   DateTime           @updatedAt
 
   @@index([status])
   @@index([category])
+}
+
+/// Optional color variants of a product. A product with zero variants behaves
+/// exactly as before (uses Product.images, Product.sizeStocks, Product.price).
+/// A product with one or more variants supersedes those for display: PDP shows
+/// a swatch row and the selected variant's images/sizes/stock/price.
+model ProductVariant {
+  id           String                    @id @default(cuid())
+  productId    String
+  product      Product                   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  colorName    String
+  /// Hex color (e.g. "#ECE5D4") used for the storefront swatch. Optional — falls back to a labeled chip.
+  colorHex     String?
+  /// Optional price override; null = use product.price
+  price        Decimal?                  @db.Decimal(10, 2)
+  displayOrder Int                       @default(0)
+  images       ProductVariantImage[]
+  sizeStocks   ProductVariantSizeStock[]
+  lineItems    OrderLineItem[]
+  createdAt    DateTime                  @default(now())
+  updatedAt    DateTime                  @updatedAt
+
+  @@unique([productId, colorName])
+  @@index([productId])
+}
+
+model ProductVariantImage {
+  id           String         @id @default(cuid())
+  variantId    String
+  variant      ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  url          String
+  displayOrder Int            @default(0)
+
+  @@index([variantId])
+}
+
+model ProductVariantSizeStock {
+  id        String         @id @default(cuid())
+  variantId String
+  variant   ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  size      String
+  quantity  Int            @default(0)
+
+  @@unique([variantId, size])
+  @@index([variantId])
 }
 
 model ProductSizeStock {
@@ -120,19 +166,25 @@ model Order {
 }
 
 model OrderLineItem {
-  id        String  @id @default(cuid())
-  orderId   String
-  order     Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  productId String
-  product   Product @relation(fields: [productId], references: [id], onDelete: Restrict)
-  size      String
-  quantity  Int
-  unitPrice Decimal @db.Decimal(10, 2)
-  name      String
-  brand     String
+  id           String          @id @default(cuid())
+  orderId      String
+  order        Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId    String
+  product      Product         @relation(fields: [productId], references: [id], onDelete: Restrict)
+  /// Color variant (null when the product has no variants)
+  variantId    String?
+  variant      ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+  /// Snapshot of the color name at purchase time (preserved even if variant is deleted)
+  variantLabel String?
+  size         String
+  quantity     Int
+  unitPrice    Decimal         @db.Decimal(10, 2)
+  name         String
+  brand        String
 
   @@index([orderId])
   @@index([productId])
+  @@index([variantId])
 }
 
 model Submission {

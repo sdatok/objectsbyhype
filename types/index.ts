@@ -20,6 +20,25 @@ export interface ProductImage {
   displayOrder: number;
 }
 
+/**
+ * Optional color variant of a product. A product can have zero variants
+ * (then product-level images/sizes/price are used) or many.
+ */
+export interface ProductVariant {
+  id: string;
+  colorName: string;
+  /** Hex string like "#ECE5D4" for the swatch; null = fall back to labeled chip */
+  colorHex: string | null;
+  /** Optional price override. null = inherit Product.price */
+  price: number | null;
+  displayOrder: number;
+  images: ProductImage[];
+  /** Sizes offered for this color */
+  sizes: string[];
+  /** Per-size stock for this color */
+  sizeStocks: Record<string, number>;
+}
+
 export interface Product {
   id: string;
   slug: string;
@@ -33,11 +52,13 @@ export interface Product {
   sizePricing: Record<string, number> | null;
   /** Sum of per-size stock (legacy field; use sizeStocks for UI) */
   quantity: number;
-  /** Quantity available per size label */
+  /** Quantity available per size label (used when variants is empty) */
   sizeStocks: Record<string, number>;
   /** Curated resale: shown on PDP with condition copy when true */
   consignment: boolean;
   images: ProductImage[];
+  /** Color variants. Empty array = single-color product (use product-level fields). */
+  variants: ProductVariant[];
   createdAt: string;
   updatedAt: string;
 }
@@ -51,6 +72,10 @@ export interface CartItem {
   size: string;
   imageUrl: string;
   quantity: number;
+  /** Color variant chosen; null for products without variants */
+  variantId?: string | null;
+  /** Snapshot of the color name for display in cart/email/receipts */
+  variantLabel?: string | null;
 }
 
 export const CATEGORIES = [

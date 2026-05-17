@@ -5,20 +5,18 @@ import RelatedProductsStrip from "@/components/store/RelatedProductsStrip";
 import type { Product, ProductStatus } from "@/types";
 import { STORE_VISIBLE_STATUSES } from "@/types";
 import type { Metadata } from "next";
-import { toStoreProduct } from "@/lib/map-product";
+import { toStoreProduct, PRODUCT_INCLUDE } from "@/lib/map-product";
 
 interface ProductPageProps {
   params: Promise<{ slug: string }>;
+  searchParams: Promise<{ color?: string }>;
 }
 
 async function getProduct(slug: string): Promise<Product | null> {
   try {
     const product = await prisma.product.findUnique({
       where: { slug },
-      include: {
-        images: { orderBy: { displayOrder: "asc" } },
-        sizeStocks: true,
-      },
+      include: PRODUCT_INCLUDE,
     });
     if (!product) return null;
     return toStoreProduct(product);
@@ -39,10 +37,7 @@ async function getRelated(
         category,
         id: { not: excludeId },
       },
-      include: {
-        images: { orderBy: { displayOrder: "asc" } },
-        sizeStocks: true,
-      },
+      include: PRODUCT_INCLUDE,
       take: 4,
       orderBy: [{ status: "asc" }, { createdAt: "desc" }],
     });
@@ -72,8 +67,12 @@ export async function generateMetadata({
   };
 }
 
-export default async function ProductPage({ params }: ProductPageProps) {
+export default async function ProductPage({
+  params,
+  searchParams,
+}: ProductPageProps) {
   const { slug } = await params;
+  const { color } = await searchParams;
   const product = await getProduct(slug);
   if (!product) notFound();
   // DRAFT / ARCHIVED products should not be reachable by direct URL.
@@ -83,7 +82,7 @@ export default async function ProductPage({ params }: ProductPageProps) {
 
   return (
     <div>
-      <ProductDetail product={product} />
+      <ProductDetail product={product} initialColorName={color} />
 
       <RelatedProductsStrip products={related} />
     </div>

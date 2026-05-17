@@ -14,10 +14,28 @@ interface CartState {
   isOpen: boolean;
 }
 
+/**
+ * A cart line is unique by (productId, variantId, size). Two color variants
+ * of the same product in the same size are separate lines.
+ */
+interface LineKey {
+  productId: string;
+  variantId?: string | null;
+  size: string;
+}
+
+function sameLine(a: CartItem, b: LineKey): boolean {
+  return (
+    a.productId === b.productId &&
+    a.size === b.size &&
+    (a.variantId ?? null) === (b.variantId ?? null)
+  );
+}
+
 type CartAction =
   | { type: "ADD_ITEM"; payload: CartItem }
-  | { type: "REMOVE_ITEM"; payload: { productId: string; size: string } }
-  | { type: "UPDATE_QTY"; payload: { productId: string; size: string; quantity: number } }
+  | { type: "REMOVE_ITEM"; payload: LineKey }
+  | { type: "UPDATE_QTY"; payload: LineKey & { quantity: number } }
   | { type: "CLEAR" }
   | { type: "TOGGLE_CART" }
   | { type: "OPEN_CART" }
@@ -30,16 +48,12 @@ function cartReducer(state: CartState, action: CartAction): CartState {
       return { ...state, items: action.payload };
 
     case "ADD_ITEM": {
-      const existing = state.items.find(
-        (i) =>
-          i.productId === action.payload.productId &&
-          i.size === action.payload.size
-      );
+      const existing = state.items.find((i) => sameLine(i, action.payload));
       if (existing) {
         return {
           ...state,
           items: state.items.map((i) =>
-            i.productId === action.payload.productId && i.size === action.payload.size
+            sameLine(i, action.payload)
               ? { ...i, quantity: i.quantity + action.payload.quantity }
               : i
           ),
@@ -56,26 +70,20 @@ function cartReducer(state: CartState, action: CartAction): CartState {
     case "REMOVE_ITEM":
       return {
         ...state,
-        items: state.items.filter(
-          (i) =>
-            !(i.productId === action.payload.productId && i.size === action.payload.size)
-        ),
+        items: state.items.filter((i) => !sameLine(i, action.payload)),
       };
 
     case "UPDATE_QTY":
       if (action.payload.quantity <= 0) {
         return {
           ...state,
-          items: state.items.filter(
-            (i) =>
-              !(i.productId === action.payload.productId && i.size === action.payload.size)
-          ),
+          items: state.items.filter((i) => !sameLine(i, action.payload)),
         };
       }
       return {
         ...state,
         items: state.items.map((i) =>
-          i.productId === action.payload.productId && i.size === action.payload.size
+          sameLine(i, action.payload)
             ? { ...i, quantity: action.payload.quantity }
             : i
         ),
@@ -100,8 +108,8 @@ function cartReducer(state: CartState, action: CartAction): CartState {
 
 interface CartContextValue extends CartState {
   addItem: (item: CartItem) => void;
-  removeItem: (productId: string, size: string) => void;
-  updateQty: (productId: string, size: string, quantity: number) => void;
+  removeItem: (key: LineKey) => void;
+  updateQty: (key: LineKey, quantity: number) => void;
   clearCart: () => void;
   toggleCart: () => void;
   openCart: () => void;
@@ -146,10 +154,9 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       value={{
         ...state,
         addItem: (item) => dispatch({ type: "ADD_ITEM", payload: item }),
-        removeItem: (productId, size) =>
-          dispatch({ type: "REMOVE_ITEM", payload: { productId, size } }),
-        updateQty: (productId, size, quantity) =>
-          dispatch({ type: "UPDATE_QTY", payload: { productId, size, quantity } }),
+        removeItem: (key) => dispatch({ type: "REMOVE_ITEM", payload: key }),
+        updateQty: (key, quantity) =>
+          dispatch({ type: "UPDATE_QTY", payload: { ...key, quantity } }),
         clearCart: () => dispatch({ type: "CLEAR" }),
         toggleCart: () => dispatch({ type: "TOGGLE_CART" }),
         openCart: () => dispatch({ type: "OPEN_CART" }),

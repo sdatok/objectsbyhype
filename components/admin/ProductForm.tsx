@@ -8,6 +8,7 @@ import type { Product } from "@/types";
 import { KNOWN_BRANDS } from "@/lib/brands";
 import { ONE_SIZE } from "@/lib/size-stock";
 import ProductDescription from "@/components/store/ProductDescription";
+import VariantEditor, { type VariantDraft } from "./VariantEditor";
 
 const SIZE_PRESETS: Record<string, string[]> = {
   Furniture: ["Small", "Medium", "Large"],
@@ -60,6 +61,24 @@ export default function ProductForm({
 
   const [customSize, setCustomSize] = useState("");
   const [showPreview, setShowPreview] = useState(false);
+
+  const [variantDrafts, setVariantDrafts] = useState<VariantDraft[]>(
+    () =>
+      product?.variants?.map((v) => ({
+        id: v.id,
+        colorName: v.colorName,
+        colorHex: v.colorHex ?? "",
+        price: v.price != null ? String(v.price) : "",
+        images: v.images.map((img) => ({
+          url: img.url,
+          displayOrder: img.displayOrder,
+        })),
+        sizes: v.sizes,
+        sizeStocks: Object.fromEntries(
+          Object.entries(v.sizeStocks).map(([k, val]) => [k, String(val)])
+        ),
+      })) ?? []
+  );
 
   const [sizeQty, setSizeQty] = useState<Record<string, string>>(() => {
     if (product?.sizeStocks && Object.keys(product.sizeStocks).length > 0) {
@@ -170,17 +189,42 @@ export default function ProductForm({
         sizeStocks[s] = Math.max(0, parseInt(sizeQty[s] || "0", 10) || 0);
       }
     }
-    const sumStock = Object.values(sizeStocks).reduce((a, b) => a + b, 0);
+    const productLevelSum = Object.values(sizeStocks).reduce((a, b) => a + b, 0);
+
+    let variantStockTotal = 0;
+    const variantsPayload = variantDrafts
+      .filter((v) => v.colorName.trim().length > 0)
+      .map((v, idx) => {
+        const cleanedStocks: Record<string, number> = {};
+        for (const size of v.sizes) {
+          const q = Math.max(0, parseInt(v.sizeStocks[size] || "0", 10) || 0);
+          cleanedStocks[size] = q;
+          variantStockTotal += q;
+        }
+        return {
+          id: v.id ?? null,
+          colorName: v.colorName.trim(),
+          colorHex: v.colorHex.trim() || null,
+          price: v.price.trim() ? parseFloat(v.price) : null,
+          displayOrder: idx,
+          images: v.images,
+          sizes: v.sizes,
+          sizeStocks: cleanedStocks,
+        };
+      });
+
+    const totalQuantity = productLevelSum + variantStockTotal;
 
     const payload = {
       ...form,
       brand: brandInput.trim(),
       price: parseFloat(form.price),
-      quantity: sumStock,
+      quantity: totalQuantity,
       sizePricing:
         Object.keys(parsedSizePricing).length > 0 ? parsedSizePricing : null,
       sizeStocks,
       images,
+      variants: variantsPayload,
     };
 
     try {
@@ -543,6 +587,26 @@ export default function ProductForm({
             </div>
           </div>
         )}
+      </section>
+
+      {/* Color variants */}
+      <section className="bg-white border border-neutral-200 rounded p-6">
+        <div className="flex items-start justify-between mb-2">
+          <h2 className="text-[11px] uppercase tracking-widest font-bold">
+            Color Variants
+          </h2>
+        </div>
+        <p className="text-[11px] text-neutral-500 mb-4 leading-relaxed">
+          Add color options with their own images, sizes, stock, and optional
+          price override. When variants are present they replace the
+          default images and stock on the storefront. Leave empty for a
+          single-configuration product.
+        </p>
+        <VariantEditor
+          presetSizes={presetSizes}
+          initialVariants={variantDrafts}
+          onChange={setVariantDrafts}
+        />
       </section>
 
       {error && <p className="text-[12px] text-red-500">{error}</p>}

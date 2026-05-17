@@ -1,44 +1,115 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { useCart } from "@/context/CartContext";
-import type { Product } from "@/types";
+import type { Product, ProductVariant } from "@/types";
 import { ONE_SIZE } from "@/lib/size-stock";
 import ProductDescription from "./ProductDescription";
+import ColorSwatchRow from "./ColorSwatchRow";
 
 interface ProductDetailProps {
   product: Product;
+  /** Optional preselected color (case-insensitive match on colorName) */
+  initialColorName?: string;
 }
 
-export default function ProductDetail({ product }: ProductDetailProps) {
-  const sortedImages = [...product.images].sort(
-    (a, b) => a.displayOrder - b.displayOrder
-  );
+function findInitialVariant(
+  product: Product,
+  initialColorName?: string
+): ProductVariant | null {
+  if (product.variants.length === 0) return null;
+  if (initialColorName) {
+    const wanted = initialColorName.trim().toLowerCase();
+    const match = product.variants.find(
+      (v) => v.colorName.toLowerCase() === wanted
+    );
+    if (match) return match;
+  }
+  return product.variants[0];
+}
+
+export default function ProductDetail({
+  product,
+  initialColorName,
+}: ProductDetailProps) {
+  const hasVariants = product.variants.length > 0;
+
+  const [activeVariantId, setActiveVariantId] = useState<string | null>(() => {
+    const v = findInitialVariant(product, initialColorName);
+    return v?.id ?? null;
+  });
+
+  const activeVariant: ProductVariant | null = useMemo(() => {
+    if (!hasVariants) return null;
+    return (
+      product.variants.find((v) => v.id === activeVariantId) ??
+      product.variants[0] ??
+      null
+    );
+  }, [product.variants, activeVariantId, hasVariants]);
+
+  // Effective collections, driven by variant when present.
+  const effectiveImages = useMemo(() => {
+    const imgs = activeVariant?.images?.length
+      ? activeVariant.images
+      : product.images;
+    return [...imgs].sort((a, b) => a.displayOrder - b.displayOrder);
+  }, [activeVariant, product.images]);
+
+  const effectiveSizes = useMemo(() => {
+    if (activeVariant) return activeVariant.sizes;
+    return product.sizes;
+  }, [activeVariant, product.sizes]);
+
+  const catalogSizes =
+    effectiveSizes.length > 0 ? effectiveSizes : [ONE_SIZE];
+
+  function stockForSize(size: string): number {
+    if (activeVariant) return activeVariant.sizeStocks[size] ?? 0;
+    return product.sizeStocks[size] ?? 0;
+  }
+
+  const effectivePriceForSize = (size: string): number => {
+    if (activeVariant && activeVariant.price != null) {
+      return Number(activeVariant.price);
+    }
+    if (
+      product.sizePricing &&
+      size &&
+      product.sizePricing[size] != null
+    ) {
+      return Number(product.sizePricing[size]);
+    }
+    return Number(product.price);
+  };
 
   const [selectedImage, setSelectedImage] = useState(0);
   const [lightboxOpen, setLightboxOpen] = useState(false);
-  const catalogSizes =
-    product.sizes.length > 0 ? product.sizes : [ONE_SIZE];
   const [selectedSize, setSelectedSize] = useState<string>("");
   const [sizeError, setSizeError] = useState(false);
   const [added, setAdded] = useState(false);
   const { addItem } = useCart();
 
-  function stockForSize(size: string): number {
-    return product.sizeStocks[size] ?? 0;
-  }
+  // Reset selection state when the chosen variant changes.
+  useEffect(() => {
+    setSelectedImage(0);
+    setSelectedSize("");
+    setSizeError(false);
+  }, [activeVariantId]);
 
   useEffect(() => {
     if (!lightboxOpen) return;
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") setLightboxOpen(false);
-      if (e.key === "ArrowRight") setSelectedImage((i) => Math.min(i + 1, sortedImages.length - 1));
-      if (e.key === "ArrowLeft") setSelectedImage((i) => Math.max(i - 1, 0));
+      if (e.key === "ArrowRight")
+        setSelectedImage((i) => Math.min(i + 1, effectiveImages.length - 1));
+      if (e.key === "ArrowLeft")
+        setSelectedImage((i) => Math.max(i - 1, 0));
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [lightboxOpen, sortedImages.length]);
+  }, [lightboxOpen, effectiveImages.length]);
 
   useEffect(() => {
     if (!lightboxOpen) return;
@@ -50,43 +121,65 @@ export default function ProductDetail({ product }: ProductDetailProps) {
   }, [lightboxOpen]);
 
   function handleAddToCart() {
-    const size = product.sizes.length > 0 ? selectedSize : ONE_SIZE;
-    if (product.sizes.length > 0 && !selectedSize) {
+    const requiresSize = effectiveSizes.length > 0;
+    const size = requiresSize ? selectedSize : ONE_SIZE;
+    if (requiresSize && !selectedSize) {
       setSizeError(true);
       return;
     }
     setSizeError(false);
     if (stockForSize(size) < 1) return;
 
-    const effectivePrice =
-      product.sizePricing && size && product.sizePricing[size] != null
-        ? Number(product.sizePricing[size])
-        : product.price;
-
     addItem({
       productId: product.id,
       slug: product.slug,
       name: product.name,
       brand: product.brand,
-      price: effectivePrice,
+      price: effectivePriceForSize(size),
       size,
-      imageUrl: sortedImages[0]?.url ?? "",
+      imageUrl: effectiveImages[0]?.url ?? "",
       quantity: 1,
+      variantId: activeVariant?.id ?? null,
+      variantLabel: activeVariant?.colorName ?? null,
     });
     setAdded(true);
     setTimeout(() => setAdded(false), 2000);
   }
 
+  // Display price logic — handles variant override, per-size pricing, base price.
+  const displayPrice = (() => {
+    if (activeVariant && activeVariant.price != null) {
+      return `$${Number(activeVariant.price).toFixed(2)}`;
+    }
+    if (selectedSize) {
+      return `$${effectivePriceForSize(selectedSize).toFixed(2)}`;
+    }
+    if (
+      !activeVariant &&
+      product.sizePricing &&
+      Object.keys(product.sizePricing).length > 0
+    ) {
+      return `From $${Math.min(
+        ...Object.values(product.sizePricing).map(Number)
+      ).toFixed(2)}`;
+    }
+    return `$${Number(product.price).toFixed(2)}`;
+  })();
+
+  const addDisabled =
+    product.status === "SOLD" ||
+    (effectiveSizes.length > 0 &&
+      Boolean(selectedSize) &&
+      stockForSize(selectedSize) < 1) ||
+    (effectiveSizes.length === 0 && stockForSize(ONE_SIZE) < 1);
+
   return (
     <div className="max-w-[1400px] mx-auto px-4 py-8 md:py-12 pb-12 md:pb-16 bg-white">
-      {/* Desktop: fixed-ish two columns, centered; keeps buy box from stretching edge-to-edge */}
       <div className="grid grid-cols-1 md:grid-cols-[minmax(0,480px)_minmax(0,340px)] md:max-w-[960px] lg:max-w-[1000px] md:mx-auto gap-8 lg:gap-12 items-start">
-        {/* Images: wider slot + contain so wide shots aren’t cropped at the sides */}
         <div className="flex gap-3 w-full max-w-[min(100%,460px)] md:max-w-[480px] mx-auto md:mx-0">
-          {/* Thumbnails */}
-          {sortedImages.length > 1 && (
+          {effectiveImages.length > 1 && (
             <div className="flex flex-col gap-2 w-14 shrink-0">
-              {sortedImages.map((img, idx) => (
+              {effectiveImages.map((img, idx) => (
                 <button
                   key={img.id}
                   onClick={() => setSelectedImage(idx)}
@@ -108,14 +201,15 @@ export default function ProductDetail({ product }: ProductDetailProps) {
             </div>
           )}
 
-          {/* Main image */}
           <div
             className="relative flex-1 min-w-0 aspect-[3/4] max-h-[min(88vh,620px)] md:max-h-none bg-white cursor-zoom-in"
-            onClick={() => sortedImages[selectedImage] && setLightboxOpen(true)}
+            onClick={() =>
+              effectiveImages[selectedImage] && setLightboxOpen(true)
+            }
           >
-            {sortedImages[selectedImage] ? (
+            {effectiveImages[selectedImage] ? (
               <Image
-                src={sortedImages[selectedImage].url}
+                src={effectiveImages[selectedImage].url}
                 alt={product.name}
                 fill
                 className="object-contain"
@@ -141,7 +235,6 @@ export default function ProductDetail({ product }: ProductDetailProps) {
           </div>
         </div>
 
-        {/* Product info: narrow column on desktop so CTA isn’t ultra-wide */}
         <div className="flex flex-col w-full max-w-[400px] md:max-w-none mx-auto md:mx-0">
           <p className="text-[11px] uppercase tracking-widest text-neutral-400">
             {product.brand}
@@ -163,20 +256,30 @@ export default function ProductDetail({ product }: ProductDetailProps) {
           >
             {product.name}
           </h1>
-          <p className="text-[18px] font-medium mt-3">
-            {product.sizePricing && Object.keys(product.sizePricing).length > 0 ? (
-              selectedSize && product.sizePricing[selectedSize] != null ? (
-                `$${Number(product.sizePricing[selectedSize]).toFixed(2)}`
-              ) : (
-                `From $${Math.min(...Object.values(product.sizePricing).map(Number)).toFixed(2)}`
-              )
-            ) : (
-              `$${Number(product.price).toFixed(2)}`
-            )}
-          </p>
+          <p className="text-[18px] font-medium mt-3">{displayPrice}</p>
 
-          {/* Sizes (hidden UI when single OS / no size list) */}
-          {product.sizes.length > 0 && (
+          {/* Color variants */}
+          {hasVariants && (
+            <div className="mt-8">
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-[11px] uppercase tracking-widest font-medium">
+                  Color
+                </p>
+                {activeVariant && (
+                  <p className="text-[11px] text-neutral-500">
+                    {activeVariant.colorName}
+                  </p>
+                )}
+              </div>
+              <ColorSwatchRow
+                variants={product.variants}
+                activeId={activeVariant?.id ?? null}
+                onSelect={(id) => setActiveVariantId(id)}
+              />
+            </div>
+          )}
+
+          {effectiveSizes.length > 0 && (
             <div className="mt-8">
               <div className="flex items-center justify-between mb-3">
                 <p className="text-[11px] uppercase tracking-widest font-medium">
@@ -222,40 +325,24 @@ export default function ProductDetail({ product }: ProductDetailProps) {
             </div>
           )}
 
-          {/* Add to cart */}
           <button
             onClick={handleAddToCart}
-            disabled={
-              product.status === "SOLD" ||
-              (product.sizes.length > 0 &&
-                selectedSize &&
-                stockForSize(selectedSize) < 1) ||
-              (product.sizes.length === 0 && stockForSize(ONE_SIZE) < 1)
-            }
+            disabled={addDisabled}
             className={`mt-6 w-full py-4 text-[11px] uppercase tracking-widest font-medium transition-colors ${
-              product.status === "SOLD" ||
-              (product.sizes.length > 0 &&
-                selectedSize &&
-                stockForSize(selectedSize) < 1) ||
-              (product.sizes.length === 0 && stockForSize(ONE_SIZE) < 1)
+              addDisabled
                 ? "bg-neutral-200 text-neutral-400 cursor-not-allowed"
                 : added
                   ? "bg-neutral-800 text-white"
                   : "bg-black text-white hover:bg-neutral-800"
             }`}
           >
-            {product.status === "SOLD" ||
-            (product.sizes.length > 0 &&
-              selectedSize &&
-              stockForSize(selectedSize) < 1) ||
-            (product.sizes.length === 0 && stockForSize(ONE_SIZE) < 1)
+            {addDisabled
               ? "Sold Out"
               : added
                 ? "Added to Cart"
                 : "Add to Cart"}
           </button>
 
-          {/* Description */}
           <div className="mt-8 pt-8 border-t border-neutral-200">
             <p className="text-[11px] uppercase tracking-widest font-medium mb-3">
               Details
@@ -263,7 +350,6 @@ export default function ProductDetail({ product }: ProductDetailProps) {
             <ProductDescription text={product.description} />
           </div>
 
-          {/* Category */}
           <div className="mt-6 pt-6 border-t border-neutral-200">
             <p className="text-[11px] text-neutral-400 uppercase tracking-widest">
               Category:{" "}
@@ -273,9 +359,13 @@ export default function ProductDetail({ product }: ProductDetailProps) {
         </div>
       </div>
 
-      {/* Lightbox: backdrop receives outside taps; controls sit above image layer (full-bleed image div used to block Close on mobile) */}
-      {lightboxOpen && sortedImages[selectedImage] && (
-        <div className="fixed inset-0 z-[100]" role="dialog" aria-modal="true" aria-label="Product image">
+      {lightboxOpen && effectiveImages[selectedImage] && (
+        <div
+          className="fixed inset-0 z-[100]"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Product image"
+        >
           <div
             className="absolute inset-0 bg-black/95"
             onClick={() => setLightboxOpen(false)}
@@ -312,7 +402,7 @@ export default function ProductDetail({ product }: ProductDetailProps) {
               onClick={(e) => e.stopPropagation()}
             >
               <Image
-                src={sortedImages[selectedImage].url}
+                src={effectiveImages[selectedImage].url}
                 alt={product.name}
                 fill
                 className="object-contain"
@@ -323,7 +413,7 @@ export default function ProductDetail({ product }: ProductDetailProps) {
             </div>
           </div>
 
-          {selectedImage < sortedImages.length - 1 && (
+          {selectedImage < effectiveImages.length - 1 && (
             <button
               type="button"
               className="absolute right-[max(0.75rem,env(safe-area-inset-right))] top-1/2 -translate-y-1/2 z-[110] min-h-11 min-w-11 flex items-center justify-center text-white text-[22px] leading-none opacity-80 hover:opacity-100 bg-white/10 rounded-sm"
@@ -337,9 +427,9 @@ export default function ProductDetail({ product }: ProductDetailProps) {
             </button>
           )}
 
-          {sortedImages.length > 1 && (
+          {effectiveImages.length > 1 && (
             <p className="absolute bottom-[max(1rem,env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 z-[110] text-white/50 text-[10px] uppercase tracking-widest pointer-events-none">
-              {selectedImage + 1} / {sortedImages.length}
+              {selectedImage + 1} / {effectiveImages.length}
             </p>
           )}
         </div>

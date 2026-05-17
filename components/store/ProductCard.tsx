@@ -4,10 +4,67 @@ import type { Product } from "@/types";
 
 interface ProductCardProps {
   product: Product;
-  /** Smaller type + image hints for narrow grids (e.g. “You may also like”). */
+  /** Smaller type + image hints for narrow grids (e.g. "You may also like"). */
   compact?: boolean;
   /** Dense grid: square image, product name only (Yeezy-style homepage). */
   minimal?: boolean;
+}
+
+const MAX_SWATCHES = 5;
+
+function ColorDots({
+  product,
+  size = "default",
+}: {
+  product: Product;
+  size?: "default" | "minimal";
+}) {
+  const variants = product.variants;
+  if (variants.length === 0) return null;
+  const visible = variants.slice(0, MAX_SWATCHES);
+  const overflow = variants.length - visible.length;
+  const dotSize = size === "minimal" ? "h-2.5 w-2.5" : "h-3 w-3";
+
+  return (
+    <div
+      className={
+        size === "minimal"
+          ? "flex items-center justify-center gap-1.5"
+          : "flex items-center gap-1.5"
+      }
+      aria-label={`${variants.length} colors`}
+    >
+      {visible.map((v) => {
+        const href = `/product/${product.slug}?color=${encodeURIComponent(v.colorName)}`;
+        return (
+          <Link
+            key={v.id}
+            href={href}
+            aria-label={`View ${product.name} in ${v.colorName}`}
+            title={v.colorName}
+            onClick={(e) => e.stopPropagation()}
+            className="inline-block leading-none transition-transform duration-150 hover:scale-110"
+          >
+            {v.colorHex ? (
+              <span
+                style={{ backgroundColor: v.colorHex }}
+                className={`block rounded-full border border-neutral-300 ${dotSize}`}
+              />
+            ) : (
+              <span
+                className={`block rounded-full border border-neutral-400 bg-neutral-100 ${dotSize}`}
+              />
+            )}
+          </Link>
+        );
+      })}
+      {overflow > 0 && (
+        <span className="text-[9px] uppercase tracking-widest text-neutral-400 ml-0.5">
+          +{overflow}
+        </span>
+      )}
+    </div>
+  );
 }
 
 export default function ProductCard({
@@ -23,64 +80,63 @@ export default function ProductCard({
 
   if (minimal) {
     return (
-      <Link
-        href={`/product/${product.slug}`}
-        className="group block h-full flex flex-col min-w-0"
-      >
-        <div className="relative aspect-square bg-white overflow-hidden">
-          {primaryImage ? (
-            <Image
-              src={primaryImage.url}
-              alt={product.name}
-              fill
-              className="object-contain"
-              sizes="(max-width: 640px) 50vw, (max-width: 1280px) 25vw, 16vw"
-              quality={88}
-            />
-          ) : (
-            <div className="w-full h-full bg-neutral-50" aria-hidden />
-          )}
-          {product.status === "SOLD" && (
-            <div className="absolute inset-0 bg-white/70 flex items-center justify-center">
-              <span className="text-[9px] uppercase tracking-widest font-medium">
-                Sold Out
-              </span>
-            </div>
-          )}
-        </div>
-        <p className="text-center font-mono text-[9px] sm:text-[10px] uppercase tracking-[0.08em] text-black pt-2.5 sm:pt-3 px-1 leading-snug">
-          {product.name}
-        </p>
-      </Link>
+      <div className="group h-full flex flex-col min-w-0">
+        <Link
+          href={`/product/${product.slug}`}
+          className="block min-w-0"
+          aria-label={product.name}
+        >
+          <div className="relative aspect-square bg-white overflow-hidden">
+            {primaryImage ? (
+              <Image
+                src={primaryImage.url}
+                alt={product.name}
+                fill
+                className="object-contain"
+                sizes="(max-width: 640px) 50vw, (max-width: 1280px) 25vw, 16vw"
+                quality={88}
+              />
+            ) : (
+              <div className="w-full h-full bg-neutral-50" aria-hidden />
+            )}
+            {product.status === "SOLD" && (
+              <div className="absolute inset-0 bg-white/70 flex items-center justify-center">
+                <span className="text-[9px] uppercase tracking-widest font-medium">
+                  Sold Out
+                </span>
+              </div>
+            )}
+          </div>
+          <p className="text-center font-mono text-[9px] sm:text-[10px] uppercase tracking-[0.08em] text-black pt-2.5 sm:pt-3 px-1 leading-snug">
+            {product.name}
+          </p>
+        </Link>
+        {product.variants.length > 0 && (
+          <div className="mt-1.5 sm:mt-2">
+            <ColorDots product={product} size="minimal" />
+          </div>
+        )}
+      </div>
     );
   }
 
   return (
-    <Link href={`/product/${product.slug}`} className="group block">
-      {/* Image container */}
-      <div className="relative aspect-[3/4] bg-white overflow-hidden">
-        {primaryImage ? (
-          <>
-            <Image
-              src={primaryImage.url}
-              alt={product.name}
-              fill
-              className={`object-contain transition-opacity duration-300 ${
-                secondaryImage ? "group-hover:opacity-0" : ""
-              }`}
-              sizes={
-                compact
-                  ? "(max-width: 640px) 45vw, 260px"
-                  : "(max-width: 640px) 55vw, (max-width: 1024px) 38vw, 28vw"
-              }
-              quality={88}
-            />
-            {secondaryImage && (
+    <div className="group block">
+      <Link
+        href={`/product/${product.slug}`}
+        className="block"
+        aria-label={product.name}
+      >
+        <div className="relative aspect-[3/4] bg-white overflow-hidden">
+          {primaryImage ? (
+            <>
               <Image
-                src={secondaryImage.url}
+                src={primaryImage.url}
                 alt={product.name}
                 fill
-                className="object-contain opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+                className={`object-contain transition-opacity duration-300 ${
+                  secondaryImage ? "group-hover:opacity-0" : ""
+                }`}
                 sizes={
                   compact
                     ? "(max-width: 640px) 45vw, 260px"
@@ -88,47 +144,66 @@ export default function ProductCard({
                 }
                 quality={88}
               />
-            )}
-          </>
-        ) : (
-          <div className="w-full h-full bg-white" />
-        )}
+              {secondaryImage && (
+                <Image
+                  src={secondaryImage.url}
+                  alt={product.name}
+                  fill
+                  className="object-contain opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+                  sizes={
+                    compact
+                      ? "(max-width: 640px) 45vw, 260px"
+                      : "(max-width: 640px) 55vw, (max-width: 1024px) 38vw, 28vw"
+                  }
+                  quality={88}
+                />
+              )}
+            </>
+          ) : (
+            <div className="w-full h-full bg-white" />
+          )}
 
-        {product.status === "SOLD" && (
-          <div className="absolute inset-0 bg-white/60 flex items-center justify-center">
-            <span className="text-[10px] uppercase tracking-widest font-medium">
-              Sold Out
-            </span>
-          </div>
-        )}
-      </div>
+          {product.status === "SOLD" && (
+            <div className="absolute inset-0 bg-white/60 flex items-center justify-center">
+              <span className="text-[10px] uppercase tracking-widest font-medium">
+                Sold Out
+              </span>
+            </div>
+          )}
+        </div>
 
-      {/* Info: visible on hover on desktop, always on mobile */}
-      <div
-        className={
-          compact
-            ? "mt-1.5"
-            : "mt-2 px-2 md:opacity-0 md:group-hover:opacity-100 md:transition-opacity md:duration-200"
-        }
-      >
-        <p
-          className={`uppercase tracking-widest text-neutral-400 ${
-            compact ? "text-[9px]" : "text-[10px]"
-          }`}
+        <div
+          className={
+            compact
+              ? "mt-1.5"
+              : "mt-2 px-2 md:opacity-0 md:group-hover:opacity-100 md:transition-opacity md:duration-200"
+          }
         >
-          {product.brand}
-        </p>
-        <p
-          className={`font-medium mt-0.5 leading-snug ${
-            compact ? "text-[11px]" : "text-[12px]"
-          }`}
-        >
-          {product.name}
-        </p>
-        <p className={`mt-0.5 ${compact ? "text-[11px]" : "text-[12px]"}`}>
-          ${Number(product.price).toFixed(2)}
-        </p>
-      </div>
-    </Link>
+          <p
+            className={`uppercase tracking-widest text-neutral-400 ${
+              compact ? "text-[9px]" : "text-[10px]"
+            }`}
+          >
+            {product.brand}
+          </p>
+          <p
+            className={`font-medium mt-0.5 leading-snug ${
+              compact ? "text-[11px]" : "text-[12px]"
+            }`}
+          >
+            {product.name}
+          </p>
+          <p className={`mt-0.5 ${compact ? "text-[11px]" : "text-[12px]"}`}>
+            ${Number(product.price).toFixed(2)}
+          </p>
+        </div>
+      </Link>
+
+      {product.variants.length > 0 && (
+        <div className={compact ? "mt-1.5 px-1" : "mt-2 px-2"}>
+          <ColorDots product={product} />
+        </div>
+      )}
+    </div>
   );
 }

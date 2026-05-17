@@ -25,6 +25,7 @@ export default function CartDrawer() {
         body: JSON.stringify({
           items: items.map((i) => ({
             productId: i.productId,
+            variantId: i.variantId ?? null,
             size: i.size,
             quantity: i.quantity,
           })),
@@ -84,81 +85,81 @@ export default function CartDrawer() {
             </div>
           ) : (
             <ul className="divide-y divide-neutral-100">
-              {items.map((item) => (
-                <li
-                  key={`${item.productId}-${item.size}`}
-                  className="flex gap-4 px-6 py-5"
-                >
-                  <div className="relative w-20 h-24 bg-neutral-100 flex-shrink-0">
-                    {item.imageUrl ? (
-                      <Image
-                        src={item.imageUrl}
-                        alt={item.name}
-                        fill
-                        className="object-cover"
-                        sizes="80px"
-                      />
-                    ) : (
-                      <div className="w-full h-full bg-neutral-200" />
-                    )}
-                  </div>
-
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[11px] text-neutral-400 uppercase tracking-widest truncate">
-                      {item.brand}
-                    </p>
-                    <p className="text-[12px] font-medium mt-0.5 leading-tight">
-                      {item.name}
-                    </p>
-                    <p className="text-[11px] text-neutral-500 mt-1">
-                      Size: {item.size}
-                    </p>
-                    <div className="flex items-center justify-between mt-3">
-                      <div className="flex items-center gap-3">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            updateQty(
-                              item.productId,
-                              item.size,
-                              item.quantity - 1
-                            )
-                          }
-                          className="w-5 h-5 flex items-center justify-center border border-neutral-300 text-[12px] hover:border-black transition-colors"
-                        >
-                          −
-                        </button>
-                        <span className="text-[12px] w-4 text-center">
-                          {item.quantity}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            updateQty(
-                              item.productId,
-                              item.size,
-                              item.quantity + 1
-                            )
-                          }
-                          className="w-5 h-5 flex items-center justify-center border border-neutral-300 text-[12px] hover:border-black transition-colors"
-                        >
-                          +
-                        </button>
-                      </div>
-                      <p className="text-[12px] font-medium">
-                        ${(item.price * item.quantity).toFixed(2)}
-                      </p>
+              {items.map((item) => {
+                const lineKey = {
+                  productId: item.productId,
+                  variantId: item.variantId ?? null,
+                  size: item.size,
+                };
+                return (
+                  <li
+                    key={`${item.productId}-${item.variantId ?? "_"}-${item.size}`}
+                    className="flex gap-4 px-6 py-5"
+                  >
+                    <div className="relative w-20 h-24 bg-neutral-100 flex-shrink-0">
+                      {item.imageUrl ? (
+                        <Image
+                          src={item.imageUrl}
+                          alt={item.name}
+                          fill
+                          className="object-cover"
+                          sizes="80px"
+                        />
+                      ) : (
+                        <div className="w-full h-full bg-neutral-200" />
+                      )}
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => removeItem(item.productId, item.size)}
-                      className="text-[10px] uppercase tracking-widest text-neutral-400 hover:text-black transition-colors mt-2"
-                    >
-                      Remove
-                    </button>
-                  </div>
-                </li>
-              ))}
+
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[11px] text-neutral-400 uppercase tracking-widest truncate">
+                        {item.brand}
+                      </p>
+                      <p className="text-[12px] font-medium mt-0.5 leading-tight">
+                        {item.name}
+                      </p>
+                      <p className="text-[11px] text-neutral-500 mt-1">
+                        {item.variantLabel ? `${item.variantLabel} · ` : ""}
+                        Size: {item.size}
+                      </p>
+                      <div className="flex items-center justify-between mt-3">
+                        <div className="flex items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              updateQty(lineKey, item.quantity - 1)
+                            }
+                            className="w-5 h-5 flex items-center justify-center border border-neutral-300 text-[12px] hover:border-black transition-colors"
+                          >
+                            −
+                          </button>
+                          <span className="text-[12px] w-4 text-center">
+                            {item.quantity}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              updateQty(lineKey, item.quantity + 1)
+                            }
+                            className="w-5 h-5 flex items-center justify-center border border-neutral-300 text-[12px] hover:border-black transition-colors"
+                          >
+                            +
+                          </button>
+                        </div>
+                        <p className="text-[12px] font-medium">
+                          ${(item.price * item.quantity).toFixed(2)}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => removeItem(lineKey)}
+                        className="text-[10px] uppercase tracking-widest text-neutral-400 hover:text-black transition-colors mt-2"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </div>

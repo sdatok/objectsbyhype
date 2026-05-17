@@ -1,17 +1,14 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import AdminProductTable from "@/components/admin/AdminProductTable";
-import { toStoreProduct } from "@/lib/map-product";
+import { toStoreProduct, PRODUCT_INCLUDE } from "@/lib/map-product";
 
 export const dynamic = "force-dynamic";
 
 async function getAllProducts() {
   try {
     const products = await prisma.product.findMany({
-      include: {
-        images: { orderBy: { displayOrder: "asc" }, take: 1 },
-        sizeStocks: true,
-      },
+      include: PRODUCT_INCLUDE,
       orderBy: { createdAt: "desc" },
     });
     return products.map((p) => toStoreProduct(p));

@@ -106,6 +106,8 @@ export async function POST(request: Request) {
         lineItems: {
           create: discountedLines.map((l) => ({
             productId: l.productId,
+            variantId: l.variantId,
+            variantLabel: l.variantLabel,
             size: l.size,
             quantity: l.quantity,
             unitPrice: l.unitPrice,
@@ -126,7 +128,9 @@ export async function POST(request: Request) {
           currency: "usd",
           product_data: {
             name: `${l.brand} — ${l.name}`,
-            description: `Size ${l.size}`,
+            description: l.variantLabel
+              ? `${l.variantLabel} · Size ${l.size}`
+              : `Size ${l.size}`,
           },
           unit_amount: Math.round(l.unitPrice * 100),
         },

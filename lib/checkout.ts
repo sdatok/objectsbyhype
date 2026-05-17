@@ -7,10 +7,15 @@ export interface CartLineInput {
   productId: string;
   size: string;
   quantity: number;
+  /** Color variant id, when the product has variants. */
+  variantId?: string | null;
 }
 
 export interface ValidatedLine {
   productId: string;
+  variantId: string | null;
+  /** Snapshot of the color name for OrderLineItem + Stripe display */
+  variantLabel: string | null;
   size: string;
   quantity: number;
   unitPrice: number;
@@ -62,44 +67,91 @@ export async function validateCartLines(
 
     const product = await prisma.product.findUnique({
       where: { id: item.productId },
-      include: { sizeStocks: true },
+      include: {
+        sizeStocks: true,
+        variants: { include: { sizeStocks: true } },
+      },
     });
 
     if (!product || product.status !== "ACTIVE") {
       return { ok: false, error: "A product is no longer available" };
     }
 
-    const catalogSizes = product.sizes.length > 0 ? product.sizes : [ONE_SIZE];
-    if (!catalogSizes.includes(size)) {
-      return { ok: false, error: `Invalid size for ${product.name}` };
-    }
+    const variantId = item.variantId?.trim() || null;
+    const hasVariants = product.variants.length > 0;
 
-    const stockRow = product.sizeStocks.find((s) => s.size === size);
-    const stockAvailable = stockRow?.quantity ?? 0;
-    if (stockAvailable < item.quantity) {
+    // If product has variants, a variantId is required. If it doesn't, ignore any sent variantId.
+    if (hasVariants && !variantId) {
       return {
         ok: false,
-        error: `Not enough stock for ${product.name} (${size})`,
+        error: `Pick a color for ${product.name}`,
       };
     }
 
-    const base =
-      product.sizePricing &&
-      typeof product.sizePricing === "object" &&
-      size in (product.sizePricing as object) &&
-      (product.sizePricing as Record<string, unknown>)[size] != null
-        ? Number((product.sizePricing as Record<string, number>)[size])
-        : Number(product.price);
+    let stockAvailable = 0;
+    let unitPriceBase: number = Number(product.price);
+    let variantLabel: string | null = null;
 
-    if (!Number.isFinite(base) || base <= 0) {
+    if (variantId && hasVariants) {
+      const variant = product.variants.find((v) => v.id === variantId);
+      if (!variant) {
+        return {
+          ok: false,
+          error: `That color is no longer available for ${product.name}`,
+        };
+      }
+      const variantSizes = variant.sizeStocks.map((s) => s.size);
+      if (!variantSizes.includes(size)) {
+        return {
+          ok: false,
+          error: `Invalid size for ${product.name} (${variant.colorName})`,
+        };
+      }
+      const row = variant.sizeStocks.find((s) => s.size === size);
+      stockAvailable = row?.quantity ?? 0;
+      variantLabel = variant.colorName;
+      if (variant.price != null) {
+        unitPriceBase = Number(variant.price);
+      }
+    } else {
+      const catalogSizes = product.sizes.length > 0 ? product.sizes : [ONE_SIZE];
+      if (!catalogSizes.includes(size)) {
+        return { ok: false, error: `Invalid size for ${product.name}` };
+      }
+      const stockRow = product.sizeStocks.find((s) => s.size === size);
+      stockAvailable = stockRow?.quantity ?? 0;
+
+      if (
+        product.sizePricing &&
+        typeof product.sizePricing === "object" &&
+        size in (product.sizePricing as object) &&
+        (product.sizePricing as Record<string, unknown>)[size] != null
+      ) {
+        unitPriceBase = Number(
+          (product.sizePricing as Record<string, number>)[size]
+        );
+      }
+    }
+
+    if (stockAvailable < item.quantity) {
+      const label = variantLabel ? ` (${variantLabel}, ${size})` : ` (${size})`;
+      return {
+        ok: false,
+        error: `Not enough stock for ${product.name}${label}`,
+      };
+    }
+
+    if (!Number.isFinite(unitPriceBase) || unitPriceBase <= 0) {
       return { ok: false, error: "Invalid product price" };
     }
 
     lines.push({
       productId: product.id,
+      variantId: variantId,
+      variantLabel,
       size,
       quantity: item.quantity,
-      unitPrice: roundMoney(base),
+      unitPrice: roundMoney(unitPriceBase),
       name: product.name,
       brand: product.brand,
       stockAvailable,

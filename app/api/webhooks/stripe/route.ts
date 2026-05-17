@@ -48,22 +48,42 @@ export async function POST(request: Request) {
         }
 
         for (const li of order.lineItems) {
-          const updated = await tx.productSizeStock.updateMany({
-            where: {
-              productId: li.productId,
-              size: li.size,
-              quantity: { gte: li.quantity },
-            },
-            data: { quantity: { decrement: li.quantity } },
-          });
-          if (updated.count === 0) {
-            console.error(
-              "[stripe webhook] stock failed",
-              li.productId,
-              li.size,
-              li.quantity
-            );
-            throw new Error("Insufficient stock");
+          if (li.variantId) {
+            const updated = await tx.productVariantSizeStock.updateMany({
+              where: {
+                variantId: li.variantId,
+                size: li.size,
+                quantity: { gte: li.quantity },
+              },
+              data: { quantity: { decrement: li.quantity } },
+            });
+            if (updated.count === 0) {
+              console.error(
+                "[stripe webhook] variant stock failed",
+                li.variantId,
+                li.size,
+                li.quantity
+              );
+              throw new Error("Insufficient stock");
+            }
+          } else {
+            const updated = await tx.productSizeStock.updateMany({
+              where: {
+                productId: li.productId,
+                size: li.size,
+                quantity: { gte: li.quantity },
+              },
+              data: { quantity: { decrement: li.quantity } },
+            });
+            if (updated.count === 0) {
+              console.error(
+                "[stripe webhook] stock failed",
+                li.productId,
+                li.size,
+                li.quantity
+              );
+              throw new Error("Insufficient stock");
+            }
           }
         }
 
@@ -101,11 +121,18 @@ export async function POST(request: Request) {
 
         const productIds = [...new Set(order.lineItems.map((l) => l.productId))];
         for (const pid of productIds) {
-          const agg = await tx.productSizeStock.aggregate({
-            where: { productId: pid },
-            _sum: { quantity: true },
-          });
-          const sum = agg._sum.quantity ?? 0;
+          const [agg, variantAgg] = await Promise.all([
+            tx.productSizeStock.aggregate({
+              where: { productId: pid },
+              _sum: { quantity: true },
+            }),
+            tx.productVariantSizeStock.aggregate({
+              where: { variant: { productId: pid } },
+              _sum: { quantity: true },
+            }),
+          ]);
+          const sum =
+            (agg._sum.quantity ?? 0) + (variantAgg._sum.quantity ?? 0);
           const p = await tx.product.findUnique({ where: { id: pid } });
           if (!p) continue;
           const nextStatus =

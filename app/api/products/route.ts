@@ -8,6 +8,8 @@ import {
   type SizeQuantityMap,
 } from "@/lib/size-stock";
 import { STORE_VISIBLE_STATUSES } from "@/types";
+import { PRODUCT_INCLUDE } from "@/lib/map-product";
+import { replaceProductVariants, type VariantInput } from "@/lib/variants";
 
 export const dynamic = "force-dynamic";
 
@@ -15,10 +17,7 @@ export async function GET() {
   try {
     const products = await prisma.product.findMany({
       where: { status: { in: STORE_VISIBLE_STATUSES } },
-      include: {
-        images: { orderBy: { displayOrder: "asc" } },
-        sizeStocks: true,
-      },
+      include: PRODUCT_INCLUDE,
       orderBy: [{ status: "asc" }, { createdAt: "desc" }],
     });
     return NextResponse.json(products);
@@ -61,6 +60,9 @@ export async function POST(request: Request) {
 
     const sizeList: string[] = sizes ?? [];
     const stockMap: SizeQuantityMap = sizeStocks ?? {};
+    const variants: VariantInput[] = Array.isArray(body.variants)
+      ? body.variants
+      : [];
 
     const product = await prisma.$transaction(async (tx) => {
       const p = await tx.product.create({
@@ -88,6 +90,7 @@ export async function POST(request: Request) {
         include: { images: true },
       });
       await replaceProductSizeStocks(tx, p.id, sizeList, stockMap);
+      await replaceProductVariants(tx, p.id, variants);
       return p;
     });
 
@@ -95,7 +98,7 @@ export async function POST(request: Request) {
 
     const full = await prisma.product.findUnique({
       where: { id: product.id },
-      include: { images: true, sizeStocks: true },
+      include: PRODUCT_INCLUDE,
     });
 
     revalidateProductPages(product.slug);
