@@ -5,6 +5,7 @@ import Image from "next/image";
 import { useCart } from "@/context/CartContext";
 import type { Product } from "@/types";
 import { ONE_SIZE } from "@/lib/size-stock";
+import ProductDescription from "./ProductDescription";
 
 interface ProductDetailProps {
   product: Product;
@@ -259,9 +260,7 @@ export default function ProductDetail({ product }: ProductDetailProps) {
             <p className="text-[11px] uppercase tracking-widest font-medium mb-3">
               Details
             </p>
-            <p className="text-[13px] leading-relaxed text-neutral-600">
-              {product.description}
-            </p>
+            <ProductDescription text={product.description} />
           </div>
 
           {/* Category */}

@@ -7,6 +7,7 @@ import { CATEGORIES } from "@/types";
 import type { Product } from "@/types";
 import { KNOWN_BRANDS } from "@/lib/brands";
 import { ONE_SIZE } from "@/lib/size-stock";
+import ProductDescription from "@/components/store/ProductDescription";
 
 const SIZE_PRESETS: Record<string, string[]> = {
   Furniture: ["Small", "Medium", "Large"],
@@ -58,6 +59,7 @@ export default function ProductForm({
   );
 
   const [customSize, setCustomSize] = useState("");
+  const [showPreview, setShowPreview] = useState(false);
 
   const [sizeQty, setSizeQty] = useState<Record<string, string>>(() => {
     if (product?.sizeStocks && Object.keys(product.sizeStocks).length > 0) {
@@ -384,16 +386,46 @@ export default function ProductForm({
         </label>
 
         <div>
-          <label className="block text-[10px] uppercase tracking-widest text-neutral-500 mb-2">
-            Description *
-          </label>
-          <textarea
-            value={form.description}
-            onChange={(e) => update("description", e.target.value)}
-            rows={5}
-            className="w-full border border-neutral-300 px-3 py-2.5 text-[13px] focus:outline-none focus:border-black transition-colors resize-none"
-            required
-          />
+          <div className="flex items-center justify-between mb-2">
+            <label className="block text-[10px] uppercase tracking-widest text-neutral-500">
+              Description *
+            </label>
+            <button
+              type="button"
+              onClick={() => setShowPreview((v) => !v)}
+              className="text-[10px] uppercase tracking-widest text-neutral-400 hover:text-black transition-colors"
+            >
+              {showPreview ? "Edit" : "Preview"}
+            </button>
+          </div>
+          {showPreview ? (
+            <div className="min-h-[140px] w-full border border-neutral-200 bg-neutral-50 px-3 py-2.5 rounded">
+              {form.description.trim() ? (
+                <ProductDescription text={form.description} />
+              ) : (
+                <p className="text-[12px] text-neutral-400 italic">
+                  Nothing to preview yet.
+                </p>
+              )}
+            </div>
+          ) : (
+            <textarea
+              value={form.description}
+              onChange={(e) => update("description", e.target.value)}
+              rows={6}
+              className="w-full border border-neutral-300 px-3 py-2.5 text-[13px] focus:outline-none focus:border-black transition-colors resize-y font-mono"
+              placeholder={
+                "Soft, hand-tufted wool rug.\n\n- Made in Portugal\n- 100% New Zealand wool\n- **Limited run** — 50 pieces\n\nDouble-line break for a new paragraph."
+              }
+              required
+            />
+          )}
+          <p className="text-[10px] text-neutral-400 mt-1.5 leading-relaxed">
+            Supports basic formatting: <code>**bold**</code>,{" "}
+            <code>*italic*</code>, <code>- bullet</code>, <code>1. numbered</code>
+            , blank line for paragraph break. Use the Preview button to check
+            how it&apos;ll look.
+          </p>
         </div>
       </section>
 
