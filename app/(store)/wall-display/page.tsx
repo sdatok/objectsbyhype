@@ -1,4 +1,3 @@
-import Image from "next/image";
 import Link from "next/link";
 import type { Metadata } from "next";
 import { unstable_noStore } from "next/cache";
@@ -39,30 +38,9 @@ export default async function WallDisplayPage() {
 
   return (
     <div className="bg-white">
-      {/* Hero — show the image at native 4:5 portrait so the sconce
-          at the top, the cross grid, and the caption at the bottom
-          are all preserved at native resolution. */}
-      <section className="bg-white">
-        <div className="max-w-[1400px] mx-auto px-4 pt-10 md:pt-16 pb-10 md:pb-14">
-          <div className="relative mx-auto w-full max-w-[640px] bg-black overflow-hidden">
-            <div className="relative w-full aspect-[819/1024]">
-              <Image
-                src="/objectsbyhype_images/wall-display.png"
-                alt="Objectsbyhype wall display — handcrafted accessories"
-                fill
-                priority
-                unoptimized
-                sizes="(max-width: 720px) 100vw, 640px"
-                className="object-cover object-center"
-              />
-            </div>
-          </div>
-        </div>
-      </section>
-
       {/* Intro copy */}
       <section className="border-b border-neutral-100">
-        <div className="max-w-[1100px] mx-auto px-4 pt-2 pb-16 md:pb-24 text-center">
+        <div className="max-w-[1100px] mx-auto px-4 pt-20 md:pt-28 pb-16 md:pb-24 text-center">
           <p className="text-[10px] uppercase tracking-[0.32em] text-neutral-400 mb-6">
             Collection · 01
           </p>

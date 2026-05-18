@@ -8,55 +8,44 @@ import Link from "next/link";
 export default function WallDisplayPromo() {
   return (
     <section aria-label="Wall Display collection" className="bg-white">
-      <div className="max-w-[1600px] mx-auto px-4 py-12 md:py-20">
-        <div className="mb-8 md:mb-10 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-2">
-          <div>
-            <p className="text-[10px] uppercase tracking-[0.28em] text-neutral-400">
-              Collection
-            </p>
-            <h2 className="text-[20px] md:text-[26px] font-light tracking-tight mt-2">
-              Wall Display
-            </h2>
-            <p className="text-[11px] text-neutral-500 mt-1.5">
-              Handcrafted accessories, made to be hung.
-            </p>
-          </div>
+      <div className="max-w-[1600px] mx-auto px-4 py-14 md:py-20 text-center">
+        <p className="text-[10px] uppercase tracking-[0.32em] text-neutral-400">
+          Collection
+        </p>
+
+        <h2 className="mt-3 text-black font-black uppercase tracking-[0.18em] md:tracking-[0.22em] leading-[0.95] text-[28px] sm:text-[40px] md:text-[56px] lg:text-[68px]">
+          <span className="block">Wall</span>
+          <span className="block">Display</span>
+        </h2>
+
+        <p className="mt-5 text-[11px] sm:text-[12px] text-neutral-500 tracking-wide">
+          Handcrafted accessories, made to be hung.
+        </p>
+
+        <div className="mt-8 md:mt-10">
           <Link
             href="/wall-display"
-            className="group hidden sm:inline-flex items-center gap-2 text-[11px] uppercase tracking-[0.22em] text-neutral-500 hover:text-black transition-colors"
+            aria-label="Shop the Wall Display collection"
+            className="group relative block overflow-hidden bg-black mx-auto w-full max-w-[720px] rounded-2xl md:rounded-3xl shadow-sm"
           >
-            <span>Shop the collection</span>
-            <span
-              aria-hidden
-              className="inline-block transition-transform duration-200 group-hover:translate-x-1"
-            >
-              →
-            </span>
+            {/* Crop the source 4:5 portrait into a square so we keep the
+                sconce + cross grid (object-top) and drop the in-image
+                caption strip at the bottom. */}
+            <div className="relative w-full aspect-square">
+              <Image
+                src="/objectsbyhype_images/wall-display.png"
+                alt="Objectsbyhype wall display — handcrafted accessories"
+                fill
+                priority={false}
+                unoptimized
+                sizes="(max-width: 720px) 100vw, 720px"
+                className="object-cover object-top transition-transform duration-700 ease-out group-hover:scale-[1.02]"
+              />
+            </div>
           </Link>
         </div>
 
-        <Link
-          href="/wall-display"
-          aria-label="Shop the Wall Display collection"
-          className="group relative block overflow-hidden bg-black mx-auto w-full max-w-[560px]"
-        >
-          {/* Image is 819×1024 natively (4:5). Match that ratio so the
-              sconce at the top and the caption at the bottom are both
-              preserved at native resolution. */}
-          <div className="relative w-full aspect-[819/1024]">
-            <Image
-              src="/objectsbyhype_images/wall-display.png"
-              alt="Objectsbyhype wall display — handcrafted accessories"
-              fill
-              priority={false}
-              unoptimized
-              sizes="(max-width: 640px) 100vw, 560px"
-              className="object-cover object-center transition-transform duration-700 ease-out group-hover:scale-[1.02]"
-            />
-          </div>
-        </Link>
-
-        <div className="mt-5 flex justify-center sm:hidden">
+        <div className="mt-7">
           <Link
             href="/wall-display"
             className="group inline-flex items-center gap-2 text-[11px] uppercase tracking-[0.22em] text-neutral-500 hover:text-black transition-colors"
