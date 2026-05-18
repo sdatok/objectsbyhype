@@ -10,7 +10,7 @@ export default function HomeHero() {
           <span className="block">By Hype</span>
         </h1>
         <p className="mt-6 md:mt-8 text-center text-[10px] sm:text-[11px] uppercase tracking-[0.32em] text-neutral-400">
-          Designer furniture / Home edit
+          Designer furniture / Curated objects
         </p>
       </div>
     </section>

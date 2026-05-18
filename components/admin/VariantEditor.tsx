@@ -41,6 +41,8 @@ export default function VariantEditor({
   const [openIndex, setOpenIndex] = useState<number | null>(
     initialVariants.length > 0 ? 0 : null
   );
+  /** Per-variant draft text for the "custom size" input */
+  const [customSize, setCustomSize] = useState<Record<number, string>>({});
   const onChangeRef = useRef(onChange);
   useLayoutEffect(() => {
     onChangeRef.current = onChange;
@@ -95,6 +97,39 @@ export default function VariantEditor({
           ? { ...v, sizeStocks: { ...v.sizeStocks, [size]: value } }
           : v
       )
+    );
+  }
+
+  function addCustomSize(idx: number) {
+    const raw = customSize[idx] ?? "";
+    const trimmed = raw.trim();
+    if (!trimmed) return;
+    setVariants((prev) =>
+      prev.map((v, i) => {
+        if (i !== idx) return v;
+        if (v.sizes.includes(trimmed)) return v;
+        return {
+          ...v,
+          sizes: [...v.sizes, trimmed],
+          sizeStocks: { ...v.sizeStocks, [trimmed]: v.sizeStocks[trimmed] ?? "1" },
+        };
+      })
+    );
+    setCustomSize((prev) => ({ ...prev, [idx]: "" }));
+  }
+
+  function removeSize(idx: number, size: string) {
+    setVariants((prev) =>
+      prev.map((v, i) => {
+        if (i !== idx) return v;
+        const sizeStocks = { ...v.sizeStocks };
+        delete sizeStocks[size];
+        return {
+          ...v,
+          sizes: v.sizes.filter((s) => s !== size),
+          sizeStocks,
+        };
+      })
     );
   }
 
@@ -238,6 +273,36 @@ export default function VariantEditor({
                       </button>
                     ))}
                   </div>
+
+                  {/* Custom size input — e.g. "32 x 45" for rugs */}
+                  <div className="flex gap-2 mb-4">
+                    <input
+                      type="text"
+                      value={customSize[idx] ?? ""}
+                      onChange={(e) =>
+                        setCustomSize((prev) => ({
+                          ...prev,
+                          [idx]: e.target.value,
+                        }))
+                      }
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          addCustomSize(idx);
+                        }
+                      }}
+                      placeholder='Custom size, e.g. 32" x 45"'
+                      className="flex-1 min-w-0 border border-neutral-300 px-3 py-2 text-[12px] focus:outline-none focus:border-black transition-colors"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => addCustomSize(idx)}
+                      className="border border-neutral-300 px-3 py-2 text-[11px] uppercase tracking-widest hover:border-black transition-colors whitespace-nowrap"
+                    >
+                      Add
+                    </button>
+                  </div>
+
                   {v.sizes.length > 0 && (
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                       {v.sizes.map((size) => (
@@ -245,9 +310,20 @@ export default function VariantEditor({
                           key={size}
                           className="border border-neutral-100 rounded p-3"
                         >
-                          <p className="text-[11px] font-medium uppercase tracking-widest mb-2">
-                            {size}
-                          </p>
+                          <div className="flex items-start justify-between mb-2 gap-2">
+                            <p className="text-[11px] font-medium uppercase tracking-widest break-words leading-snug">
+                              {size}
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => removeSize(idx, size)}
+                              title="Remove size"
+                              aria-label={`Remove size ${size}`}
+                              className="shrink-0 text-[14px] leading-none text-neutral-400 hover:text-red-600 transition-colors"
+                            >
+                              ×
+                            </button>
+                          </div>
                           <label className="block text-[9px] uppercase tracking-widest text-neutral-400 mb-1">
                             Stock
                           </label>

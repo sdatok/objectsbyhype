@@ -41,6 +41,9 @@ yarn-error.log*
 # vercel
 .vercel
 
+# local asset dump (served copies live in /public/objectsbyhype_images)
+/objectsbyhype_images
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

@@ -87,6 +87,7 @@ export const CATEGORIES = [
   "Shelving",
   "Decor",
   "Office",
+  "Wall Display",
 ] as const;
 
 export type Category = (typeof CATEGORIES)[number];

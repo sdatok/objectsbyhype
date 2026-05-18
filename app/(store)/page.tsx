@@ -5,6 +5,7 @@ import StoreFaq from "@/components/store/StoreFaq";
 import CuratedSpacesSection from "@/components/store/CuratedSpacesSection";
 import HomeCatalogClient from "@/components/store/HomeCatalogClient";
 import HomeHero from "@/components/store/HomeHero";
+import WallDisplayPromo from "@/components/store/WallDisplayPromo";
 import BrandShowcase from "@/components/store/BrandShowcase";
 import type { Product } from "@/types";
 import { STORE_VISIBLE_STATUSES } from "@/types";
@@ -35,6 +36,8 @@ export default async function HomePage() {
       <HomeHero />
 
       <HomeCatalogClient products={products} />
+
+      <WallDisplayPromo />
 
       <CuratedSpacesSection />
 
