@@ -38,16 +38,19 @@ export default function WallDisplayPromo() {
         <Link
           href="/wall-display"
           aria-label="Shop the Wall Display collection"
-          className="group relative block overflow-hidden bg-black"
+          className="group relative block overflow-hidden bg-black mx-auto w-full max-w-[560px]"
         >
-          <div className="relative w-full aspect-[4/5] sm:aspect-[16/10] md:aspect-[21/10] max-h-[720px]">
+          {/* Image is 819×1024 natively (4:5). Match that ratio so the
+              sconce at the top and the caption at the bottom are both
+              preserved at native resolution. */}
+          <div className="relative w-full aspect-[819/1024]">
             <Image
               src="/objectsbyhype_images/wall-display.png"
               alt="Objectsbyhype wall display — handcrafted accessories"
               fill
               priority={false}
               unoptimized
-              sizes="(max-width: 1600px) 100vw, 1600px"
+              sizes="(max-width: 640px) 100vw, 560px"
               className="object-cover object-center transition-transform duration-700 ease-out group-hover:scale-[1.02]"
             />
           </div>

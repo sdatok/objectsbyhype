@@ -39,36 +39,43 @@ export default async function WallDisplayPage() {
 
   return (
     <div className="bg-white">
-      {/* Hero */}
-      <section className="relative bg-black">
-        <div className="relative w-full aspect-[4/5] sm:aspect-[16/10] md:aspect-[21/10] max-h-[760px] overflow-hidden">
-          <Image
-            src="/objectsbyhype_images/wall-display.png"
-            alt="Objectsbyhype wall display — handcrafted accessories"
-            fill
-            priority
-            unoptimized
-            sizes="100vw"
-            className="object-cover object-center"
-          />
+      {/* Hero — show the image at native 4:5 portrait so the sconce
+          at the top, the cross grid, and the caption at the bottom
+          are all preserved at native resolution. */}
+      <section className="bg-white">
+        <div className="max-w-[1400px] mx-auto px-4 pt-10 md:pt-16 pb-10 md:pb-14">
+          <div className="relative mx-auto w-full max-w-[640px] bg-black overflow-hidden">
+            <div className="relative w-full aspect-[819/1024]">
+              <Image
+                src="/objectsbyhype_images/wall-display.png"
+                alt="Objectsbyhype wall display — handcrafted accessories"
+                fill
+                priority
+                unoptimized
+                sizes="(max-width: 720px) 100vw, 640px"
+                className="object-cover object-center"
+              />
+            </div>
+          </div>
         </div>
       </section>
 
       {/* Intro copy */}
       <section className="border-b border-neutral-100">
-        <div className="max-w-[900px] mx-auto px-4 py-14 md:py-20 text-center">
-          <p className="text-[10px] uppercase tracking-[0.32em] text-neutral-400 mb-4">
+        <div className="max-w-[1100px] mx-auto px-4 pt-2 pb-16 md:pb-24 text-center">
+          <p className="text-[10px] uppercase tracking-[0.32em] text-neutral-400 mb-6">
             Collection · 01
           </p>
-          <h1 className="text-[24px] sm:text-[32px] md:text-[40px] font-light tracking-tight leading-[1.1]">
-            Wall Display
+          <h1 className="text-black font-black uppercase tracking-[0.18em] md:tracking-[0.22em] leading-[0.95] text-[34px] sm:text-[52px] md:text-[78px] lg:text-[100px]">
+            <span className="block">Wall</span>
+            <span className="block">Display</span>
           </h1>
-          <p className="mt-5 text-[13px] md:text-[14px] leading-relaxed text-neutral-600">
+          <p className="mx-auto max-w-[640px] mt-8 md:mt-10 text-[13px] md:text-[14px] leading-relaxed text-neutral-600">
             Handcrafted accessories made to be mounted, lit, and lived with.
             Small-batch objects in a palette of finishes — pieces meant for
             arrangement, layered against the wall as a whole.
           </p>
-          <div className="mt-7">
+          <div className="mt-8">
             <Link
               href="/shop"
               className="inline-flex items-center gap-2 text-[11px] uppercase tracking-[0.22em] text-neutral-500 hover:text-black transition-colors"
