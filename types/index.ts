@@ -84,7 +84,6 @@ export const CATEGORIES = [
   "Lamps",
   "Chairs",
   "Tables",
-  "Shelving",
   "Decor",
   "Office",
   "Wall Display",
