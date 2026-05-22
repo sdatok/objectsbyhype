@@ -50,6 +50,7 @@ export async function PUT(request: Request, { params }: RouteParams) {
       quantity,
       images,
       consignment,
+      madeToOrder,
       sizeStocks,
     } = body;
 
@@ -76,6 +77,7 @@ export async function PUT(request: Request, { params }: RouteParams) {
           sizePricing: sizePricing ?? null,
           quantity: quantity ?? 0,
           consignment: Boolean(consignment),
+          madeToOrder: Boolean(madeToOrder),
           images: {
             create: (images ?? []).map(
               (img: { url: string; displayOrder: number }) => ({

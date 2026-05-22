@@ -42,6 +42,7 @@ export default function ProductForm({
     sizes: product?.sizes ?? ([] as string[]),
     quantity: product?.quantity?.toString() ?? "0",
     consignment: product?.consignment ?? false,
+    madeToOrder: product?.madeToOrder ?? false,
   });
 
   const [sizePricing, setSizePricing] = useState<Record<string, string>>(
@@ -411,23 +412,44 @@ export default function ProductForm({
           </div>
         </div>
 
-        <label className="flex items-start gap-3 cursor-pointer rounded border border-neutral-200 px-4 py-3.5 hover:border-neutral-300 transition-colors">
-          <input
-            type="checkbox"
-            checked={form.consignment}
-            onChange={(e) => update("consignment", e.target.checked)}
-            className="mt-0.5 h-4 w-4 shrink-0 rounded border-neutral-300 text-black focus:ring-1 focus:ring-black focus:ring-offset-0"
-          />
-          <span>
-            <span className="block text-[11px] uppercase tracking-widest font-medium text-black">
-              Consignment
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <label className="flex items-start gap-3 cursor-pointer rounded border border-neutral-200 px-4 py-3.5 hover:border-neutral-300 transition-colors">
+            <input
+              type="checkbox"
+              checked={form.consignment}
+              onChange={(e) => update("consignment", e.target.checked)}
+              className="mt-0.5 h-4 w-4 shrink-0 rounded border-neutral-300 text-black focus:ring-1 focus:ring-black focus:ring-offset-0"
+            />
+            <span>
+              <span className="block text-[11px] uppercase tracking-widest font-medium text-black">
+                Consignment
+              </span>
+              <span className="block text-[10px] text-neutral-500 mt-1 leading-relaxed">
+                When on, the product page shows a consignment label and
+                &ldquo;Pre-owned · Excellent condition&rdquo; for buyers.
+              </span>
             </span>
-            <span className="block text-[10px] text-neutral-500 mt-1 leading-relaxed">
-              When on, the product page shows a consignment label and
-              &ldquo;Pre-owned · Excellent condition&rdquo; for buyers.
+          </label>
+
+          <label className="flex items-start gap-3 cursor-pointer rounded border border-neutral-200 px-4 py-3.5 hover:border-neutral-300 transition-colors">
+            <input
+              type="checkbox"
+              checked={form.madeToOrder}
+              onChange={(e) => update("madeToOrder", e.target.checked)}
+              className="mt-0.5 h-4 w-4 shrink-0 rounded border-neutral-300 text-black focus:ring-1 focus:ring-black focus:ring-offset-0"
+            />
+            <span>
+              <span className="block text-[11px] uppercase tracking-widest font-medium text-black">
+                Hand Made to Order
+              </span>
+              <span className="block text-[10px] text-neutral-500 mt-1 leading-relaxed">
+                When on, the product page shows a &ldquo;Hand made to
+                order&rdquo; identifier so buyers know it&apos;s crafted
+                after purchase.
+              </span>
             </span>
-          </span>
-        </label>
+          </label>
+        </div>
 
         <div>
           <div className="flex items-center justify-between mb-2">

@@ -22,6 +22,9 @@ model Product {
   /// Legacy aggregate; sum of sizeStocks + variant stocks is authoritative for inventory
   quantity    Int                @default(0)
   consignment Boolean            @default(false)
+  /// When true, PDP shows a "Hand made to order" identifier so buyers know
+  /// the item is crafted after purchase rather than shipped from stock.
+  madeToOrder Boolean            @default(false)
   images      ProductImage[]
   sizeStocks  ProductSizeStock[]
   variants    ProductVariant[]

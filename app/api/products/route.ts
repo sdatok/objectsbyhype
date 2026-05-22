@@ -51,6 +51,7 @@ export async function POST(request: Request) {
       quantity,
       images,
       consignment,
+      madeToOrder,
       sizeStocks,
     } = body;
 
@@ -78,6 +79,7 @@ export async function POST(request: Request) {
           sizePricing: sizePricing ?? null,
           quantity: quantity ?? 0,
           consignment: Boolean(consignment),
+          madeToOrder: Boolean(madeToOrder),
           images: {
             create: (images ?? []).map(
               (img: { url: string; displayOrder: number }) => ({

@@ -76,6 +76,7 @@ export function toStoreProduct(p: PrismaProductWithRelations): Product {
     quantity: p.quantity,
     sizeStocks: sizeStocksToMap(p.sizeStocks),
     consignment: Boolean(p.consignment),
+    madeToOrder: Boolean(p.madeToOrder),
     images: [...p.images]
       .sort((a, b) => a.displayOrder - b.displayOrder)
       .map((img) => ({

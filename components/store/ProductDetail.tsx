@@ -249,9 +249,19 @@ export default function ProductDetail({
               </p>
             </div>
           )}
+          {product.madeToOrder && (
+            <div className="mt-3 flex flex-col gap-2">
+              <span className="inline-flex w-fit items-center border-b border-neutral-900 pb-1 text-[9px] font-medium uppercase tracking-[0.28em] text-neutral-800">
+                Hand Made to Order
+              </span>
+              <p className="text-[12px] font-normal leading-relaxed tracking-wide text-neutral-500">
+                Crafted upon order · Made just for you
+              </p>
+            </div>
+          )}
           <h1
             className={`text-[20px] md:text-[24px] font-bold leading-tight ${
-              product.consignment ? "mt-4" : "mt-1"
+              product.consignment || product.madeToOrder ? "mt-4" : "mt-1"
             }`}
           >
             {product.name}

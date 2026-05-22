@@ -56,6 +56,8 @@ export interface Product {
   sizeStocks: Record<string, number>;
   /** Curated resale: shown on PDP with condition copy when true */
   consignment: boolean;
+  /** Hand-crafted after purchase: shown on PDP as a "Hand made to order" badge */
+  madeToOrder: boolean;
   images: ProductImage[];
   /** Color variants. Empty array = single-color product (use product-level fields). */
   variants: ProductVariant[];
