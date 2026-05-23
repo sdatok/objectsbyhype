@@ -37,6 +37,12 @@ export interface ProductVariant {
   sizes: string[];
   /** Per-size stock for this color */
   sizeStocks: Record<string, number>;
+  /** Per-variant Etsy listing override (admin-only). null = inherit product */
+  etsyUrl: string | null;
+  /** Per-variant Etsy cost override (admin-only). null = inherit product */
+  etsyCost: number | null;
+  /** Per-variant Etsy checkout note override (admin-only). null = inherit product */
+  etsyNote: string | null;
 }
 
 export interface Product {
@@ -61,8 +67,28 @@ export interface Product {
   images: ProductImage[];
   /** Color variants. Empty array = single-color product (use product-level fields). */
   variants: ProductVariant[];
+  /** Etsy listing URL we re-order from when drop-shipping (admin-only) */
+  etsyUrl: string | null;
+  /** Etsy seller/shop name (admin-only) */
+  etsyShop: string | null;
+  /** Our cost on Etsy in USD (admin-only) */
+  etsyCost: number | null;
+  /** Text to paste at Etsy checkout (admin-only) */
+  etsyNote: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+/** Snapshot of the buyer's shipping address from Stripe Checkout. */
+export interface ShippingAddress {
+  name: string | null;
+  phone: string | null;
+  line1: string | null;
+  line2: string | null;
+  city: string | null;
+  state: string | null;
+  postalCode: string | null;
+  country: string | null;
 }
 
 export interface CartItem {

@@ -136,6 +136,10 @@ export async function POST(request: Request) {
         },
         quantity: l.quantity,
       })),
+      // Shipping + phone are required so we can drop-ship from Etsy: we need
+      // the buyer's address (and phone for the supplier) to fulfill the order.
+      shipping_address_collection: { allowed_countries: ["US"] },
+      phone_number_collection: { enabled: true },
       success_url: `${origin}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${origin}/shop?checkout=cancelled`,
       client_reference_id: order.id,

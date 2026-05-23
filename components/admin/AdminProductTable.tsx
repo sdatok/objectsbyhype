@@ -151,7 +151,18 @@ export default function AdminProductTable({
 
                 {/* Name + brand */}
                 <td className="px-4 py-3">
-                  <p className="text-[12px] font-medium">{product.name}</p>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="text-[12px] font-medium">{product.name}</p>
+                    {(product.etsyUrl ||
+                      product.variants.some((v) => v.etsyUrl)) && (
+                      <span
+                        title="Drop-shipped from Etsy"
+                        className="inline-flex items-center text-[9px] uppercase tracking-widest px-1.5 py-0.5 border border-orange-200 bg-orange-50 text-orange-700 rounded"
+                      >
+                        Drop-ship
+                      </span>
+                    )}
+                  </div>
                   <p className="text-[11px] text-neutral-400 mt-0.5">
                     {product.brand}
                   </p>

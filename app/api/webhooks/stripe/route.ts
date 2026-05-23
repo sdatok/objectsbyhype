@@ -3,8 +3,79 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getStripe } from "@/lib/stripe";
 import Stripe from "stripe";
+import type { Prisma } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
+
+interface ShippingSnapshot {
+  name: string | null;
+  phone: string | null;
+  line1: string | null;
+  line2: string | null;
+  city: string | null;
+  state: string | null;
+  postalCode: string | null;
+  country: string | null;
+}
+
+/**
+ * Pull the shipping address from a Stripe Checkout session. Stripe has shipped
+ * a few shapes over time; we try them in order: the newer `collected_information.shipping_details`,
+ * then the legacy `shipping_details`, then fall back to `customer_details` (billing address).
+ */
+function extractShipping(session: Stripe.Checkout.Session): ShippingSnapshot | null {
+  const collected = (
+    session as unknown as {
+      collected_information?: {
+        shipping_details?: {
+          name?: string | null;
+          address?: Stripe.Address | null;
+        } | null;
+      } | null;
+    }
+  ).collected_information?.shipping_details;
+
+  const legacy = (
+    session as unknown as {
+      shipping_details?: {
+        name?: string | null;
+        address?: Stripe.Address | null;
+      } | null;
+    }
+  ).shipping_details;
+
+  const billing = session.customer_details;
+  const phone = billing?.phone ?? null;
+
+  const source = collected ?? legacy ?? null;
+  if (source?.address) {
+    return {
+      name: source.name ?? billing?.name ?? null,
+      phone,
+      line1: source.address.line1 ?? null,
+      line2: source.address.line2 ?? null,
+      city: source.address.city ?? null,
+      state: source.address.state ?? null,
+      postalCode: source.address.postal_code ?? null,
+      country: source.address.country ?? null,
+    };
+  }
+
+  if (billing?.address) {
+    return {
+      name: billing.name ?? null,
+      phone,
+      line1: billing.address.line1 ?? null,
+      line2: billing.address.line2 ?? null,
+      city: billing.address.city ?? null,
+      state: billing.address.state ?? null,
+      postalCode: billing.address.postal_code ?? null,
+      country: billing.address.country ?? null,
+    };
+  }
+
+  return null;
+}
 
 export async function POST(request: Request) {
   const rawBody = await request.text();
@@ -95,12 +166,20 @@ export async function POST(request: Request) {
         const finalEmail =
           session.customer_details?.email ?? order.email ?? "";
 
+        const shipping = extractShipping(session);
+
         await tx.order.update({
           where: { id: orderId },
           data: {
             status: "PAID",
             stripePaymentIntentId: paymentIntentId,
             email: finalEmail || order.email,
+            ...(shipping
+              ? {
+                  shippingAddress:
+                    shipping as unknown as Prisma.InputJsonValue,
+                }
+              : {}),
           },
         });
 

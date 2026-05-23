@@ -12,6 +12,10 @@ export interface VariantDraft {
   sizes: string[];
   /** size -> stock count as string for the input */
   sizeStocks: Record<string, string>;
+  /** Etsy override values; "" = inherit product-level field. Admin-only. */
+  etsyUrl: string;
+  etsyCost: string;
+  etsyNote: string;
 }
 
 export function makeEmptyVariant(): VariantDraft {
@@ -23,6 +27,9 @@ export function makeEmptyVariant(): VariantDraft {
     images: [],
     sizes: [],
     sizeStocks: {},
+    etsyUrl: "",
+    etsyCost: "",
+    etsyNote: "",
   };
 }
 
@@ -341,6 +348,66 @@ export default function VariantEditor({
                     </div>
                   )}
                 </div>
+
+                {/* Etsy override (optional) — empty = inherit product-level Etsy fields */}
+                <details className="border-t border-neutral-100 pt-3 group">
+                  <summary className="list-none cursor-pointer flex items-center justify-between select-none">
+                    <span className="text-[10px] uppercase tracking-widest text-neutral-500">
+                      Etsy override (optional)
+                    </span>
+                    <span className="text-[10px] uppercase tracking-widest text-neutral-400">
+                      <span className="group-open:hidden">Show</span>
+                      <span className="hidden group-open:inline">Hide</span>
+                    </span>
+                  </summary>
+                  <div className="mt-3 space-y-3">
+                    <p className="text-[11px] text-neutral-500 leading-relaxed">
+                      Each color often maps to its own Etsy listing. Leave blank
+                      to inherit the product-level Etsy URL, cost, and note.
+                    </p>
+                    <input
+                      type="url"
+                      inputMode="url"
+                      autoCapitalize="off"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      value={v.etsyUrl}
+                      onChange={(e) =>
+                        updateAt(idx, { etsyUrl: e.target.value })
+                      }
+                      placeholder="https://www.etsy.com/listing/... (variant-specific)"
+                      className="w-full border border-neutral-300 px-3 py-2.5 text-base sm:text-[12px] focus:outline-none focus:border-black transition-colors"
+                    />
+                    <div className="grid grid-cols-1 sm:grid-cols-[140px_1fr] gap-3">
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[12px] text-neutral-400 pointer-events-none">
+                          $
+                        </span>
+                        <input
+                          type="number"
+                          inputMode="decimal"
+                          step="0.01"
+                          min="0"
+                          value={v.etsyCost}
+                          onChange={(e) =>
+                            updateAt(idx, { etsyCost: e.target.value })
+                          }
+                          placeholder="Cost"
+                          className="w-full border border-neutral-300 pl-7 pr-3 py-2.5 text-base sm:text-[12px] focus:outline-none focus:border-black transition-colors"
+                        />
+                      </div>
+                      <input
+                        type="text"
+                        value={v.etsyNote}
+                        onChange={(e) =>
+                          updateAt(idx, { etsyNote: e.target.value })
+                        }
+                        placeholder="Personalization / variant note for Etsy"
+                        className="w-full border border-neutral-300 px-3 py-2.5 text-base sm:text-[12px] focus:outline-none focus:border-black transition-colors"
+                      />
+                    </div>
+                  </div>
+                </details>
 
                 <div className="pt-2 border-t border-neutral-100">
                   <button

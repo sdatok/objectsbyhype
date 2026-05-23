@@ -7,8 +7,19 @@ import {
   syncProductAggregateQuantity,
   type SizeQuantityMap,
 } from "@/lib/size-stock";
-import { replaceProductVariants, type VariantInput } from "@/lib/variants";
+import {
+  normalizeEtsyNote,
+  normalizeEtsyUrl,
+  replaceProductVariants,
+  type VariantInput,
+} from "@/lib/variants";
 import { PRODUCT_INCLUDE } from "@/lib/map-product";
+
+function parseEtsyCost(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const n = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(n) && n >= 0 ? Math.round(n * 100) / 100 : null;
+}
 
 export const dynamic = "force-dynamic";
 
@@ -52,7 +63,19 @@ export async function PUT(request: Request, { params }: RouteParams) {
       consignment,
       madeToOrder,
       sizeStocks,
+      etsyUrl,
+      etsyShop,
+      etsyCost,
+      etsyNote,
     } = body;
+
+    const normalizedEtsyUrl = normalizeEtsyUrl(etsyUrl);
+    if (normalizedEtsyUrl === undefined) {
+      return NextResponse.json(
+        { error: "Etsy URL must be a valid etsy.com link" },
+        { status: 400 }
+      );
+    }
 
     const sizeList: string[] = sizes ?? [];
     const stockMap: SizeQuantityMap = sizeStocks ?? {};
@@ -78,6 +101,12 @@ export async function PUT(request: Request, { params }: RouteParams) {
           quantity: quantity ?? 0,
           consignment: Boolean(consignment),
           madeToOrder: Boolean(madeToOrder),
+          etsyUrl: normalizedEtsyUrl,
+          etsyShop: typeof etsyShop === "string" && etsyShop.trim()
+            ? etsyShop.trim()
+            : null,
+          etsyCost: parseEtsyCost(etsyCost),
+          etsyNote: normalizeEtsyNote(etsyNote),
           images: {
             create: (images ?? []).map(
               (img: { url: string; displayOrder: number }) => ({

@@ -9,7 +9,18 @@ import {
 } from "@/lib/size-stock";
 import { STORE_VISIBLE_STATUSES } from "@/types";
 import { PRODUCT_INCLUDE } from "@/lib/map-product";
-import { replaceProductVariants, type VariantInput } from "@/lib/variants";
+import {
+  normalizeEtsyNote,
+  normalizeEtsyUrl,
+  replaceProductVariants,
+  type VariantInput,
+} from "@/lib/variants";
+
+function parseEtsyCost(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const n = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(n) && n >= 0 ? Math.round(n * 100) / 100 : null;
+}
 
 export const dynamic = "force-dynamic";
 
@@ -53,10 +64,22 @@ export async function POST(request: Request) {
       consignment,
       madeToOrder,
       sizeStocks,
+      etsyUrl,
+      etsyShop,
+      etsyCost,
+      etsyNote,
     } = body;
 
     if (!name || !brand || !slug || !price || !category) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+    }
+
+    const normalizedEtsyUrl = normalizeEtsyUrl(etsyUrl);
+    if (normalizedEtsyUrl === undefined) {
+      return NextResponse.json(
+        { error: "Etsy URL must be a valid etsy.com link" },
+        { status: 400 }
+      );
     }
 
     const sizeList: string[] = sizes ?? [];
@@ -80,6 +103,12 @@ export async function POST(request: Request) {
           quantity: quantity ?? 0,
           consignment: Boolean(consignment),
           madeToOrder: Boolean(madeToOrder),
+          etsyUrl: normalizedEtsyUrl,
+          etsyShop: typeof etsyShop === "string" && etsyShop.trim()
+            ? etsyShop.trim()
+            : null,
+          etsyCost: parseEtsyCost(etsyCost),
+          etsyNote: normalizeEtsyNote(etsyNote),
           images: {
             create: (images ?? []).map(
               (img: { url: string; displayOrder: number }) => ({

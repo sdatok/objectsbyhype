@@ -25,6 +25,16 @@ model Product {
   /// When true, PDP shows a "Hand made to order" identifier so buyers know
   /// the item is crafted after purchase rather than shipped from stock.
   madeToOrder Boolean            @default(false)
+  /// Drop-shipping: link to the Etsy listing we re-order from when this sells.
+  /// Admin-only — never surfaced on the storefront.
+  etsyUrl     String?
+  /// Etsy seller/shop name for quick reference (admin-only).
+  etsyShop    String?
+  /// Our buy price on Etsy in USD (admin-only, used for margin display).
+  etsyCost    Decimal?           @db.Decimal(10, 2)
+  /// Text to paste into the Etsy listing's personalization/notes field when
+  /// re-ordering (e.g. color/size/variant text). Admin-only.
+  etsyNote    String?            @db.Text
   images      ProductImage[]
   sizeStocks  ProductSizeStock[]
   variants    ProductVariant[]
@@ -50,6 +60,13 @@ model ProductVariant {
   /// Optional price override; null = use product.price
   price        Decimal?                  @db.Decimal(10, 2)
   displayOrder Int                       @default(0)
+  /// Per-variant Etsy link override (different color often = different Etsy
+  /// listing). Falls back to Product.etsyUrl when null. Admin-only.
+  etsyUrl      String?
+  /// Per-variant Etsy cost override; null = inherit Product.etsyCost.
+  etsyCost     Decimal?                  @db.Decimal(10, 2)
+  /// Per-variant note to paste at Etsy checkout; null = inherit Product.etsyNote.
+  etsyNote     String?                   @db.Text
   images       ProductVariantImage[]
   sizeStocks   ProductVariantSizeStock[]
   lineItems    OrderLineItem[]
@@ -156,6 +173,10 @@ model Order {
   shippingCarrier        String?
   trackingNumber         String?
   fulfillmentNotes       String?         @db.Text
+  /// Snapshot of the buyer's shipping address (and name/phone) captured from
+  /// Stripe Checkout at payment time. Used in admin fulfillment to copy/paste
+  /// into Etsy when drop-shipping.
+  shippingAddress        Json?
   welcomeDiscountApplied Boolean         @default(false)
   promoCodeId            String?
   promo                  PromoCode?      @relation(fields: [promoCodeId], references: [id], onDelete: SetNull)

@@ -43,6 +43,10 @@ export default function ProductForm({
     quantity: product?.quantity?.toString() ?? "0",
     consignment: product?.consignment ?? false,
     madeToOrder: product?.madeToOrder ?? false,
+    etsyUrl: product?.etsyUrl ?? "",
+    etsyShop: product?.etsyShop ?? "",
+    etsyCost: product?.etsyCost != null ? String(product.etsyCost) : "",
+    etsyNote: product?.etsyNote ?? "",
   });
 
   const [sizePricing, setSizePricing] = useState<Record<string, string>>(
@@ -78,6 +82,9 @@ export default function ProductForm({
         sizeStocks: Object.fromEntries(
           Object.entries(v.sizeStocks).map(([k, val]) => [k, String(val)])
         ),
+        etsyUrl: v.etsyUrl ?? "",
+        etsyCost: v.etsyCost != null ? String(v.etsyCost) : "",
+        etsyNote: v.etsyNote ?? "",
       })) ?? []
   );
 
@@ -211,10 +218,29 @@ export default function ProductForm({
           images: v.images,
           sizes: v.sizes,
           sizeStocks: cleanedStocks,
+          etsyUrl: v.etsyUrl.trim() || null,
+          etsyCost: v.etsyCost.trim() ? parseFloat(v.etsyCost) : null,
+          etsyNote: v.etsyNote.trim() || null,
         };
       });
 
     const totalQuantity = productLevelSum + variantStockTotal;
+
+    const trimmedEtsyUrl = form.etsyUrl.trim();
+    if (trimmedEtsyUrl) {
+      try {
+        const parsed = new URL(trimmedEtsyUrl);
+        if (!parsed.hostname.toLowerCase().includes("etsy.com")) {
+          setError("Etsy URL must be an etsy.com link");
+          setLoading(false);
+          return;
+        }
+      } catch {
+        setError("Etsy URL is not a valid URL");
+        setLoading(false);
+        return;
+      }
+    }
 
     const payload = {
       ...form,
@@ -226,6 +252,10 @@ export default function ProductForm({
       sizeStocks,
       images,
       variants: variantsPayload,
+      etsyUrl: trimmedEtsyUrl || null,
+      etsyShop: form.etsyShop.trim() || null,
+      etsyCost: form.etsyCost.trim() ? parseFloat(form.etsyCost) : null,
+      etsyNote: form.etsyNote.trim() || null,
     };
 
     try {
@@ -261,6 +291,31 @@ export default function ProductForm({
       : form.category === "Decor" || form.category === "Cushions"
       ? SIZE_PRESETS.Decor
       : SIZE_PRESETS.Furniture;
+
+  // Live margin readout for the Drop-shipping section.
+  const parsedSalePrice = parseFloat(form.price);
+  const parsedCost = parseFloat(form.etsyCost);
+  const showMargin =
+    Number.isFinite(parsedSalePrice) &&
+    parsedSalePrice > 0 &&
+    Number.isFinite(parsedCost) &&
+    parsedCost >= 0;
+  const margin = showMargin ? parsedSalePrice - parsedCost : 0;
+  const marginPct = showMargin && parsedSalePrice > 0
+    ? Math.round((margin / parsedSalePrice) * 100)
+    : 0;
+
+  // Etsy URL inline validation (non-blocking warning — server is the source of truth).
+  const trimmedEtsyUrl = form.etsyUrl.trim();
+  let etsyUrlValid: boolean | null = null;
+  if (trimmedEtsyUrl) {
+    try {
+      const parsed = new URL(trimmedEtsyUrl);
+      etsyUrlValid = parsed.hostname.toLowerCase().includes("etsy.com");
+    } catch {
+      etsyUrlValid = false;
+    }
+  }
 
   return (
     <form onSubmit={handleSubmit} className="max-w-3xl space-y-8">
@@ -493,6 +548,151 @@ export default function ProductForm({
             how it&apos;ll look.
           </p>
         </div>
+      </section>
+
+      {/* Drop-shipping (Etsy) — collapsible, admin-only */}
+      <section className="bg-white border border-neutral-200 rounded">
+        <details
+          open={Boolean(
+            form.etsyUrl || form.etsyShop || form.etsyCost || form.etsyNote
+          )}
+          className="group"
+        >
+          <summary className="list-none cursor-pointer flex items-center justify-between px-6 py-4 select-none">
+            <div>
+              <h2 className="text-[11px] uppercase tracking-widest font-bold">
+                Drop-shipping (Etsy)
+              </h2>
+              <p className="text-[11px] text-neutral-500 mt-0.5">
+                Optional. Paste the Etsy listing you re-order from when this
+                product sells. Admin-only — never shown to buyers.
+              </p>
+            </div>
+            <span className="text-[11px] uppercase tracking-widest text-neutral-500 ml-3 shrink-0">
+              <span className="group-open:hidden">Open</span>
+              <span className="hidden group-open:inline">Close</span>
+            </span>
+          </summary>
+
+          <div className="px-6 pb-6 pt-2 space-y-5">
+            <div>
+              <label
+                htmlFor="etsy-url"
+                className="block text-[10px] uppercase tracking-widest text-neutral-500 mb-2"
+              >
+                Etsy listing URL
+              </label>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <input
+                  id="etsy-url"
+                  type="url"
+                  inputMode="url"
+                  autoCapitalize="off"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  value={form.etsyUrl}
+                  onChange={(e) => update("etsyUrl", e.target.value)}
+                  placeholder="https://www.etsy.com/listing/1234567890/..."
+                  className="flex-1 min-w-0 border border-neutral-300 px-3 py-3 text-base sm:text-[13px] focus:outline-none focus:border-black transition-colors"
+                />
+                {etsyUrlValid ? (
+                  <a
+                    href={trimmedEtsyUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center justify-center min-h-[44px] px-4 text-[11px] uppercase tracking-widest border border-black bg-white hover:bg-black hover:text-white transition-colors whitespace-nowrap"
+                  >
+                    Open listing ↗
+                  </a>
+                ) : (
+                  <span className="hidden sm:inline-flex items-center justify-center min-h-[44px] px-4 text-[11px] uppercase tracking-widest border border-neutral-200 text-neutral-300 whitespace-nowrap select-none">
+                    Open listing ↗
+                  </span>
+                )}
+              </div>
+              {etsyUrlValid === false && (
+                <p className="text-[11px] text-red-600 mt-1.5">
+                  This doesn&apos;t look like an etsy.com URL.
+                </p>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+              <div>
+                <label
+                  htmlFor="etsy-shop"
+                  className="block text-[10px] uppercase tracking-widest text-neutral-500 mb-2"
+                >
+                  Etsy shop name
+                </label>
+                <input
+                  id="etsy-shop"
+                  type="text"
+                  value={form.etsyShop}
+                  onChange={(e) => update("etsyShop", e.target.value)}
+                  placeholder="e.g. SunsetCeramicsCo"
+                  className="w-full border border-neutral-300 px-3 py-3 text-base sm:text-[13px] focus:outline-none focus:border-black transition-colors"
+                />
+              </div>
+              <div>
+                <label
+                  htmlFor="etsy-cost"
+                  className="block text-[10px] uppercase tracking-widest text-neutral-500 mb-2"
+                >
+                  Your cost on Etsy (USD)
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[13px] text-neutral-400 pointer-events-none">
+                    $
+                  </span>
+                  <input
+                    id="etsy-cost"
+                    type="number"
+                    inputMode="decimal"
+                    step="0.01"
+                    min="0"
+                    value={form.etsyCost}
+                    onChange={(e) => update("etsyCost", e.target.value)}
+                    placeholder="0.00"
+                    className="w-full border border-neutral-300 pl-7 pr-3 py-3 text-base sm:text-[13px] focus:outline-none focus:border-black transition-colors"
+                  />
+                </div>
+                {showMargin && (
+                  <p
+                    className={`text-[11px] mt-1.5 ${
+                      margin >= 0 ? "text-green-700" : "text-red-600"
+                    }`}
+                  >
+                    Margin: ${margin.toFixed(2)}{" "}
+                    <span className="text-neutral-400">({marginPct}%)</span>
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div>
+              <label
+                htmlFor="etsy-note"
+                className="block text-[10px] uppercase tracking-widest text-neutral-500 mb-2"
+              >
+                Note to paste at Etsy checkout
+              </label>
+              <textarea
+                id="etsy-note"
+                value={form.etsyNote}
+                onChange={(e) => update("etsyNote", e.target.value)}
+                rows={3}
+                placeholder={"e.g. Color: Sand, Size: 24x36\nNo personalization."}
+                className="w-full border border-neutral-300 px-3 py-2.5 text-base sm:text-[13px] focus:outline-none focus:border-black transition-colors resize-y font-mono"
+              />
+              <p className="text-[11px] text-neutral-500 mt-1.5 leading-relaxed">
+                One-tap copy of this text appears next to the &ldquo;Order on
+                Etsy&rdquo; button on each order so you can paste it straight
+                into the listing&apos;s personalization field.
+              </p>
+            </div>
+          </div>
+        </details>
       </section>
 
       {/* Sizes + per-size pricing */}

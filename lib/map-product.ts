@@ -53,6 +53,10 @@ function toStoreVariant(v: PrismaVariantWithRelations): ProductVariant {
       })),
     sizes: Object.keys(sizeStocks),
     sizeStocks,
+    etsyUrl: v.etsyUrl ?? null,
+    etsyCost:
+      v.etsyCost === null || v.etsyCost === undefined ? null : Number(v.etsyCost),
+    etsyNote: v.etsyNote ?? null,
   };
 }
 
@@ -85,6 +89,11 @@ export function toStoreProduct(p: PrismaProductWithRelations): Product {
         displayOrder: img.displayOrder,
       })),
     variants,
+    etsyUrl: p.etsyUrl ?? null,
+    etsyShop: p.etsyShop ?? null,
+    etsyCost:
+      p.etsyCost === null || p.etsyCost === undefined ? null : Number(p.etsyCost),
+    etsyNote: p.etsyNote ?? null,
     createdAt: p.createdAt.toISOString(),
     updatedAt: p.updatedAt.toISOString(),
   };
