@@ -38,7 +38,17 @@ type Phase = "idle" | "playing" | "gameOver" | "submitted";
 
 const POINTS_PER_TASK = 10;
 const WRONG_TAP_PENALTY = 2;
-const MIN_SPAWN_MS = 700;
+
+// Game tuning — short, intense rounds. Difficulty ramps fast so even good
+// players cap out around the 45-60s mark.
+const ROUND_MAX_SECONDS = 60;
+const INITIAL_SPAWN_MS = 1700;
+const SPAWN_DECAY_MS_PER_SEC = 38;
+const MIN_SPAWN_MS = 480;
+// Task drops live for at most ~4s at the start, ramping down toward MIN.
+const MAX_TASK_MS = 4000;
+const TASK_DECAY_MS_PER_SEC = 120;
+const MIN_TASK_MS = 1100;
 
 interface RemainingTime {
   hours: number;
@@ -141,13 +151,19 @@ export default function HomeGame() {
       const cfg = stateRef.current;
       if (!cfg) return;
 
-      elapsedSecondsRef.current = Math.floor(
-        (now - startedAtRef.current) / 1000
-      );
+      const elapsedSec = (now - startedAtRef.current) / 1000;
+      elapsedSecondsRef.current = Math.floor(elapsedSec);
 
+      // Hard cap — every round ends at ROUND_MAX_SECONDS regardless of misses.
+      if (elapsedSec >= ROUND_MAX_SECONDS) {
+        queueMicrotask(() => setPhase("gameOver"));
+        return;
+      }
+
+      // Spawn cadence shrinks quickly so the game gets harder fast.
       const baseSpawn = Math.max(
         MIN_SPAWN_MS,
-        2200 / cfg.gameSpeed - elapsedSecondsRef.current * 18
+        INITIAL_SPAWN_MS / cfg.gameSpeed - elapsedSec * SPAWN_DECAY_MS_PER_SEC
       );
 
       if (now - lastSpawnRef.current > baseSpawn) {
@@ -155,10 +171,12 @@ export default function HomeGame() {
         const free = STATION_IDS.filter((s) => !occupied.has(s));
         if (free.length > 0) {
           const station = free[Math.floor(Math.random() * free.length)];
-          const baseMs = cfg.taskBaseSeconds * 1000;
+          // Drop lifetime: cap at MAX_TASK_MS regardless of admin config,
+          // then decay rapidly toward MIN_TASK_MS as the round progresses.
+          const baseMs = Math.min(MAX_TASK_MS, cfg.taskBaseSeconds * 1000);
           const decayed = Math.max(
-            1500,
-            baseMs - elapsedSecondsRef.current * 60
+            MIN_TASK_MS,
+            baseMs - elapsedSec * TASK_DECAY_MS_PER_SEC
           );
           const id = `t${nextTaskIdRef.current++}`;
           const imageIndex = nextImageIdxRef.current++;

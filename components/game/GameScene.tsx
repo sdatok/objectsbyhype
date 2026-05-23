@@ -69,15 +69,15 @@ const COLORS = {
   flameMid: "#e879f9",
   white: "#ffffff",
   redBox: "#dc2626",
-  skin: "#f5d2a8",
   denim: "#1e293b",
-  bapeGreen: "#3f6f44",
-  bapeBrown: "#6b5028",
-  bapeDark: "#2d4a26",
-  bapeLight: "#7a9c4e",
+  // Pink BAPE ABC camo palette — matches the reference image.
+  bapePinkBase: "#fbcfe8",
+  bapePinkMid: "#f472b6",
+  bapePinkHot: "#ec4899",
+  bapePinkRed: "#be123c",
   silver: "#cbd5e1",
   glass: "#0f172a",
-  shirt: "#e879f9",
+  shirtBlack: "#0a0a0a",
   warning: "#fb7185",
 };
 
@@ -537,24 +537,31 @@ function PhotoStation({ flashing }: { flashing: boolean }) {
 
   return (
     <group>
-      {/* Tripod legs */}
-      {([
-        [-0.35, 0.55, 0.4],
-        [0.35, 0.55, 0.4],
-        [0, 0.55, -0.5],
-      ] as [number, number, number][]).map((p, i) => (
-        <RoundedBox
-          key={i}
-          args={[0.07, 1.1, 0.07]}
-          radius={0.02}
-          smoothness={2}
-          position={p}
-        >
-          <meshStandardMaterial color={COLORS.glass} />
-        </RoundedBox>
-      ))}
-      {/* Tripod head / mount */}
-      <RoundedBox args={[0.18, 0.1, 0.18]} radius={0.02} smoothness={2} position={[0, 1.15, 0]}>
+      {/* Square base plate sitting on the ground */}
+      <RoundedBox
+        args={[0.36, 0.05, 0.36]}
+        radius={0.015}
+        smoothness={2}
+        position={[0, 0.025, 0]}
+      >
+        <meshStandardMaterial color={COLORS.glass} />
+      </RoundedBox>
+      {/* Single vertical pole from base up to phone mount */}
+      <RoundedBox
+        args={[0.07, 1.15, 0.07]}
+        radius={0.02}
+        smoothness={2}
+        position={[0, 0.625, 0]}
+      >
+        <meshStandardMaterial color={COLORS.glass} />
+      </RoundedBox>
+      {/* Phone mount / knuckle on top of the pole */}
+      <RoundedBox
+        args={[0.18, 0.1, 0.18]}
+        radius={0.02}
+        smoothness={2}
+        position={[0, 1.21, 0]}
+      >
         <meshStandardMaterial color={COLORS.glass} />
       </RoundedBox>
 
@@ -563,13 +570,12 @@ function PhotoStation({ flashing }: { flashing: boolean }) {
         args={[0.42, 0.78, 0.06]}
         radius={0.06}
         smoothness={4}
-        position={[0, 1.55, 0.05]}
-        rotation={[0, 0, 0]}
+        position={[0, 1.6, 0.05]}
       >
         <meshStandardMaterial color={COLORS.glass} />
       </RoundedBox>
       {/* Phone screen — viewfinder or flash */}
-      <mesh position={[0, 1.55, 0.085]}>
+      <mesh position={[0, 1.6, 0.085]}>
         <planeGeometry args={[0.36, 0.7]} />
         {flashing ? (
           <meshBasicMaterial
@@ -586,36 +592,92 @@ function PhotoStation({ flashing }: { flashing: boolean }) {
         )}
       </mesh>
       {/* Camera lens cluster on the back (tiny visual) */}
-      <mesh position={[0.16, 1.85, 0.0]}>
+      <mesh position={[0.16, 1.9, 0]}>
         <boxGeometry args={[0.05, 0.05, 0.04]} />
         <meshStandardMaterial color={COLORS.silver} />
       </mesh>
 
-      {/* Clothing piece being photographed — a folded t-shirt */}
-      <TShirt position={[0, 0.05, 1.4]} />
+      {/* Black LV t-shirt hanging directly in front of the phone — this is
+          the subject being photographed. */}
+      <LVTShirt position={[0, 1.35, 0.65]} />
 
-      {/* Bright flash burst — invisible by default, visible while flashing */}
+      {/* Bright flash burst — bigger + brighter so the click feels punchy. */}
       {flashing && (
-        <mesh position={[0, 1.55, 0.15]}>
-          <sphereGeometry args={[0.55, 16, 16]} />
-          <meshBasicMaterial color="#ffffff" transparent opacity={0.6} />
-        </mesh>
+        <>
+          <mesh position={[0, 1.6, 0.2]}>
+            <sphereGeometry args={[0.72, 16, 16]} />
+            <meshBasicMaterial color="#ffffff" transparent opacity={0.75} />
+          </mesh>
+          {/* Wider outer halo */}
+          <mesh position={[0, 1.6, 0.18]}>
+            <sphereGeometry args={[1.15, 16, 16]} />
+            <meshBasicMaterial color="#ffffff" transparent opacity={0.28} />
+          </mesh>
+        </>
       )}
     </group>
   );
 }
 
-function TShirt({ position }: { position: [number, number, number] }) {
+/** Upright black t-shirt with a white LV monogram on the chest, hanging
+ *  vertically in front of the phone as the photo subject. */
+function LVTShirt({ position }: { position: [number, number, number] }) {
+  const lvTex = useCanvasTexture(256, 320, (ctx, w, h) => {
+    // Solid black tee background
+    ctx.fillStyle = "#0a0a0a";
+    ctx.fillRect(0, 0, w, h);
+    // White LV monogram, centered, big and bold
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 150px 'Press Start 2P', system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("LV", w / 2, h / 2);
+  });
+
   return (
     <group position={position}>
-      {/* Body of folded shirt */}
-      <RoundedBox args={[0.7, 0.16, 0.55]} radius={0.04} smoothness={3} position={[0, 0.1, 0]}>
-        <meshStandardMaterial color={COLORS.shirt} />
+      {/* Hanger bar just above the shoulders */}
+      <mesh position={[0, 0.5, 0]}>
+        <boxGeometry args={[0.22, 0.02, 0.02]} />
+        <meshStandardMaterial color={COLORS.silver} />
+      </mesh>
+      {/* Hanger hook */}
+      <mesh position={[0, 0.6, 0]} rotation={[0, 0, Math.PI]}>
+        <torusGeometry args={[0.05, 0.008, 8, 16, Math.PI]} />
+        <meshStandardMaterial color={COLORS.silver} />
+      </mesh>
+
+      {/* Shirt body — flat upright panel facing the player */}
+      <mesh position={[0, 0, 0.01]}>
+        <planeGeometry args={[0.7, 0.85]} />
+        <meshBasicMaterial map={lvTex} toneMapped={false} />
+      </mesh>
+      {/* Back of the shirt so it's solid from behind too */}
+      <mesh position={[0, 0, 0]} rotation={[0, Math.PI, 0]}>
+        <planeGeometry args={[0.7, 0.85]} />
+        <meshStandardMaterial color={COLORS.shirtBlack} />
+      </mesh>
+      {/* Shoulders / sleeves — chunky pixel cubes off to the sides */}
+      <RoundedBox
+        args={[0.22, 0.18, 0.06]}
+        radius={0.02}
+        smoothness={2}
+        position={[-0.4, 0.32, 0]}
+      >
+        <meshStandardMaterial color={COLORS.shirtBlack} />
       </RoundedBox>
-      {/* Collar strip */}
-      <mesh position={[0, 0.19, -0.18]}>
-        <boxGeometry args={[0.28, 0.02, 0.12]} />
-        <meshStandardMaterial color={COLORS.white} />
+      <RoundedBox
+        args={[0.22, 0.18, 0.06]}
+        radius={0.02}
+        smoothness={2}
+        position={[0.4, 0.32, 0]}
+      >
+        <meshStandardMaterial color={COLORS.shirtBlack} />
+      </RoundedBox>
+      {/* Collar notch */}
+      <mesh position={[0, 0.42, 0.02]}>
+        <boxGeometry args={[0.12, 0.04, 0.005]} />
+        <meshStandardMaterial color={COLORS.shirtBlack} />
       </mesh>
     </group>
   );
@@ -645,14 +707,19 @@ function Character({ at }: { at: StationId }) {
     ref.current.rotation.y = lerpedRot.current;
   });
 
-  // BAPE camo texture used on the body + sleeves + hood.
+  // Pink BAPE ABC camo — soft pink base with hot-pink + red splotches to
+  // match the reference image.
   const camoTex = useCanvasTexture(160, 160, (ctx, w, h) => {
-    ctx.fillStyle = COLORS.bapeGreen;
+    ctx.fillStyle = COLORS.bapePinkBase;
     ctx.fillRect(0, 0, w, h);
-    const palette = [COLORS.bapeLight, COLORS.bapeDark, COLORS.bapeBrown];
-    for (let i = 0; i < 28; i++) {
+    const palette = [
+      COLORS.bapePinkMid,
+      COLORS.bapePinkHot,
+      COLORS.bapePinkRed,
+    ];
+    for (let i = 0; i < 34; i++) {
       const c = palette[i % palette.length];
-      const r = 10 + Math.random() * 8;
+      const r = 9 + Math.random() * 9;
       ctx.fillStyle = c;
       ctx.beginPath();
       ctx.arc(Math.random() * w, Math.random() * h, r, 0, Math.PI * 2);
@@ -676,15 +743,10 @@ function Character({ at }: { at: StationId }) {
       <RoundedBox args={[0.18, 0.36, 0.18]} radius={0.05} smoothness={3} position={[0.12, 0.28, 0]}>
         <meshStandardMaterial color={COLORS.denim} />
       </RoundedBox>
-      {/* Hoodie body (rounded) */}
+      {/* Hoodie body */}
       <RoundedBox args={[0.54, 0.6, 0.34]} radius={0.08} smoothness={4} position={[0, 0.74, 0]}>
         <meshStandardMaterial map={camoTex} />
       </RoundedBox>
-      {/* Front zipper line */}
-      <mesh position={[0, 0.74, 0.175]}>
-        <boxGeometry args={[0.015, 0.55, 0.005]} />
-        <meshStandardMaterial color={COLORS.silver} emissive={COLORS.silver} emissiveIntensity={0.6} />
-      </mesh>
       {/* Arms */}
       <RoundedBox args={[0.16, 0.55, 0.2]} radius={0.06} smoothness={4} position={[-0.34, 0.74, 0]}>
         <meshStandardMaterial map={camoTex} />
@@ -692,75 +754,155 @@ function Character({ at }: { at: StationId }) {
       <RoundedBox args={[0.16, 0.55, 0.2]} radius={0.06} smoothness={4} position={[0.34, 0.74, 0]}>
         <meshStandardMaterial map={camoTex} />
       </RoundedBox>
-      {/* Chrome Hearts–style silver chain */}
-      <mesh position={[0, 0.92, 0.18]}>
-        <boxGeometry args={[0.3, 0.04, 0.02]} />
+
+      {/* BAPE SHARK HOODIE — fully zipped up, hood covers the entire head with
+          the iconic shark face print on the front. No visible skin. */}
+      <BapeSharkHood camoTex={camoTex} />
+
+      {/* Zipper — runs all the way from chest to the very top of the hood,
+          like the shirt is zipped fully closed. */}
+      <mesh position={[0, 0.96, 0.176]}>
+        <boxGeometry args={[0.018, 1.06, 0.005]} />
+        <meshStandardMaterial
+          color={COLORS.silver}
+          emissive={COLORS.silver}
+          emissiveIntensity={0.55}
+        />
+      </mesh>
+      {/* Zipper pull at the top */}
+      <mesh position={[0, 1.5, 0.185]}>
+        <boxGeometry args={[0.045, 0.035, 0.018]} />
         <meshStandardMaterial color={COLORS.silver} emissive={COLORS.silver} emissiveIntensity={0.5} />
       </mesh>
-
-      {/* Head (rounded, more spherical) */}
-      <mesh position={[0, 1.18, 0]}>
-        <sphereGeometry args={[0.2, 16, 12]} />
-        <meshStandardMaterial color={COLORS.skin} />
-      </mesh>
-
-      {/* BAPE SHARK HOODIE — hood pulled up over the head, with teeth on the front. */}
-      <BapeSharkHood camoTex={camoTex} />
     </group>
   );
 }
 
-/** Hood + zipper + shark teeth + eyes. Built as small rounded boxes so it
- *  reads as a pixel/voxel shark hoodie up close. */
+/** Hood that fully covers the head + the BAPE shark face print drawn as a
+ *  transparent canvas texture on a plane in front of the hood. */
 function BapeSharkHood({ camoTex }: { camoTex: THREE.Texture }) {
+  // Shark face print: two eyes high on the hood, and a big black mouth
+  // outline ringed with white teeth. Transparent background so the pink
+  // camo on the hood shows through everywhere else.
+  const faceTex = useCanvasTexture(512, 512, (ctx, w, h) => {
+    ctx.clearRect(0, 0, w, h);
+
+    // ----- Eyes (upper third) -----
+    const eyeY = h * 0.32;
+    const eyeR = 56;
+    const eyeOffset = 95;
+
+    function drawEye(cx: number, cy: number) {
+      // Outer black outline
+      ctx.fillStyle = "#000000";
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, eyeR + 10, eyeR + 12, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // White eye-print body
+      ctx.fillStyle = "#ffffff";
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, eyeR, eyeR + 4, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // Pink iris hint
+      ctx.fillStyle = COLORS.bapePinkHot;
+      ctx.beginPath();
+      ctx.ellipse(cx, cy + 8, eyeR * 0.55, eyeR * 0.6, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // Pupil
+      ctx.fillStyle = "#000000";
+      ctx.beginPath();
+      ctx.ellipse(cx, cy + 8, 16, 22, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    drawEye(w / 2 - eyeOffset, eyeY);
+    drawEye(w / 2 + eyeOffset, eyeY);
+
+    // ----- Mouth: outer black shape (huge curved smile-ish) -----
+    ctx.fillStyle = "#000000";
+    ctx.beginPath();
+    ctx.moveTo(40, h * 0.55);
+    ctx.bezierCurveTo(60, h * 0.95, w - 60, h * 0.95, w - 40, h * 0.55);
+    ctx.bezierCurveTo(w - 80, h * 0.7, 80, h * 0.7, 40, h * 0.55);
+    ctx.fill();
+
+    // ----- Upper teeth (point down) -----
+    ctx.fillStyle = "#ffffff";
+    const upperToothCount = 11;
+    const mouthLeft = 70;
+    const mouthRight = w - 70;
+    const upperBaseY = h * 0.6;
+    for (let i = 0; i < upperToothCount; i++) {
+      const t = i / (upperToothCount - 1);
+      const x = mouthLeft + (mouthRight - mouthLeft) * t;
+      const tipDip = Math.sin(t * Math.PI) * 18; // teeth get longer toward center
+      ctx.beginPath();
+      ctx.moveTo(x - 22, upperBaseY);
+      ctx.lineTo(x + 22, upperBaseY);
+      ctx.lineTo(x, upperBaseY + 32 + tipDip);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // ----- Lower teeth (point up) -----
+    const lowerToothCount = 9;
+    const lowerBaseY = h * 0.92;
+    const mouthLeftL = 100;
+    const mouthRightL = w - 100;
+    for (let i = 0; i < lowerToothCount; i++) {
+      const t = i / (lowerToothCount - 1);
+      const x = mouthLeftL + (mouthRightL - mouthLeftL) * t;
+      const tipRise = Math.sin(t * Math.PI) * 14;
+      ctx.beginPath();
+      ctx.moveTo(x - 18, lowerBaseY);
+      ctx.lineTo(x + 18, lowerBaseY);
+      ctx.lineTo(x, lowerBaseY - 26 - tipRise);
+      ctx.closePath();
+      ctx.fill();
+    }
+  });
+
   return (
     <group>
-      {/* Outer hood — wraps the head */}
-      <RoundedBox args={[0.46, 0.42, 0.46]} radius={0.12} smoothness={4} position={[0, 1.2, -0.02]}>
+      {/* Hood covers the head completely — pink camo, no visible skin. */}
+      <RoundedBox
+        args={[0.5, 0.5, 0.5]}
+        radius={0.14}
+        smoothness={4}
+        position={[0, 1.2, 0]}
+      >
         <meshStandardMaterial map={camoTex} />
       </RoundedBox>
-      {/* Hood brim — slight forward overhang */}
-      <RoundedBox args={[0.5, 0.06, 0.12]} radius={0.03} smoothness={3} position={[0, 1.39, 0.18]}>
+      {/* Hood brim — slight forward overhang at the top, like a peak */}
+      <RoundedBox
+        args={[0.54, 0.08, 0.12]}
+        radius={0.03}
+        smoothness={3}
+        position={[0, 1.42, 0.18]}
+      >
+        <meshStandardMaterial map={camoTex} />
+      </RoundedBox>
+      {/* Pointy hood tip on top */}
+      <RoundedBox
+        args={[0.18, 0.12, 0.18]}
+        radius={0.04}
+        smoothness={3}
+        position={[0, 1.5, -0.06]}
+      >
         <meshStandardMaterial map={camoTex} />
       </RoundedBox>
 
-      {/* Two eyes (the hoodie's eye prints) */}
-      <mesh position={[-0.08, 1.27, 0.21]}>
-        <boxGeometry args={[0.06, 0.06, 0.02]} />
-        <meshBasicMaterial color={COLORS.white} toneMapped={false} />
+      {/* SHARK FACE PRINT — transparent canvas texture floats just in front
+          of the hood so the camo shows through everywhere except the print. */}
+      <mesh position={[0, 1.18, 0.252]}>
+        <planeGeometry args={[0.5, 0.5]} />
+        <meshBasicMaterial
+          map={faceTex}
+          transparent
+          alphaTest={0.02}
+          toneMapped={false}
+        />
       </mesh>
-      <mesh position={[0.08, 1.27, 0.21]}>
-        <boxGeometry args={[0.06, 0.06, 0.02]} />
-        <meshBasicMaterial color={COLORS.white} toneMapped={false} />
-      </mesh>
-      <mesh position={[-0.08, 1.27, 0.22]}>
-        <boxGeometry args={[0.025, 0.025, 0.02]} />
-        <meshBasicMaterial color={COLORS.glass} toneMapped={false} />
-      </mesh>
-      <mesh position={[0.08, 1.27, 0.22]}>
-        <boxGeometry args={[0.025, 0.025, 0.02]} />
-        <meshBasicMaterial color={COLORS.glass} toneMapped={false} />
-      </mesh>
-
-      {/* Mouth area — a darker camo block to look like the zipped half */}
-      <RoundedBox args={[0.34, 0.14, 0.16]} radius={0.03} smoothness={3} position={[0, 1.13, 0.18]}>
-        <meshStandardMaterial color={COLORS.bapeDark} />
-      </RoundedBox>
-
-      {/* Shark teeth — small white triangular-ish cubes along the mouth */}
-      {[-0.13, -0.07, -0.01, 0.05, 0.11].map((x, i) => (
-        <mesh key={i} position={[x, 1.16, 0.245]} rotation={[Math.PI, 0, 0]}>
-          <coneGeometry args={[0.025, 0.05, 4]} />
-          <meshBasicMaterial color={COLORS.white} toneMapped={false} />
-        </mesh>
-      ))}
-      {/* Lower teeth */}
-      {[-0.1, -0.04, 0.02, 0.08].map((x, i) => (
-        <mesh key={`l${i}`} position={[x, 1.09, 0.245]}>
-          <coneGeometry args={[0.022, 0.045, 4]} />
-          <meshBasicMaterial color={COLORS.white} toneMapped={false} />
-        </mesh>
-      ))}
     </group>
   );
 }
@@ -781,6 +923,10 @@ function Task({ task, imageUrls }: TaskProps) {
   );
 }
 
+// Falling-drop motion bounds shared by all task variants.
+const TASK_START_Y = 5.2;
+const TASK_END_Y = 1.6;
+
 function TaskWithImage({ task, url }: { task: ActiveTask; url: string }) {
   const groupRef = useRef<THREE.Group>(null);
   const ringRef = useRef<THREE.Mesh>(null);
@@ -790,38 +936,40 @@ function TaskWithImage({ task, url }: { task: ActiveTask; url: string }) {
   );
   const fullDuration = task.expiresAt - task.spawnedAt;
 
-  // Texture is cached per URL so reusing the same product image across many
-  // task spawns doesn't re-download or re-decode.
+  // Texture cached per URL so reusing the same product image across spawns
+  // doesn't re-download or re-decode.
   const tex = useMemo(() => loadProductTexture(url), [url]);
 
-  useFrame((state) => {
+  useFrame(() => {
     if (!groupRef.current || !ringRef.current) return;
     const now = performance.now();
     const remaining = Math.max(0, task.expiresAt - now);
-    const ratio = fullDuration > 0 ? remaining / fullDuration : 0;
-    groupRef.current.position.y =
-      2.4 + Math.sin(state.clock.elapsedTime * 4 + task.spawnedAt) * 0.07;
-    groupRef.current.rotation.y = state.clock.elapsedTime * 0.5;
+    const lifeRatio = fullDuration > 0 ? remaining / fullDuration : 0;
+    // Drop straight down from TASK_START_Y to TASK_END_Y over the task's life.
+    const fall = 1 - lifeRatio;
+    groupRef.current.position.y = TASK_START_Y + (TASK_END_Y - TASK_START_Y) * fall;
 
-    ringRef.current.scale.set(ratio, ratio, 1);
+    ringRef.current.scale.set(lifeRatio, lifeRatio, 1);
     const mat = ringRef.current.material as THREE.MeshBasicMaterial;
-    mat.color.set(ratio < 0.25 ? COLORS.warning : COLORS.neonHot);
+    mat.color.set(lifeRatio < 0.25 ? COLORS.warning : COLORS.neonHot);
   });
 
   const stationPos = STATION_POSITIONS[task.stationId];
 
   return (
-    <group ref={groupRef} position={[stationPos[0], 2.4, stationPos[2]]}>
-      <RoundedBox args={[0.65, 0.65, 0.65]} radius={0.06} smoothness={3}>
-        <meshStandardMaterial
-          map={tex}
-          emissive="#ffffff"
-          emissiveMap={tex}
-          emissiveIntensity={0.18}
-          toneMapped={false}
-        />
-      </RoundedBox>
-      <mesh ref={ringRef} position={[0, 0, 0.36]}>
+    <group ref={groupRef} position={[stationPos[0], TASK_START_Y, stationPos[2]]}>
+      {/* Flat 2D billboard plane — texture always faces the player, no spin. */}
+      <mesh>
+        <planeGeometry args={[0.95, 0.95]} />
+        <meshBasicMaterial map={tex} transparent toneMapped={false} />
+      </mesh>
+      {/* Slight back panel so the drop reads against the white bg */}
+      <mesh position={[0, 0, -0.02]}>
+        <planeGeometry args={[1.02, 1.02]} />
+        <meshBasicMaterial color="#000000" transparent opacity={0.1} />
+      </mesh>
+      {/* Countdown ring — shrinks as the drop ages */}
+      <mesh ref={ringRef} position={[0, 0, 0.02]}>
         <primitive object={ringGeometry} attach="geometry" />
         <meshBasicMaterial color={COLORS.neonHot} side={THREE.DoubleSide} />
       </mesh>
@@ -838,27 +986,27 @@ function TaskFallback({ task }: { task: ActiveTask }) {
   );
   const fullDuration = task.expiresAt - task.spawnedAt;
 
-  useFrame((state) => {
+  useFrame(() => {
     if (!groupRef.current || !ringRef.current) return;
     const now = performance.now();
     const remaining = Math.max(0, task.expiresAt - now);
-    const ratio = fullDuration > 0 ? remaining / fullDuration : 0;
-    groupRef.current.position.y =
-      2.4 + Math.sin(state.clock.elapsedTime * 4 + task.spawnedAt) * 0.07;
-    groupRef.current.rotation.y = state.clock.elapsedTime * 0.5;
-    ringRef.current.scale.set(ratio, ratio, 1);
+    const lifeRatio = fullDuration > 0 ? remaining / fullDuration : 0;
+    const fall = 1 - lifeRatio;
+    groupRef.current.position.y = TASK_START_Y + (TASK_END_Y - TASK_START_Y) * fall;
+    ringRef.current.scale.set(lifeRatio, lifeRatio, 1);
     const mat = ringRef.current.material as THREE.MeshBasicMaterial;
-    mat.color.set(ratio < 0.25 ? COLORS.warning : COLORS.neonHot);
+    mat.color.set(lifeRatio < 0.25 ? COLORS.warning : COLORS.neonHot);
   });
 
   const stationPos = STATION_POSITIONS[task.stationId];
 
   return (
-    <group ref={groupRef} position={[stationPos[0], 2.4, stationPos[2]]}>
-      <RoundedBox args={[0.6, 0.6, 0.6]} radius={0.06} smoothness={3}>
-        <meshStandardMaterial color={COLORS.neonHot} />
-      </RoundedBox>
-      <mesh ref={ringRef} position={[0, 0, 0.34]}>
+    <group ref={groupRef} position={[stationPos[0], TASK_START_Y, stationPos[2]]}>
+      <mesh>
+        <planeGeometry args={[0.85, 0.85]} />
+        <meshBasicMaterial color={COLORS.neonHot} />
+      </mesh>
+      <mesh ref={ringRef} position={[0, 0, 0.02]}>
         <primitive object={ringGeometry} attach="geometry" />
         <meshBasicMaterial color={COLORS.neonHot} side={THREE.DoubleSide} />
       </mesh>
