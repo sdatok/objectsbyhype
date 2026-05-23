@@ -3,7 +3,6 @@
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  BRAND_IDS,
   STATION_IDS,
   STATION_LABELS,
   type ActiveTask,
@@ -30,6 +29,7 @@ interface PublicGameState {
   gameSpeed: number;
   maxMisses: number;
   taskBaseSeconds: number;
+  productImageUrls: string[];
   leaderboard: PublicScore[];
   lastWinner: PublicScore | null;
 }
@@ -69,11 +69,13 @@ export default function HomeGame() {
   const [state, setState] = useState<PublicGameState | null>(null);
   const [stateError, setStateError] = useState<string | null>(null);
   const [phase, setPhase] = useState<Phase>("idle");
+  const [expanded, setExpanded] = useState(false);
   const [score, setScore] = useState(0);
   const [misses, setMisses] = useState(0);
   const [tasks, setTasks] = useState<ActiveTask[]>([]);
   const [characterAt, setCharacterAt] = useState<StationId>("packing");
   const [flashStation, setFlashStation] = useState<StationId | null>(null);
+  const [cameraFlash, setCameraFlash] = useState(false);
   const [remaining, setRemaining] = useState<RemainingTime>({
     hours: 0,
     minutes: 0,
@@ -83,6 +85,7 @@ export default function HomeGame() {
   const startedAtRef = useRef<number>(0);
   const lastSpawnRef = useRef<number>(0);
   const nextTaskIdRef = useRef<number>(0);
+  const nextImageIdxRef = useRef<number>(0);
   const elapsedSecondsRef = useRef<number>(0);
 
   // Submission UI
@@ -91,8 +94,6 @@ export default function HomeGame() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
-  // Live refs of values the game loop uses, so the loop doesn't have to be a
-  // dependency of state setters.
   const phaseRef = useRef(phase);
   phaseRef.current = phase;
   const tasksRef = useRef(tasks);
@@ -117,7 +118,6 @@ export default function HomeGame() {
     loadState();
   }, [loadState]);
 
-  // Countdown ticker — updates every second.
   useEffect(() => {
     if (!state) return;
     const endsAt = new Date(state.windowEndsAt).getTime();
@@ -126,7 +126,6 @@ export default function HomeGame() {
       const next = computeRemaining(endsAt);
       setRemaining(next);
       if (next.expired) {
-        // Refetch — the server will roll the window.
         loadState();
       }
     }, 1000);
@@ -142,31 +141,31 @@ export default function HomeGame() {
       const cfg = stateRef.current;
       if (!cfg) return;
 
-      elapsedSecondsRef.current = Math.floor((now - startedAtRef.current) / 1000);
+      elapsedSecondsRef.current = Math.floor(
+        (now - startedAtRef.current) / 1000
+      );
 
-      // Difficulty curve: spawn interval shrinks ~1% per second, bounded.
       const baseSpawn = Math.max(
         MIN_SPAWN_MS,
         2200 / cfg.gameSpeed - elapsedSecondsRef.current * 18
       );
 
-      // Spawn if it's been long enough AND there's a free station.
       if (now - lastSpawnRef.current > baseSpawn) {
         const occupied = new Set(tasksRef.current.map((t) => t.stationId));
         const free = STATION_IDS.filter((s) => !occupied.has(s));
         if (free.length > 0) {
           const station = free[Math.floor(Math.random() * free.length)];
-          const brand = BRAND_IDS[Math.floor(Math.random() * BRAND_IDS.length)];
           const baseMs = cfg.taskBaseSeconds * 1000;
           const decayed = Math.max(
             1500,
             baseMs - elapsedSecondsRef.current * 60
           );
           const id = `t${nextTaskIdRef.current++}`;
+          const imageIndex = nextImageIdxRef.current++;
           const newTask: ActiveTask = {
             id,
             stationId: station,
-            brand,
+            imageIndex,
             spawnedAt: now,
             expiresAt: now + decayed,
           };
@@ -175,14 +174,12 @@ export default function HomeGame() {
         }
       }
 
-      // Expire tasks whose deadlines passed.
       const expired = tasksRef.current.filter((t) => t.expiresAt <= now);
       if (expired.length > 0) {
         setTasks((prev) => prev.filter((t) => t.expiresAt > now));
         setMisses((prev) => {
           const next = prev + expired.length;
           if (next >= (stateRef.current?.maxMisses ?? 3)) {
-            // End the game on the next frame so state updates settle first.
             queueMicrotask(() => setPhase("gameOver"));
           }
           return next;
@@ -201,30 +198,39 @@ export default function HomeGame() {
     setTasks([]);
     setCharacterAt("packing");
     setFlashStation(null);
+    setCameraFlash(false);
     setSubmitError(null);
     nextTaskIdRef.current = 0;
+    nextImageIdxRef.current = 0;
     startedAtRef.current = performance.now();
-    // Give a generous head start before the first spawn.
     lastSpawnRef.current = performance.now() - 200;
     elapsedSecondsRef.current = 0;
     setPhase("playing");
   }
 
-  function handleStationClick(id: StationId) {
+  const handleStationClick = useCallback((id: StationId) => {
     if (phaseRef.current !== "playing") return;
     setCharacterAt(id);
+    // Camera-station click always pops a "flash" — even on a wrong tap,
+    // because that's what you'd see if a phone shutter fired in an empty frame.
+    if (id === "camera") {
+      setCameraFlash(true);
+      window.setTimeout(() => setCameraFlash(false), 180);
+    }
     const hit = tasksRef.current.find((t) => t.stationId === id);
     if (hit) {
       setTasks((prev) => prev.filter((t) => t.id !== hit.id));
       setScore((s) => s + POINTS_PER_TASK);
       setFlashStation(id);
-      window.setTimeout(() => setFlashStation((f) => (f === id ? null : f)), 220);
+      window.setTimeout(
+        () => setFlashStation((f) => (f === id ? null : f)),
+        220
+      );
     } else {
       setScore((s) => Math.max(0, s - WRONG_TAP_PENALTY));
     }
-  }
+  }, []);
 
-  // Keyboard controls — 1, 2, 3 map to the three stations.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (phaseRef.current !== "playing") return;
@@ -234,7 +240,7 @@ export default function HomeGame() {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [handleStationClick]);
 
   async function submitScore(e: React.FormEvent) {
     e.preventDefault();
@@ -264,17 +270,32 @@ export default function HomeGame() {
     }
   }
 
+  function toggleExpanded() {
+    setExpanded((current) => {
+      const next = !current;
+      // Collapsing mid-round? Reset cleanly so we don't keep the game loop
+      // ticking against an unmounted 3D scene.
+      if (!next && phase === "playing") {
+        setPhase("idle");
+        setTasks([]);
+        setScore(0);
+        setMisses(0);
+      }
+      return next;
+    });
+  }
+
   if (stateError) {
     return (
-      <section className="bg-[#0b0214] text-white px-4 py-8 text-center text-[12px] uppercase tracking-widest text-neutral-400">
+      <section className="bg-white px-4 py-8 text-center font-pixel text-[10px] text-neutral-500">
         {stateError}
       </section>
     );
   }
   if (!state) {
     return (
-      <section className="bg-[#0b0214] text-white px-4 py-12 text-center text-[11px] uppercase tracking-widest text-neutral-500">
-        Loading the giveaway…
+      <section className="bg-white px-4 py-12 text-center font-pixel text-[10px] text-neutral-400">
+        LOADING…
       </section>
     );
   }
@@ -285,359 +306,396 @@ export default function HomeGame() {
   return (
     <section
       aria-label="OBH Giveaway Game"
-      className="relative overflow-hidden"
-      style={{
-        background:
-          "radial-gradient(80% 80% at 50% 0%, #2a0b4d 0%, #0b0214 60%, #050108 100%)",
-      }}
+      className="relative overflow-hidden bg-white text-black"
     >
-      {/* Decorative neon glow at the top, like the Ship NYC hero */}
+      {/* Soft purple glow at the top so the page doesn't feel sterile */}
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-x-0 -top-32 h-64 blur-3xl opacity-60"
+        className="pointer-events-none absolute inset-x-0 -top-32 h-64 blur-3xl opacity-40"
         style={{
           background:
-            "radial-gradient(50% 50% at 50% 50%, rgba(232,121,249,0.55), transparent 70%)",
+            "radial-gradient(50% 50% at 50% 50%, rgba(232,121,249,0.35), transparent 70%)",
         }}
       />
 
-      <div className="relative max-w-[1600px] mx-auto px-4 py-8 md:py-12 text-white">
-        {/* Top strip: prize + countdown */}
-        <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4 mb-6">
-          <div>
-            <p className="text-[12px] font-bold uppercase tracking-[0.32em] text-fuchsia-400">
-              Hourly Giveaway
-            </p>
-            <h2 className="text-white font-black uppercase tracking-[0.06em] text-[26px] sm:text-[34px] md:text-[44px] leading-[1.0] mt-2">
-              {state.prizeTitle}
-            </h2>
-            {state.prizeDescription && (
-              <p className="text-[13px] sm:text-[14px] text-neutral-300 mt-2 max-w-md leading-relaxed font-medium">
-                {state.prizeDescription}
-              </p>
-            )}
-          </div>
-          <div className="text-left md:text-right">
-            <p className="text-[12px] font-bold uppercase tracking-[0.32em] text-fuchsia-400">
-              Next winner in
-            </p>
-            <p
-              className="font-mono font-black text-white text-[40px] sm:text-[52px] md:text-[64px] leading-none mt-1 tabular-nums"
-              style={{
-                textShadow:
-                  "0 0 24px rgba(232,121,249,0.85), 0 0 4px rgba(232,121,249,1)",
-              }}
-            >
-              {pad(remaining.hours)}:{pad(remaining.minutes)}:
-              {pad(remaining.seconds)}
-            </p>
-          </div>
-        </div>
-
-        {/* HUD: score / misses / start */}
-        <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
-          <div className="flex items-center gap-6">
-            <div>
-              <p className="text-[11px] font-bold uppercase tracking-widest text-fuchsia-400">
-                Score
-              </p>
-              <p className="font-mono font-black text-[26px] tabular-nums text-white">
-                {score.toString().padStart(4, "0")}
-              </p>
-            </div>
-            <div>
-              <p className="text-[11px] font-bold uppercase tracking-widest text-fuchsia-400">
-                Misses
-              </p>
-              <p className="font-mono font-black text-[26px] tabular-nums">
-                <span className="text-white">{misses}</span>
-                <span className="text-neutral-500"> / {state.maxMisses}</span>
-              </p>
-            </div>
-          </div>
-          {phase === "idle" && (
-            <button
-              type="button"
-              onClick={startGame}
-              className="text-[13px] font-bold uppercase tracking-[0.18em] px-6 py-3 min-h-[48px] text-white transition-transform hover:scale-[1.03]"
-              style={{
-                background:
-                  "linear-gradient(135deg, #c026d3 0%, #7c3aed 100%)",
-                boxShadow: "0 0 24px rgba(192,38,211,0.55)",
-              }}
-            >
-              Play to win
-            </button>
-          )}
-          {phase === "playing" && (
-            <button
-              type="button"
-              onClick={() => setPhase("gameOver")}
-              className="border border-fuchsia-700/60 text-fuchsia-300 text-[12px] font-bold uppercase tracking-widest px-4 py-3 min-h-[44px] hover:border-fuchsia-400 hover:text-white transition-colors"
-            >
-              End round
-            </button>
-          )}
-        </div>
-
-        {/* 3D canvas */}
-        <div
-          className="relative w-full overflow-hidden rounded-lg border border-fuchsia-900/50 h-[44vh] sm:h-[48vh] md:h-[54vh] min-h-[320px]"
-          style={{
-            boxShadow:
-              "0 0 40px rgba(192,38,211,0.35), inset 0 0 0 1px rgba(232,121,249,0.15)",
-          }}
+      <div className="relative max-w-[1600px] mx-auto px-3 sm:px-4 py-6 md:py-10">
+        {/* COLLAPSIBLE TAB HEADER — clicking expands the game.
+            On mobile, the prize and countdown stack; on desktop they sit side-by-side. */}
+        <button
+          type="button"
+          onClick={toggleExpanded}
+          aria-expanded={expanded}
+          aria-controls="obh-game-body"
+          className="w-full text-left border-2 border-black bg-white hover:bg-fuchsia-50 active:bg-fuchsia-100 transition-colors px-4 py-4 sm:py-5"
+          style={{ boxShadow: expanded ? "0 0 0 #000" : "5px 5px 0 #000" }}
         >
-          <GameScene
-            tasks={tasks}
-            characterAt={characterAt}
-            flashStation={flashStation}
-            onStationClick={handleStationClick}
-          />
-
-          {/* Station name labels */}
-          <div className="absolute inset-x-0 bottom-2 px-3 pointer-events-none">
-            <div className="grid grid-cols-3 gap-2 text-center">
-              {STATION_IDS.map((id, i) => (
-                <div
-                  key={id}
-                  className="text-[11px] sm:text-[12px] font-bold uppercase tracking-widest text-fuchsia-300/90"
-                  style={{ textShadow: "0 1px 6px rgba(0,0,0,0.7)" }}
-                >
-                  <span className="hidden sm:inline text-fuchsia-500">
-                    {i + 1} ·{" "}
-                  </span>
-                  {STATION_LABELS[id]}
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Touch buttons for mobile while playing */}
-          {phase === "playing" && (
-            <div className="absolute inset-x-0 bottom-8 px-3 md:hidden pointer-events-none">
-              <div className="grid grid-cols-3 gap-2">
-                {STATION_IDS.map((id) => (
-                  <button
-                    key={id}
-                    type="button"
-                    onClick={() => handleStationClick(id)}
-                    className="pointer-events-auto min-h-[48px] text-[12px] font-bold uppercase tracking-widest text-white border border-fuchsia-400/60 bg-fuchsia-950/60 backdrop-blur-sm active:bg-fuchsia-700 transition-colors"
-                    style={{
-                      boxShadow: "0 0 16px rgba(232,121,249,0.35)",
-                    }}
-                  >
-                    {STATION_LABELS[id]}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Idle overlay — explains the game */}
-          {phase === "idle" && (
-            <div
-              className="absolute inset-0 flex items-end justify-center pointer-events-none"
-              style={{
-                background:
-                  "linear-gradient(to top, rgba(11,2,20,0.95) 0%, rgba(11,2,20,0.6) 45%, transparent 100%)",
-              }}
-            >
-              <div className="pb-10 px-4 text-center max-w-md">
-                <p className="text-[12px] font-bold uppercase tracking-[0.32em] text-fuchsia-400">
-                  How to play
+          <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
+            <div className="min-w-0">
+              <p className="font-pixel text-[9px] sm:text-[10px] text-fuchsia-600">
+                HOURLY GIVEAWAY
+              </p>
+              <h2 className="font-pixel text-black text-[18px] sm:text-[24px] md:text-[30px] leading-[1.25] mt-2 break-words">
+                {state.prizeTitle}
+              </h2>
+              {state.prizeDescription && expanded && (
+                <p className="font-pixel-body text-[18px] sm:text-[20px] text-neutral-700 mt-2 max-w-md leading-snug">
+                  {state.prizeDescription}
                 </p>
-                <p className="text-[14px] text-neutral-200 mt-3 leading-relaxed font-medium">
-                  Run the OBH ops desk. Tap a workstation when a{" "}
-                  <span className="text-fuchsia-300 font-bold">Supreme</span>,{" "}
-                  <span className="text-emerald-300 font-bold">BAPE</span>,{" "}
-                  <span className="text-slate-200 font-bold">
-                    Chrome Hearts
-                  </span>{" "}
-                  or{" "}
-                  <span className="text-amber-300 font-bold">Bear Brick</span>{" "}
-                  drops in. Miss {state.maxMisses} and you&apos;re out — top
-                  score this window wins the prize.
-                </p>
-                <p className="text-[11px] font-bold uppercase tracking-widest text-fuchsia-500 mt-4">
-                  Desktop: press 1, 2, 3
-                </p>
-              </div>
+              )}
             </div>
-          )}
-
-          {/* Game over modal */}
-          {phase === "gameOver" && (
-            <div className="absolute inset-0 bg-[rgba(11,2,20,0.92)] backdrop-blur-sm flex items-center justify-center p-4">
-              <form
-                onSubmit={submitScore}
-                className="w-full max-w-sm space-y-4"
-              >
-                <div className="text-center">
-                  <p className="text-[12px] font-bold uppercase tracking-[0.32em] text-fuchsia-400">
-                    Round over
-                  </p>
-                  <p
-                    className="font-mono font-black text-[56px] tabular-nums text-white mt-1"
-                    style={{
-                      textShadow: "0 0 30px rgba(232,121,249,0.85)",
-                    }}
-                  >
-                    {score.toString().padStart(4, "0")}
-                  </p>
-                  <p className="text-[13px] text-neutral-300 font-medium">
-                    Submit to be eligible for{" "}
-                    <span className="text-fuchsia-300 font-bold">
-                      {state.prizeTitle}
-                    </span>
-                  </p>
-                </div>
-                <input
-                  type="email"
-                  inputMode="email"
-                  autoCapitalize="off"
-                  autoCorrect="off"
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="you@email.com"
-                  className="w-full bg-[#1a0633] border border-fuchsia-700/60 px-3 py-3 min-h-[48px] text-base text-white placeholder-neutral-500 focus:outline-none focus:border-fuchsia-400 transition-colors"
-                />
-                <input
-                  type="text"
-                  value={displayName}
-                  onChange={(e) => setDisplayName(e.target.value)}
-                  placeholder="Display name (optional)"
-                  maxLength={32}
-                  className="w-full bg-[#1a0633] border border-fuchsia-700/60 px-3 py-3 min-h-[48px] text-base text-white placeholder-neutral-500 focus:outline-none focus:border-fuchsia-400 transition-colors"
-                />
-                {submitError && (
-                  <p className="text-[12px] text-rose-400 font-bold">
-                    {submitError}
-                  </p>
-                )}
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="w-full text-[13px] font-bold uppercase tracking-[0.18em] px-5 py-3 min-h-[48px] text-white disabled:opacity-50"
-                  style={{
-                    background:
-                      "linear-gradient(135deg, #c026d3 0%, #7c3aed 100%)",
-                    boxShadow: "0 0 24px rgba(192,38,211,0.55)",
-                  }}
-                >
-                  {submitting ? "Submitting…" : "Submit score"}
-                </button>
-                <button
-                  type="button"
-                  onClick={startGame}
-                  className="w-full border border-fuchsia-700/60 text-[12px] font-bold uppercase tracking-widest text-fuchsia-300 px-5 py-3 min-h-[44px] hover:border-fuchsia-400 hover:text-white transition-colors"
-                >
-                  Play again without submitting
-                </button>
-              </form>
-            </div>
-          )}
-
-          {/* Submitted */}
-          {phase === "submitted" && (
-            <div className="absolute inset-0 bg-[rgba(11,2,20,0.92)] backdrop-blur-sm flex items-center justify-center p-4">
-              <div className="text-center max-w-sm space-y-3 text-white">
-                <p className="text-[12px] font-bold uppercase tracking-[0.32em] text-fuchsia-400">
-                  Submitted
+            <div className="flex items-end gap-4 md:gap-5">
+              <div className="text-left md:text-right">
+                <p className="font-pixel text-[9px] sm:text-[10px] text-fuchsia-600">
+                  NEXT WINNER IN
                 </p>
                 <p
-                  className="font-mono font-black text-[40px] tabular-nums"
+                  className="font-pixel text-black text-[22px] sm:text-[30px] md:text-[36px] leading-none mt-1 tabular-nums"
                   style={{
-                    textShadow: "0 0 24px rgba(232,121,249,0.85)",
+                    textShadow:
+                      "2px 2px 0 rgba(232,121,249,0.35), 4px 4px 0 rgba(124,58,237,0.18)",
                   }}
                 >
-                  {score.toString().padStart(4, "0")}
+                  {pad(remaining.hours)}:{pad(remaining.minutes)}:
+                  {pad(remaining.seconds)}
                 </p>
-                <p className="text-[13px] text-neutral-300 font-medium leading-relaxed">
-                  If your score is highest when the countdown hits zero,
-                  we&apos;ll email you about{" "}
-                  <span className="text-fuchsia-300 font-bold">
-                    {state.prizeTitle}
-                  </span>
-                  .
-                </p>
-                <button
-                  type="button"
-                  onClick={startGame}
-                  className="text-[13px] font-bold uppercase tracking-[0.18em] px-6 py-3 min-h-[48px] text-white"
+              </div>
+              {/* Open/close chevron + label */}
+              <div className="flex flex-col items-center gap-1 shrink-0">
+                <span
+                  aria-hidden
+                  className="font-pixel text-[20px] text-fuchsia-600 leading-none transition-transform"
                   style={{
-                    background:
-                      "linear-gradient(135deg, #c026d3 0%, #7c3aed 100%)",
-                    boxShadow: "0 0 24px rgba(192,38,211,0.55)",
+                    transform: expanded ? "rotate(180deg)" : "rotate(0deg)",
+                    display: "inline-block",
                   }}
                 >
-                  Try again
-                </button>
+                  ▼
+                </span>
+                <span className="font-pixel text-[8px] text-fuchsia-600 hidden sm:block">
+                  {expanded ? "CLOSE" : "PLAY"}
+                </span>
               </div>
             </div>
-          )}
-        </div>
+          </div>
+        </button>
 
-        {/* Leaderboard + last winner */}
-        <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-8">
-          <div>
-            <p className="text-[12px] font-bold uppercase tracking-[0.32em] text-fuchsia-400 mb-3">
-              This window&apos;s leaderboard
-            </p>
-            {state.leaderboard.length === 0 ? (
-              <p className="text-[13px] text-neutral-500 italic">
-                No scores yet. Be the first.
-              </p>
-            ) : (
-              <ol className="space-y-2">
-                {state.leaderboard.slice(0, 5).map((s, i) => (
-                  <li
-                    key={`${s.email}-${s.createdAt}`}
-                    className="flex items-center justify-between text-[14px] border-b border-fuchsia-900/40 pb-2"
+        {/* Collapsed-state helper text under the tab */}
+        {!expanded && (
+          <p className="font-pixel-body text-[18px] text-neutral-600 mt-3 text-center">
+            Tap the bar above to play for{" "}
+            <span className="text-fuchsia-700 font-bold">
+              {state.prizeTitle}
+            </span>
+          </p>
+        )}
+
+        {/* EXPANDED BODY — only here do we mount the heavy 3D canvas + everything else */}
+        <div
+          id="obh-game-body"
+          hidden={!expanded}
+          className="mt-5 sm:mt-6"
+        >
+          {expanded && (
+            <>
+              {/* HUD: score / misses / start */}
+              <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
+                <div className="flex items-center gap-5 sm:gap-6">
+                  <div>
+                    <p className="font-pixel text-[9px] text-fuchsia-600">SCORE</p>
+                    <p className="font-pixel text-[18px] sm:text-[20px] tabular-nums text-black mt-1">
+                      {score.toString().padStart(4, "0")}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="font-pixel text-[9px] text-fuchsia-600">MISSES</p>
+                    <p className="font-pixel text-[18px] sm:text-[20px] tabular-nums mt-1">
+                      <span className="text-black">{misses}</span>
+                      <span className="text-neutral-400">
+                        {" "}
+                        / {state.maxMisses}
+                      </span>
+                    </p>
+                  </div>
+                </div>
+                {phase === "idle" && (
+                  <button
+                    type="button"
+                    onClick={startGame}
+                    className="font-pixel text-[11px] px-5 sm:px-6 py-3 min-h-[48px] text-white border-2 border-black transition-transform hover:scale-[1.03] active:translate-y-[2px]"
+                    style={{
+                      background:
+                        "linear-gradient(135deg, #c026d3 0%, #7c3aed 100%)",
+                      boxShadow: "4px 4px 0 #000",
+                    }}
                   >
-                    <span className="flex items-center gap-3 min-w-0">
-                      <span className="text-[11px] font-black uppercase tracking-widest text-fuchsia-500 w-5">
-                        {i + 1}
-                      </span>
-                      <span className="font-bold text-white truncate">
-                        {s.displayName || s.email.split("@")[0]}
-                      </span>
-                    </span>
-                    <span className="font-mono font-black tabular-nums text-white shrink-0">
-                      {s.score.toString().padStart(4, "0")}
-                    </span>
-                  </li>
-                ))}
-              </ol>
-            )}
-          </div>
-          <div>
-            <p className="text-[12px] font-bold uppercase tracking-[0.32em] text-fuchsia-400 mb-3">
-              Last window&apos;s winner
-            </p>
-            {state.lastWinner ? (
-              <div className="text-[14px] text-neutral-200">
-                <p className="font-black text-white text-[16px]">
-                  {state.lastWinner.displayName ||
-                    state.lastWinner.email.split("@")[0]}
-                </p>
-                <p className="text-neutral-400 mt-1 font-medium">
-                  Score{" "}
-                  <span className="font-mono font-bold tabular-nums text-fuchsia-300">
-                    {state.lastWinner.score}
-                  </span>
-                </p>
-                <p className="text-[12px] text-neutral-500 mt-1">
-                  {state.lastWinner.email}
-                </p>
+                    PLAY TO WIN
+                  </button>
+                )}
+                {phase === "playing" && (
+                  <button
+                    type="button"
+                    onClick={() => setPhase("gameOver")}
+                    className="font-pixel text-[10px] px-4 py-3 min-h-[44px] text-black border-2 border-black bg-white hover:bg-black hover:text-white transition-colors"
+                  >
+                    END ROUND
+                  </button>
+                )}
               </div>
-            ) : (
-              <p className="text-[13px] text-neutral-500 italic">
-                No previous winner yet — this could be the first.
-              </p>
-            )}
-          </div>
+
+              {/* 3D canvas */}
+              <div
+                className="relative w-full overflow-hidden border-2 border-black h-[44vh] sm:h-[48vh] md:h-[54vh] min-h-[320px] bg-white"
+                style={{ boxShadow: "6px 6px 0 #000" }}
+              >
+                <GameScene
+                  tasks={tasks}
+                  characterAt={characterAt}
+                  flashStation={flashStation}
+                  cameraFlash={cameraFlash}
+                  productImageUrls={state.productImageUrls}
+                  onStationClick={handleStationClick}
+                />
+
+                {/* Station name labels */}
+                <div className="absolute inset-x-0 bottom-2 px-3 pointer-events-none">
+                  <div className="grid grid-cols-3 gap-2 text-center">
+                    {STATION_IDS.map((id, i) => (
+                      <div
+                        key={id}
+                        className="font-pixel text-[8px] sm:text-[9px] text-black bg-white/85 backdrop-blur-sm px-2 py-1 border border-black/20"
+                      >
+                        <span className="hidden sm:inline text-fuchsia-600">
+                          {i + 1}·
+                        </span>{" "}
+                        {STATION_LABELS[id]}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Touch buttons for mobile while playing */}
+                {phase === "playing" && (
+                  <div className="absolute inset-x-0 bottom-10 px-3 md:hidden pointer-events-none">
+                    <div className="grid grid-cols-3 gap-2">
+                      {STATION_IDS.map((id) => (
+                        <button
+                          key={id}
+                          type="button"
+                          onClick={() => handleStationClick(id)}
+                          className="pointer-events-auto min-h-[48px] font-pixel text-[9px] text-black border-2 border-black bg-white/90 active:bg-fuchsia-200 transition-colors"
+                          style={{ boxShadow: "3px 3px 0 #000" }}
+                        >
+                          {STATION_LABELS[id]}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Idle overlay — explains the game */}
+                {phase === "idle" && (
+                  <div
+                    className="absolute inset-0 flex items-end justify-center pointer-events-none"
+                    style={{
+                      background:
+                        "linear-gradient(to top, rgba(255,255,255,0.96) 0%, rgba(255,255,255,0.55) 45%, transparent 100%)",
+                    }}
+                  >
+                    <div className="pb-10 px-4 text-center max-w-md">
+                      <p className="font-pixel text-[10px] text-fuchsia-600">
+                        HOW TO PLAY
+                      </p>
+                      <p className="font-pixel-body text-[18px] sm:text-[20px] text-black mt-3 leading-snug">
+                        Run the OBH ops desk. Tap a station the second a drop
+                        lands: <span className="text-fuchsia-600">LIST IT</span>
+                        , <span className="text-violet-600">PACK IT</span>, or{" "}
+                        <span className="text-pink-600">SHOOT IT</span>. Miss{" "}
+                        {state.maxMisses} and you&apos;re out — top score wins.
+                      </p>
+                      <p className="font-pixel text-[8px] text-fuchsia-600 mt-4">
+                        DESKTOP: PRESS 1 / 2 / 3
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Game over modal */}
+                {phase === "gameOver" && (
+                  <div className="absolute inset-0 bg-white/95 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+                    <form
+                      onSubmit={submitScore}
+                      className="w-full max-w-sm space-y-4 my-auto"
+                    >
+                      <div className="text-center">
+                        <p className="font-pixel text-[10px] text-fuchsia-600">
+                          ROUND OVER
+                        </p>
+                        <p
+                          className="font-pixel text-[36px] sm:text-[40px] tabular-nums text-black mt-2"
+                          style={{
+                            textShadow:
+                              "3px 3px 0 rgba(232,121,249,0.5), 6px 6px 0 rgba(124,58,237,0.2)",
+                          }}
+                        >
+                          {score.toString().padStart(4, "0")}
+                        </p>
+                        <p className="font-pixel-body text-[18px] text-neutral-700 mt-2 leading-snug">
+                          Submit to be eligible for{" "}
+                          <span className="text-fuchsia-700 font-bold">
+                            {state.prizeTitle}
+                          </span>
+                        </p>
+                      </div>
+                      <input
+                        type="email"
+                        inputMode="email"
+                        autoCapitalize="off"
+                        autoCorrect="off"
+                        required
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        placeholder="you@email.com"
+                        className="w-full bg-white border-2 border-black px-3 py-3 min-h-[48px] text-base text-black placeholder-neutral-400 focus:outline-none focus:border-fuchsia-500 transition-colors font-pixel-body text-[18px]"
+                      />
+                      <input
+                        type="text"
+                        value={displayName}
+                        onChange={(e) => setDisplayName(e.target.value)}
+                        placeholder="Display name (optional)"
+                        maxLength={32}
+                        className="w-full bg-white border-2 border-black px-3 py-3 min-h-[48px] text-base text-black placeholder-neutral-400 focus:outline-none focus:border-fuchsia-500 transition-colors font-pixel-body text-[18px]"
+                      />
+                      {submitError && (
+                        <p className="font-pixel text-[10px] text-rose-600">
+                          {submitError}
+                        </p>
+                      )}
+                      <button
+                        type="submit"
+                        disabled={submitting}
+                        className="w-full font-pixel text-[11px] px-5 py-3 min-h-[48px] text-white border-2 border-black disabled:opacity-50"
+                        style={{
+                          background:
+                            "linear-gradient(135deg, #c026d3 0%, #7c3aed 100%)",
+                          boxShadow: "4px 4px 0 #000",
+                        }}
+                      >
+                        {submitting ? "SUBMITTING…" : "SUBMIT SCORE"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={startGame}
+                        className="w-full font-pixel text-[10px] text-black border-2 border-black bg-white px-5 py-3 min-h-[44px] hover:bg-black hover:text-white transition-colors"
+                      >
+                        PLAY AGAIN
+                      </button>
+                    </form>
+                  </div>
+                )}
+
+                {/* Submitted */}
+                {phase === "submitted" && (
+                  <div className="absolute inset-0 bg-white/95 backdrop-blur-sm flex items-center justify-center p-4">
+                    <div className="text-center max-w-sm space-y-3 text-black">
+                      <p className="font-pixel text-[10px] text-fuchsia-600">
+                        SUBMITTED
+                      </p>
+                      <p
+                        className="font-pixel text-[28px] sm:text-[32px] tabular-nums"
+                        style={{
+                          textShadow:
+                            "3px 3px 0 rgba(232,121,249,0.5), 6px 6px 0 rgba(124,58,237,0.2)",
+                        }}
+                      >
+                        {score.toString().padStart(4, "0")}
+                      </p>
+                      <p className="font-pixel-body text-[18px] text-neutral-700 leading-snug">
+                        If your score is highest when the countdown hits zero,
+                        we&apos;ll email you about{" "}
+                        <span className="text-fuchsia-700 font-bold">
+                          {state.prizeTitle}
+                        </span>
+                        .
+                      </p>
+                      <button
+                        type="button"
+                        onClick={startGame}
+                        className="font-pixel text-[11px] px-6 py-3 min-h-[48px] text-white border-2 border-black"
+                        style={{
+                          background:
+                            "linear-gradient(135deg, #c026d3 0%, #7c3aed 100%)",
+                          boxShadow: "4px 4px 0 #000",
+                        }}
+                      >
+                        TRY AGAIN
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Leaderboard + last winner */}
+              <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div>
+                  <p className="font-pixel text-[10px] text-fuchsia-600 mb-3">
+                    THIS WINDOW&apos;S LEADERBOARD
+                  </p>
+                  {state.leaderboard.length === 0 ? (
+                    <p className="font-pixel-body text-[18px] text-neutral-500">
+                      No scores yet. Be the first.
+                    </p>
+                  ) : (
+                    <ol className="space-y-2">
+                      {state.leaderboard.slice(0, 5).map((s, i) => (
+                        <li
+                          key={`${s.email}-${s.createdAt}`}
+                          className="flex items-center justify-between border-b-2 border-black/10 pb-2"
+                        >
+                          <span className="flex items-center gap-3 min-w-0">
+                            <span className="font-pixel text-[10px] text-fuchsia-600 w-5">
+                              {i + 1}
+                            </span>
+                            <span className="font-pixel-body text-[18px] text-black truncate">
+                              {s.displayName || s.email.split("@")[0]}
+                            </span>
+                          </span>
+                          <span className="font-pixel text-[12px] tabular-nums text-black shrink-0">
+                            {s.score.toString().padStart(4, "0")}
+                          </span>
+                        </li>
+                      ))}
+                    </ol>
+                  )}
+                </div>
+                <div>
+                  <p className="font-pixel text-[10px] text-fuchsia-600 mb-3">
+                    LAST WINDOW&apos;S WINNER
+                  </p>
+                  {state.lastWinner ? (
+                    <div className="text-black">
+                      <p className="font-pixel text-[14px]">
+                        {state.lastWinner.displayName ||
+                          state.lastWinner.email.split("@")[0]}
+                      </p>
+                      <p className="font-pixel-body text-[18px] text-neutral-700 mt-1">
+                        Score{" "}
+                        <span className="font-pixel text-[12px] tabular-nums text-fuchsia-700">
+                          {state.lastWinner.score}
+                        </span>
+                      </p>
+                      <p className="font-pixel-body text-[16px] text-neutral-500 mt-1">
+                        {state.lastWinner.email}
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="font-pixel-body text-[18px] text-neutral-500">
+                      No previous winner yet — this could be the first.
+                    </p>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
         </div>
       </div>
     </section>

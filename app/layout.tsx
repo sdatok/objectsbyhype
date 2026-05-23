@@ -1,6 +1,23 @@
 import type { Metadata } from "next";
 import { ClerkProvider } from "@clerk/nextjs";
+import { Press_Start_2P, VT323 } from "next/font/google";
 import "./globals.css";
+
+// Retro pixel display font — used for the home-page mini-game.
+const pressStart = Press_Start_2P({
+  weight: "400",
+  subsets: ["latin"],
+  variable: "--font-press-start",
+  display: "swap",
+});
+
+// Slightly more readable retro font for longer game copy.
+const vt323 = VT323({
+  weight: "400",
+  subsets: ["latin"],
+  variable: "--font-vt323",
+  display: "swap",
+});
 
 const siteUrl = "https://objectsbyhype.com";
 
@@ -38,7 +55,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
+    <html lang="en" className={`${pressStart.variable} ${vt323.variable}`}>
       <body>
         <ClerkProvider>{children}</ClerkProvider>
       </body>

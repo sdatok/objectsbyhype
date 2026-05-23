@@ -62,3 +62,13 @@ a {
   color: white !important;
   background-color: black;
 }
+
+/* Retro pixel-font utility used by the home-page mini-game. */
+.font-pixel {
+  font-family: var(--font-press-start), "Press Start 2P", ui-monospace, monospace;
+  letter-spacing: 0;
+}
+.font-pixel-body {
+  font-family: var(--font-vt323), "VT323", ui-monospace, monospace;
+  letter-spacing: 0.02em;
+}

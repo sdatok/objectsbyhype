@@ -14,6 +14,8 @@ export interface PublicGameState {
   gameSpeed: number;
   maxMisses: number;
   taskBaseSeconds: number;
+  /** Up to ~8 product image URLs used as the falling drops in the game. */
+  productImageUrls: string[];
   /** Top scores in the current window, ordered desc. */
   leaderboard: PublicScore[];
   /** The most recently closed window's winner, if any. */
@@ -80,13 +82,14 @@ function toPublicScore(s: GameScore): PublicScore {
 export async function buildPublicGameState(): Promise<PublicGameState> {
   const config = await rollWindowIfExpired(await getOrCreateGameConfig());
 
-  const [scores, lastWinner] = await Promise.all([
+  const [scores, lastWinner, productImageUrls] = await Promise.all([
     prisma.gameScore.findMany({
       where: { windowStartedAt: config.windowStartedAt },
       orderBy: [{ score: "desc" }, { secondsPlayed: "asc" }, { createdAt: "asc" }],
       take: 10,
     }),
     findLastWinner(config.windowStartedAt),
+    fetchProductImageUrls(),
   ]);
 
   return {
@@ -99,9 +102,40 @@ export async function buildPublicGameState(): Promise<PublicGameState> {
     gameSpeed: config.gameSpeed,
     maxMisses: config.maxMisses,
     taskBaseSeconds: config.taskBaseSeconds,
+    productImageUrls,
     leaderboard: scores.map(toPublicScore),
     lastWinner: lastWinner ? toPublicScore(lastWinner) : null,
   };
+}
+
+/** Pull the first display image of up to 8 ACTIVE products — used as the
+ *  falling drops in the game. Storefront-safe; everything here is public. */
+async function fetchProductImageUrls(): Promise<string[]> {
+  const products = await prisma.product.findMany({
+    where: { status: "ACTIVE" },
+    orderBy: { createdAt: "desc" },
+    take: 24,
+    include: {
+      images: { orderBy: { displayOrder: "asc" }, take: 1 },
+      variants: {
+        orderBy: { displayOrder: "asc" },
+        include: {
+          images: { orderBy: { displayOrder: "asc" }, take: 1 },
+        },
+      },
+    },
+  });
+
+  const urls: string[] = [];
+  for (const p of products) {
+    const variantImg = p.variants.find((v) => v.images.length > 0)?.images[0]
+      ?.url;
+    const productImg = p.images[0]?.url;
+    const pick = variantImg ?? productImg;
+    if (pick) urls.push(pick);
+    if (urls.length >= 8) break;
+  }
+  return urls;
 }
 
 /**
