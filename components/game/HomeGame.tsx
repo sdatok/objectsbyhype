@@ -476,11 +476,11 @@ export default function HomeGame() {
 
                 {/* Station name labels */}
                 <div className="absolute inset-x-0 bottom-2 px-3 pointer-events-none">
-                  <div className="grid grid-cols-3 gap-2 text-center">
+                  <div className="grid grid-cols-3 gap-2 text-center justify-items-center">
                     {STATION_IDS.map((id, i) => (
                       <div
                         key={id}
-                        className="font-pixel text-[8px] sm:text-[9px] text-black bg-white/85 backdrop-blur-sm px-2 py-1 border border-black/20"
+                        className="font-pixel text-[11px] sm:text-[14px] text-black bg-white/90 backdrop-blur-sm px-1.5 py-0.5 border border-black/30 inline-block"
                       >
                         <span className="hidden sm:inline text-fuchsia-600">
                           {i + 1}·

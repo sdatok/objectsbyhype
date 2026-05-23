@@ -183,21 +183,58 @@ function ResponsiveCamera() {
 }
 
 function Floor() {
-  // Grey BAPE ABC camo — same splotchy pattern as the hoodie but in a light
-  // grey palette so the action on top stays readable. Tiled across the floor.
+  // Authentic-ish BAPE ABC camo: irregular splotches mixed with hidden ape-head
+  // silhouettes (round head + ears + cheek puffs). Kept light grey so the
+  // action on top stays readable.
   const camoTex = useCanvasTexture(
     512,
     512,
     (ctx, w, h) => {
-      ctx.fillStyle = "#ececef";
+      // Light base
+      ctx.fillStyle = "#ededf0";
       ctx.fillRect(0, 0, w, h);
       const palette = ["#c7c7cc", "#9a9aa3", "#7d7d87", "#b6b6bd"];
-      for (let i = 0; i < 110; i++) {
+
+      // ----- Helper: ape head silhouette built out of overlapping circles
+      function drawApe(cx: number, cy: number, size: number, color: string) {
+        ctx.fillStyle = color;
+        // Main head
+        ctx.beginPath();
+        ctx.arc(cx, cy, size, 0, Math.PI * 2);
+        ctx.fill();
+        // Two ears at the top sides
+        ctx.beginPath();
+        ctx.arc(cx - size * 0.75, cy - size * 0.55, size * 0.42, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(cx + size * 0.75, cy - size * 0.55, size * 0.42, 0, Math.PI * 2);
+        ctx.fill();
+        // Cheek puffs
+        ctx.beginPath();
+        ctx.arc(cx - size * 0.95, cy + size * 0.25, size * 0.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(cx + size * 0.95, cy + size * 0.25, size * 0.5, 0, Math.PI * 2);
+        ctx.fill();
+        // Chin
+        ctx.beginPath();
+        ctx.arc(cx, cy + size * 0.7, size * 0.55, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // ----- Background splotch layer
+      for (let i = 0; i < 90; i++) {
         ctx.fillStyle = palette[i % palette.length];
-        const r = 18 + Math.random() * 22;
+        const r = 16 + Math.random() * 22;
         ctx.beginPath();
         ctx.arc(Math.random() * w, Math.random() * h, r, 0, Math.PI * 2);
         ctx.fill();
+      }
+      // ----- Ape head silhouettes mixed in
+      for (let i = 0; i < 14; i++) {
+        const color = palette[i % palette.length];
+        const size = 20 + Math.random() * 18;
+        drawApe(Math.random() * w, Math.random() * h, size, color);
       }
     },
     {
@@ -210,67 +247,56 @@ function Floor() {
   );
 
   return (
-    <group>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.01, 0]}>
-        <planeGeometry args={[40, 16]} />
-        <meshStandardMaterial map={camoTex} />
-      </mesh>
-      {/* Subtle accent stripes on the floor — soft purple band running across */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 2.1]}>
-        <planeGeometry args={[12, 0.08]} />
-        <meshBasicMaterial color={COLORS.neonHot} />
-      </mesh>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 2.6]}>
-        <planeGeometry args={[12, 0.05]} />
-        <meshBasicMaterial color={COLORS.neonCool} />
-      </mesh>
-    </group>
+    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.01, 0]}>
+      <planeGeometry args={[40, 16]} />
+      <meshStandardMaterial map={camoTex} />
+    </mesh>
   );
 }
 
-/** Pixel-art Miami Nights skyline backdrop — purple/orange sunset gradient
- *  with blocky building silhouettes and a few lit windows. Sits well behind
- *  the workstations so it never interferes with gameplay. */
+/** Pixel-art Miami Nights skyline backdrop. Plane is sized big enough to fill
+ *  the camera frustum on any aspect ratio. The texture is dense (many small
+ *  buildings, lots of stars) so the skyline still reads as a real cityline on
+ *  both narrow mobile and wide desktop viewports. */
 function SkylineBackdrop() {
-  const skyTex = useCanvasTexture(1024, 512, (ctx, w, h) => {
+  const skyTex = useCanvasTexture(2048, 768, (ctx, w, h) => {
     // ---- Sunset gradient (Miami Nights palette) ----
     const sky = ctx.createLinearGradient(0, 0, 0, h);
     sky.addColorStop(0.0, "#1a0b33"); // deep purple top
-    sky.addColorStop(0.45, "#7c1d6f"); // magenta band
-    sky.addColorStop(0.7, "#f97316"); // orange horizon
-    sky.addColorStop(1.0, "#fbbf24"); // pale yellow bottom band
+    sky.addColorStop(0.4, "#7c1d6f"); // magenta band
+    sky.addColorStop(0.65, "#f97316"); // orange horizon
+    sky.addColorStop(0.85, "#fcd34d"); // warm yellow near horizon
+    sky.addColorStop(1.0, "#1a0b33"); // pull back to dark at very bottom
     ctx.fillStyle = sky;
     ctx.fillRect(0, 0, w, h);
 
-    // ---- Pixel sun on the horizon ----
+    // ---- Pixel sun on the horizon (smaller now so it doesn't dominate) ----
     const sunCx = w * 0.5;
-    const sunCy = h * 0.62;
-    const sunR = 70;
-    // Block-stepped sun (so it reads as pixel-art)
-    for (let r = sunR; r >= 0; r -= 8) {
+    const sunCy = h * 0.6;
+    const sunR = 64;
+    for (let r = sunR; r >= 0; r -= 6) {
       const ratio = r / sunR;
       ctx.fillStyle = `rgb(${255}, ${Math.floor(180 + 60 * (1 - ratio))}, ${Math.floor(120 * (1 - ratio))})`;
       ctx.beginPath();
       ctx.arc(sunCx, sunCy, r, 0, Math.PI * 2);
       ctx.fill();
     }
-    // Horizontal sun bands (the classic 80s sunset stripes through the sun)
+    // Classic horizon stripes through the sun
     ctx.fillStyle = "#1a0b33";
-    for (let y = sunCy + 5; y < sunCy + sunR; y += 12) {
-      ctx.fillRect(sunCx - sunR, y, sunR * 2, 4);
+    for (let y = sunCy + 4; y < sunCy + sunR; y += 10) {
+      ctx.fillRect(sunCx - sunR, y, sunR * 2, 3);
     }
 
-    // ---- Tiny pixel stars in the upper sky ----
+    // ---- Lots of tiny pixel stars in the upper sky ----
     ctx.fillStyle = "#ffffff";
-    for (let i = 0; i < 60; i++) {
+    for (let i = 0; i < 180; i++) {
       const x = Math.random() * w;
-      const y = Math.random() * h * 0.35;
-      ctx.fillRect(x, y, 2, 2);
+      const y = Math.random() * h * 0.4;
+      const s = Math.random() > 0.85 ? 3 : 2;
+      ctx.fillRect(x, y, s, s);
     }
 
-    // ---- Pixelated city skyline ----
-    // Two passes: a back row of taller dark-purple buildings, a front row of
-    // shorter darker silhouettes — gives a tiny bit of depth.
+    // ---- Pixelated city skyline — denser, smaller buildings ----
     function drawCityRow(
       baseColor: string,
       windowColor: string,
@@ -282,57 +308,67 @@ function SkylineBackdrop() {
       while (x < w) {
         const bw = widthRange[0] + Math.random() * (widthRange[1] - widthRange[0]);
         const bh = heightRange[0] + Math.random() * (heightRange[1] - heightRange[0]);
-        // Building body (pixel-style: chunky rect, no antialiased corners)
         ctx.fillStyle = baseColor;
         ctx.fillRect(Math.floor(x), Math.floor(baseY - bh), Math.floor(bw), Math.floor(bh));
-        // A simple rooftop notch on some buildings
-        if (Math.random() > 0.6) {
-          const nW = 12;
+        // Rooftop notch / antenna on some buildings
+        if (Math.random() > 0.55) {
+          const nW = 6 + Math.floor(Math.random() * 8);
+          const nH = 14 + Math.floor(Math.random() * 18);
           ctx.fillRect(
             Math.floor(x + bw / 2 - nW / 2),
-            Math.floor(baseY - bh - 18),
+            Math.floor(baseY - bh - nH),
             nW,
-            18
+            nH
           );
         }
-        // Lit windows in a grid
-        const winRows = Math.floor(bh / 18);
-        const winCols = Math.floor(bw / 14);
+        // Lit windows
+        const winRows = Math.floor(bh / 14);
+        const winCols = Math.floor(bw / 10);
         for (let row = 0; row < winRows; row++) {
           for (let col = 0; col < winCols; col++) {
-            if (Math.random() > 0.55) continue;
+            if (Math.random() > 0.5) continue;
             ctx.fillStyle = windowColor;
             ctx.fillRect(
-              Math.floor(x + 4 + col * 14),
-              Math.floor(baseY - bh + 6 + row * 18),
-              6,
-              7
+              Math.floor(x + 3 + col * 10),
+              Math.floor(baseY - bh + 4 + row * 14),
+              4,
+              5
             );
           }
         }
-        x += bw + (Math.random() > 0.7 ? 6 : 0);
+        x += bw + 2;
       }
     }
 
+    // Back row: taller, dark violet
     drawCityRow(
-      "#2a0b4d", // back row — dark violet
-      "#fde68a", // warm yellow windows
-      [80, 220],
-      [40, 110],
-      h * 0.92
+      "#2a0b4d",
+      "#fde68a",
+      [60, 170],
+      [22, 70],
+      h * 0.93
     );
+    // Mid row: medium height, near-black with hot pink windows
     drawCityRow(
-      "#11041f", // front row — almost black
-      "#f472b6", // hot-pink windows
-      [50, 150],
-      [30, 80],
-      h * 0.98
+      "#15052a",
+      "#f472b6",
+      [40, 130],
+      [18, 56],
+      h * 0.96
+    );
+    // Front row: shorter foreground buildings — very dark, cyan windows
+    drawCityRow(
+      "#070111",
+      "#22d3ee",
+      [30, 90],
+      [16, 44],
+      h * 0.995
     );
 
-    // ---- A faint horizontal grid on the ground for the "endless road" vibe
-    ctx.strokeStyle = "rgba(232,121,249,0.4)";
+    // ---- Faint horizon road-grid ----
+    ctx.strokeStyle = "rgba(232,121,249,0.35)";
     ctx.lineWidth = 2;
-    for (let y = h * 0.78; y < h; y += 14) {
+    for (let y = h * 0.85; y < h; y += 10) {
       ctx.beginPath();
       ctx.moveTo(0, y);
       ctx.lineTo(w, y);
@@ -341,9 +377,11 @@ function SkylineBackdrop() {
   });
 
   return (
-    <mesh position={[0, 4.6, -4.2]}>
-      <planeGeometry args={[32, 11]} />
-      <meshBasicMaterial map={skyTex} toneMapped={false} depthWrite={false} />
+    // Big plane parked far back so it fills the entire frustum on any
+    // viewport (narrow mobile up to ultrawide desktop).
+    <mesh position={[0, 5, -5]}>
+      <planeGeometry args={[60, 18]} />
+      <meshBasicMaterial map={skyTex} toneMapped={false} />
     </mesh>
   );
 }
@@ -470,8 +508,8 @@ function Workstation({
 
       <StationGlow active={highlighted} />
 
-      {stationId === "computer" && <ComputerStation />}
-      {stationId === "packing" && <PackingStation />}
+      {stationId === "computer" && <ComputerStation highlighted={highlighted} />}
+      {stationId === "packing" && <PackingStation highlighted={highlighted} />}
       {stationId === "camera" && <PhotoStation flashing={cameraFlash} />}
     </group>
   );
@@ -559,7 +597,7 @@ function Desk() {
   );
 }
 
-function ComputerStation() {
+function ComputerStation({ highlighted }: { highlighted: boolean }) {
   const screenTexture = useCanvasTexture(512, 320, (ctx, w, h) => {
     const grad = ctx.createLinearGradient(0, 0, 0, h);
     grad.addColorStop(0, "#1a0633");
@@ -580,6 +618,62 @@ function ComputerStation() {
     ctx.fillText("MONEY", w / 2, h / 2 + 115);
   });
 
+  // Bright green "+ $$$" pops up above the screen each time the station is
+  // clicked, then floats up and fades. Same trick as the box-lid animation:
+  // we capture the rising edge of `highlighted` and run a 700ms animation.
+  const popRef = useRef<THREE.Group>(null);
+  const popMatRef = useRef<THREE.MeshBasicMaterial>(null);
+  const popAnimRef = useRef<number | null>(null);
+  const lastHighlightRef = useRef(false);
+  const popTex = useCanvasTexture(256, 96, (ctx, w, h) => {
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = "#22c55e";
+    ctx.font = "bold 78px 'Press Start 2P', system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("+$$$", w / 2, h / 2);
+  });
+
+  // Overlay material that brightens the screen green on click.
+  const overlayRef = useRef<THREE.MeshBasicMaterial>(null);
+
+  useFrame((_, delta) => {
+    if (highlighted && !lastHighlightRef.current) {
+      // Rising edge — kick off the pop animation.
+      popAnimRef.current = performance.now();
+    }
+    lastHighlightRef.current = highlighted;
+
+    // Green screen flash overlay — lerps in on highlight, out on release.
+    if (overlayRef.current) {
+      const target = highlighted ? 0.55 : 0;
+      const cur = overlayRef.current.opacity;
+      overlayRef.current.opacity =
+        cur + (target - cur) * Math.min(1, delta * 14);
+    }
+
+    // Dollar pop animation
+    if (popRef.current && popMatRef.current) {
+      if (popAnimRef.current === null) {
+        popRef.current.scale.setScalar(0);
+        popMatRef.current.opacity = 0;
+      } else {
+        const t = (performance.now() - popAnimRef.current) / 700;
+        if (t >= 1) {
+          popAnimRef.current = null;
+          popRef.current.scale.setScalar(0);
+          popMatRef.current.opacity = 0;
+        } else {
+          // Pop in (0 → 1.2) then settle (1.2 → 1) over t
+          const s = t < 0.25 ? (t / 0.25) * 1.2 : 1.2 - (t - 0.25) * 0.25;
+          popRef.current.scale.set(s, s, 1);
+          popRef.current.position.y = 1.95 + t * 0.55; // float up
+          popMatRef.current.opacity = 1 - t * t;
+        }
+      }
+    }
+  });
+
   return (
     <group>
       <Desk />
@@ -591,6 +685,17 @@ function ComputerStation() {
       <mesh position={[0, 1.38, 0.0]}>
         <boxGeometry args={[1.12, 0.68, 0.02]} />
         <meshBasicMaterial map={screenTexture} toneMapped={false} />
+      </mesh>
+      {/* Green flash overlay — fades in on click */}
+      <mesh position={[0, 1.38, 0.012]}>
+        <planeGeometry args={[1.12, 0.68]} />
+        <meshBasicMaterial
+          ref={overlayRef}
+          color="#22c55e"
+          transparent
+          opacity={0}
+          toneMapped={false}
+        />
       </mesh>
       {/* Stand */}
       <RoundedBox args={[0.2, 0.32, 0.12]} radius={0.03} smoothness={3} position={[0, 0.95, -0.1]}>
@@ -604,43 +709,116 @@ function ComputerStation() {
         <boxGeometry args={[0.92, 0.005, 0.02]} />
         <meshBasicMaterial color={COLORS.neonHot} />
       </mesh>
+
+      {/* Floating "+$$$" pop-up sits above the monitor on click */}
+      <group ref={popRef} position={[0, 1.95, 0.05]} scale={[0, 0, 1]}>
+        <mesh>
+          <planeGeometry args={[0.9, 0.34]} />
+          <meshBasicMaterial
+            ref={popMatRef}
+            map={popTex}
+            transparent
+            opacity={0}
+            toneMapped={false}
+          />
+        </mesh>
+      </group>
     </group>
   );
 }
 
-function PackingStation() {
-  const labelTex = useCanvasTexture(256, 160, (ctx, w, h) => {
+function PackingStation({ highlighted }: { highlighted: boolean }) {
+  // Bigger, higher-res canvas so SHIP IT stays crisp at all sizes — the old
+  // 256x160 was clipping the type at smaller render sizes.
+  const labelTex = useCanvasTexture(512, 224, (ctx, w, h) => {
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, w, h);
     ctx.fillStyle = "#0b0214";
-    ctx.font = "900 38px 'Press Start 2P', system-ui, sans-serif";
+    ctx.font = "900 64px 'Press Start 2P', system-ui, sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText("SHIP IT", w / 2, h / 2 - 10);
+    ctx.fillText("SHIP IT", w / 2, h / 2 - 18);
     ctx.fillStyle = "#c026d3";
-    ctx.font = "bold 18px 'Press Start 2P', system-ui, sans-serif";
-    ctx.fillText("OBH", w / 2, h / 2 + 36);
+    ctx.font = "bold 26px 'Press Start 2P', system-ui, sans-serif";
+    ctx.fillText("OBH", w / 2, h / 2 + 56);
+  });
+
+  // Lid animation — captures rising edge of `highlighted` and runs a brief
+  // open-then-close motion over ~520ms so the box visibly snaps when you tap.
+  const lidRef = useRef<THREE.Group>(null);
+  const lidAnimRef = useRef<number | null>(null);
+  const lastHighlightRef = useRef(false);
+
+  useFrame(() => {
+    if (highlighted && !lastHighlightRef.current) {
+      lidAnimRef.current = performance.now();
+    }
+    lastHighlightRef.current = highlighted;
+
+    if (!lidRef.current) return;
+    if (lidAnimRef.current === null) {
+      lidRef.current.rotation.x = 0;
+      return;
+    }
+    const t = (performance.now() - lidAnimRef.current) / 520;
+    if (t >= 1) {
+      lidAnimRef.current = null;
+      lidRef.current.rotation.x = 0;
+      return;
+    }
+    // Open quickly to ~70° then close back — sin gives a clean open/close arc
+    const openAmount = Math.sin(t * Math.PI);
+    lidRef.current.rotation.x = -openAmount * 1.2;
   });
 
   return (
     <group>
       <Desk />
-      {/* Cardboard box body — rounded for that cleaner look */}
-      <RoundedBox args={[1.0, 0.7, 0.78]} radius={0.05} smoothness={3} position={[0, 1.05, 0]}>
+      {/* Cardboard box bottom — top is now open so the lid can flap over it */}
+      <RoundedBox
+        args={[1.0, 0.6, 0.78]}
+        radius={0.05}
+        smoothness={3}
+        position={[0, 1.0, 0]}
+      >
         <meshStandardMaterial color="#a87a4e" />
       </RoundedBox>
-      {/* SHIP IT label */}
-      <mesh position={[0, 1.1, 0.39]}>
-        <planeGeometry args={[0.74, 0.36]} />
-        <meshBasicMaterial map={labelTex} toneMapped={false} />
+      {/* Slightly darker interior bottom so the open box reads as 3D */}
+      <mesh position={[0, 1.295, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <planeGeometry args={[0.94, 0.74]} />
+        <meshStandardMaterial color="#6f4f30" />
       </mesh>
-      {/* Tape strip */}
-      <mesh position={[0, 1.41, 0]}>
-        <boxGeometry args={[1.02, 0.025, 0.18]} />
-        <meshBasicMaterial color="#fde68a" />
-      </mesh>
+
+      {/* Lid — pivots around the back edge of the box top. When highlighted
+          it swings open then back closed. */}
+      <group ref={lidRef} position={[0, 1.3, -0.39]}>
+        <RoundedBox
+          args={[1.0, 0.05, 0.78]}
+          radius={0.02}
+          smoothness={2}
+          position={[0, 0.025, 0.39]}
+        >
+          <meshStandardMaterial color="#a87a4e" />
+        </RoundedBox>
+        {/* SHIP IT label sits on top of the lid (visible when closed) */}
+        <mesh position={[0, 0.052, 0.39]} rotation={[-Math.PI / 2, 0, 0]}>
+          <planeGeometry args={[0.7, 0.32]} />
+          <meshBasicMaterial map={labelTex} toneMapped={false} />
+        </mesh>
+        {/* Tape strip along the lid seam */}
+        <mesh position={[0, 0.055, 0.39]}>
+          <boxGeometry args={[1.02, 0.012, 0.16]} />
+          <meshBasicMaterial color="#fde68a" />
+        </mesh>
+      </group>
+
       {/* Small stacked box on the side */}
-      <RoundedBox args={[0.33, 0.33, 0.33]} radius={0.04} smoothness={3} position={[-0.72, 0.87, 0.2]}>
+      <RoundedBox
+        args={[0.33, 0.33, 0.33]}
+        radius={0.04}
+        smoothness={3}
+        position={[-0.72, 0.87, 0.2]}
+      >
         <meshStandardMaterial color="#8b5e36" />
       </RoundedBox>
     </group>
@@ -753,8 +931,8 @@ function PhotoStation({ flashing }: { flashing: boolean }) {
 
       {/* Black LV t-shirt hangs on the BACK of the phone (camera-lens side).
           Slightly higher so it peeks above the phone from the player POV.
-          Rotated 180° so the LV print faces the phone's camera, not the player. */}
-      <LVTShirt position={[0, 1.7, -0.7]} rotateY={Math.PI} />
+          LV print is on both sides so both the player and the phone "see" it. */}
+      <LVTShirt position={[0, 1.7, -0.7]} />
 
       {/* Camera flash — fires backward toward the shirt (camera-lens side).
           Bright inner sphere + wide halo so the click feels punchy. */}
@@ -782,29 +960,23 @@ function PhotoStation({ flashing }: { flashing: boolean }) {
   );
 }
 
-/** Upright black t-shirt with a small white LV monogram on the chest. The
- *  `rotateY` prop lets us flip the print to face either side of the scene. */
-function LVTShirt({
-  position,
-  rotateY = 0,
-}: {
-  position: [number, number, number];
-  rotateY?: number;
-}) {
+/** Upright black t-shirt with a small white LV monogram on BOTH sides so the
+ *  print is readable from any camera angle. */
+function LVTShirt({ position }: { position: [number, number, number] }) {
   const lvTex = useCanvasTexture(256, 320, (ctx, w, h) => {
     // Solid black tee background
     ctx.fillStyle = "#0a0a0a";
     ctx.fillRect(0, 0, w, h);
-    // White LV monogram — smaller + bolder
+    // White LV monogram — small, bold, centered on the chest
     ctx.fillStyle = "#ffffff";
-    ctx.font = "bold 90px 'Press Start 2P', system-ui, sans-serif";
+    ctx.font = "bold 88px 'Press Start 2P', system-ui, sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText("LV", w / 2, h / 2);
   });
 
   return (
-    <group position={position} rotation={[0, rotateY, 0]}>
+    <group position={position}>
       {/* Hanger bar just above the shoulders */}
       <mesh position={[0, 0.5, 0]}>
         <boxGeometry args={[0.24, 0.02, 0.02]} />
@@ -816,15 +988,15 @@ function LVTShirt({
         <meshStandardMaterial color={COLORS.silver} />
       </mesh>
 
-      {/* Shirt body — flat upright panel with the LV print */}
+      {/* Shirt body — front face shows LV */}
       <mesh position={[0, 0, 0.012]}>
         <planeGeometry args={[0.8, 0.95]} />
         <meshBasicMaterial map={lvTex} toneMapped={false} />
       </mesh>
-      {/* Back of the shirt so it's solid black from behind */}
-      <mesh position={[0, 0, 0]} rotation={[0, Math.PI, 0]}>
+      {/* Shirt body — back face ALSO shows LV (rotated 180 so it reads right). */}
+      <mesh position={[0, 0, -0.012]} rotation={[0, Math.PI, 0]}>
         <planeGeometry args={[0.8, 0.95]} />
-        <meshStandardMaterial color={COLORS.shirtBlack} />
+        <meshBasicMaterial map={lvTex} toneMapped={false} />
       </mesh>
       {/* Shoulders / sleeves — chunky pixel cubes off to the sides */}
       <RoundedBox
@@ -1093,14 +1265,21 @@ function Task({ task, imageUrls }: TaskProps) {
 }
 
 // Falling-drop motion bounds shared by all task variants.
-const TASK_START_Y = 5.2;
-const TASK_END_Y = 1.6;
+const TASK_START_Y = 5.4;
+const TASK_END_Y = 1.7;
+
+// Drop dimensions — image, frame, and countdown ring sized together so the
+// drops read clearly on both mobile and desktop without overlapping stations.
+const TASK_IMAGE_SIZE = 1.32;
+const TASK_FRAME_SIZE = 1.4;
+const TASK_RING_INNER = 0.55;
+const TASK_RING_OUTER = 0.72;
 
 function TaskWithImage({ task, url }: { task: ActiveTask; url: string }) {
   const groupRef = useRef<THREE.Group>(null);
   const ringRef = useRef<THREE.Mesh>(null);
   const ringGeometry = useMemo(
-    () => new THREE.RingGeometry(0.38, 0.5, 32),
+    () => new THREE.RingGeometry(TASK_RING_INNER, TASK_RING_OUTER, 32),
     []
   );
   const fullDuration = task.expiresAt - task.spawnedAt;
@@ -1127,15 +1306,17 @@ function TaskWithImage({ task, url }: { task: ActiveTask; url: string }) {
 
   return (
     <group ref={groupRef} position={[stationPos[0], TASK_START_Y, stationPos[2]]}>
-      {/* Flat 2D billboard plane — texture always faces the player, no spin. */}
-      <mesh>
-        <planeGeometry args={[0.95, 0.95]} />
-        <meshBasicMaterial map={tex} transparent toneMapped={false} />
+      {/* Solid black frame — slightly larger than the image to form a clean
+          black border on all sides. */}
+      <mesh position={[0, 0, -0.005]}>
+        <planeGeometry args={[TASK_FRAME_SIZE, TASK_FRAME_SIZE]} />
+        <meshBasicMaterial color="#000000" />
       </mesh>
-      {/* Slight back panel so the drop reads against the white bg */}
-      <mesh position={[0, 0, -0.02]}>
-        <planeGeometry args={[1.02, 1.02]} />
-        <meshBasicMaterial color="#000000" transparent opacity={0.1} />
+      {/* Flat 2D product image — no transparency, no spin. The product's
+          white background blends with the scene's white background. */}
+      <mesh>
+        <planeGeometry args={[TASK_IMAGE_SIZE, TASK_IMAGE_SIZE]} />
+        <meshBasicMaterial map={tex} toneMapped={false} />
       </mesh>
       {/* Countdown ring — shrinks as the drop ages */}
       <mesh ref={ringRef} position={[0, 0, 0.02]}>
@@ -1150,7 +1331,7 @@ function TaskFallback({ task }: { task: ActiveTask }) {
   const groupRef = useRef<THREE.Group>(null);
   const ringRef = useRef<THREE.Mesh>(null);
   const ringGeometry = useMemo(
-    () => new THREE.RingGeometry(0.38, 0.5, 32),
+    () => new THREE.RingGeometry(TASK_RING_INNER, TASK_RING_OUTER, 32),
     []
   );
   const fullDuration = task.expiresAt - task.spawnedAt;
@@ -1171,8 +1352,13 @@ function TaskFallback({ task }: { task: ActiveTask }) {
 
   return (
     <group ref={groupRef} position={[stationPos[0], TASK_START_Y, stationPos[2]]}>
+      {/* Black border frame */}
+      <mesh position={[0, 0, -0.005]}>
+        <planeGeometry args={[TASK_FRAME_SIZE, TASK_FRAME_SIZE]} />
+        <meshBasicMaterial color="#000000" />
+      </mesh>
       <mesh>
-        <planeGeometry args={[0.85, 0.85]} />
+        <planeGeometry args={[TASK_IMAGE_SIZE, TASK_IMAGE_SIZE]} />
         <meshBasicMaterial color={COLORS.neonHot} />
       </mesh>
       <mesh ref={ringRef} position={[0, 0, 0.02]}>
