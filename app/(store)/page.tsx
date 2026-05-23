@@ -5,6 +5,7 @@ import StoreFaq from "@/components/store/StoreFaq";
 import CuratedSpacesSection from "@/components/store/CuratedSpacesSection";
 import HomeCatalogClient from "@/components/store/HomeCatalogClient";
 import HomeHero from "@/components/store/HomeHero";
+import HomeGame from "@/components/game/HomeGame";
 import WallDisplayPromo from "@/components/store/WallDisplayPromo";
 import BrandShowcase from "@/components/store/BrandShowcase";
 import type { Product } from "@/types";
@@ -34,6 +35,8 @@ export default async function HomePage() {
   return (
     <div className="bg-white">
       <HomeHero />
+
+      <HomeGame />
 
       <HomeCatalogClient products={products} />
 

@@ -258,3 +258,45 @@ enum OrderStatus {
   DELIVERED
   CANCELLED
 }
+
+/// Singleton row (id="default") that holds the home-page mini-game's settings
+/// and the current giveaway window. Edited from /admin/game.
+model GameConfig {
+  id                String   @id @default("default")
+  /// Master on/off switch for the home-page game.
+  enabled           Boolean  @default(true)
+  /// Visible prize title (e.g. "10% off any rug").
+  prizeTitle        String   @default("OBH Mystery Prize")
+  /// Optional longer description rendered under the title.
+  prizeDescription  String?  @db.Text
+  /// Length of each giveaway window in hours. Used to compute endsAt = windowStartedAt + windowHours.
+  windowHours       Int      @default(1)
+  /// When the current window started. Scores submitted between windowStartedAt and windowStartedAt + windowHours compete.
+  windowStartedAt   DateTime @default(now())
+  /// Game tuning. Higher = faster task spawns, smaller = easier.
+  gameSpeed         Float    @default(1.0)
+  /// Number of misses before game over (3 = arcade-classic, lower = harder).
+  maxMisses         Int      @default(3)
+  /// Initial seconds each task gives the player; difficulty scales these down over time.
+  taskBaseSeconds   Int      @default(8)
+  updatedAt         DateTime @updatedAt
+}
+
+/// One submitted high score. Players enter their email to be eligible for the
+/// giveaway; the highest score per window wins that window's prize.
+model GameScore {
+  id              String   @id @default(cuid())
+  email           String
+  /// Optional display name / initials. Falls back to the email handle.
+  displayName     String?
+  score           Int
+  /// Seconds the player survived (used as a tiebreaker; lower = won the score faster).
+  secondsPlayed   Int      @default(0)
+  /// Denormalized window-start timestamp the score belongs to. Lets us bucket
+  /// scores into windows without a join even after admin rolls the window.
+  windowStartedAt DateTime
+  createdAt       DateTime @default(now())
+
+  @@index([windowStartedAt, score])
+  @@index([email])
+}
