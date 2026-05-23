@@ -254,27 +254,38 @@ function Floor() {
   );
 }
 
-/** Pixel-art Miami Nights skyline backdrop. Plane is sized big enough to fill
- *  the camera frustum on any aspect ratio. The texture is dense (many small
- *  buildings, lots of stars) so the skyline still reads as a real cityline on
- *  both narrow mobile and wide desktop viewports. */
+/** Pixel-art Miami Nights skyline backdrop.
+ *
+ *  Positioning math: the plane is centered at y=PLANE_CENTER_Y so that
+ *  canvas-y = SKYLINE_BASE_FRAC (where the building bases sit) maps to
+ *  world y = 0 (the floor). Anything below that on the canvas would be
+ *  occluded by the floor, so we intentionally keep buildings + horizon
+ *  above that line.
+ */
 function SkylineBackdrop() {
+  const PLANE_W = 80;
+  const PLANE_H = 14;
+  // Where the building bases sit in canvas-Y (0=top, 1=bottom).
+  const SKYLINE_BASE_FRAC = 0.92;
+  // Plane center chosen so canvas-y=SKYLINE_BASE_FRAC == world y=0 (floor).
+  const PLANE_CENTER_Y = (SKYLINE_BASE_FRAC - 0.5) * PLANE_H;
+
   const skyTex = useCanvasTexture(2048, 768, (ctx, w, h) => {
     // ---- Sunset gradient (Miami Nights palette) ----
     const sky = ctx.createLinearGradient(0, 0, 0, h);
     sky.addColorStop(0.0, "#1a0b33"); // deep purple top
     sky.addColorStop(0.4, "#7c1d6f"); // magenta band
     sky.addColorStop(0.65, "#f97316"); // orange horizon
-    sky.addColorStop(0.85, "#fcd34d"); // warm yellow near horizon
-    sky.addColorStop(1.0, "#1a0b33"); // pull back to dark at very bottom
-    ctx.fillStyle = sky;
+    sky.addColorStop(0.88, "#fcd34d"); // warm yellow near horizon
+    sky.addColorStop(1.0, "#7c1d6f"); // brief pull-back so the foot of the
+    ctx.fillStyle = sky; // canvas isn't a dead white line where the floor cuts it
     ctx.fillRect(0, 0, w, h);
 
-    // ---- Pixel sun on the horizon (smaller now so it doesn't dominate) ----
+    // ---- Pixel sun on the horizon — small, sits above the skyline ----
     const sunCx = w * 0.5;
-    const sunCy = h * 0.6;
-    const sunR = 64;
-    for (let r = sunR; r >= 0; r -= 6) {
+    const sunCy = h * 0.62;
+    const sunR = 38;
+    for (let r = sunR; r >= 0; r -= 5) {
       const ratio = r / sunR;
       ctx.fillStyle = `rgb(${255}, ${Math.floor(180 + 60 * (1 - ratio))}, ${Math.floor(120 * (1 - ratio))})`;
       ctx.beginPath();
@@ -283,20 +294,20 @@ function SkylineBackdrop() {
     }
     // Classic horizon stripes through the sun
     ctx.fillStyle = "#1a0b33";
-    for (let y = sunCy + 4; y < sunCy + sunR; y += 10) {
-      ctx.fillRect(sunCx - sunR, y, sunR * 2, 3);
+    for (let y = sunCy + 3; y < sunCy + sunR; y += 7) {
+      ctx.fillRect(sunCx - sunR, y, sunR * 2, 2);
     }
 
     // ---- Lots of tiny pixel stars in the upper sky ----
     ctx.fillStyle = "#ffffff";
-    for (let i = 0; i < 180; i++) {
+    for (let i = 0; i < 220; i++) {
       const x = Math.random() * w;
       const y = Math.random() * h * 0.4;
       const s = Math.random() > 0.85 ? 3 : 2;
       ctx.fillRect(x, y, s, s);
     }
 
-    // ---- Pixelated city skyline — denser, smaller buildings ----
+    // ---- Pixelated city skyline — small + dense ----
     function drawCityRow(
       baseColor: string,
       windowColor: string,
@@ -310,10 +321,10 @@ function SkylineBackdrop() {
         const bh = heightRange[0] + Math.random() * (heightRange[1] - heightRange[0]);
         ctx.fillStyle = baseColor;
         ctx.fillRect(Math.floor(x), Math.floor(baseY - bh), Math.floor(bw), Math.floor(bh));
-        // Rooftop notch / antenna on some buildings
-        if (Math.random() > 0.55) {
-          const nW = 6 + Math.floor(Math.random() * 8);
-          const nH = 14 + Math.floor(Math.random() * 18);
+        // Antenna / notch
+        if (Math.random() > 0.5) {
+          const nW = 3 + Math.floor(Math.random() * 5);
+          const nH = 8 + Math.floor(Math.random() * 14);
           ctx.fillRect(
             Math.floor(x + bw / 2 - nW / 2),
             Math.floor(baseY - bh - nH),
@@ -322,65 +333,37 @@ function SkylineBackdrop() {
           );
         }
         // Lit windows
-        const winRows = Math.floor(bh / 14);
-        const winCols = Math.floor(bw / 10);
+        const winRows = Math.floor(bh / 9);
+        const winCols = Math.floor(bw / 7);
         for (let row = 0; row < winRows; row++) {
           for (let col = 0; col < winCols; col++) {
             if (Math.random() > 0.5) continue;
             ctx.fillStyle = windowColor;
             ctx.fillRect(
-              Math.floor(x + 3 + col * 10),
-              Math.floor(baseY - bh + 4 + row * 14),
-              4,
-              5
+              Math.floor(x + 2 + col * 7),
+              Math.floor(baseY - bh + 3 + row * 9),
+              3,
+              4
             );
           }
         }
-        x += bw + 2;
+        x += bw + 1;
       }
     }
 
-    // Back row: taller, dark violet
-    drawCityRow(
-      "#2a0b4d",
-      "#fde68a",
-      [60, 170],
-      [22, 70],
-      h * 0.93
-    );
-    // Mid row: medium height, near-black with hot pink windows
-    drawCityRow(
-      "#15052a",
-      "#f472b6",
-      [40, 130],
-      [18, 56],
-      h * 0.96
-    );
-    // Front row: shorter foreground buildings — very dark, cyan windows
-    drawCityRow(
-      "#070111",
-      "#22d3ee",
-      [30, 90],
-      [16, 44],
-      h * 0.995
-    );
+    const baseY = h * SKYLINE_BASE_FRAC;
 
-    // ---- Faint horizon road-grid ----
-    ctx.strokeStyle = "rgba(232,121,249,0.35)";
-    ctx.lineWidth = 2;
-    for (let y = h * 0.85; y < h; y += 10) {
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(w, y);
-      ctx.stroke();
-    }
+    // Back row — tallest but still smaller than before, dark violet
+    drawCityRow("#2a0b4d", "#fde68a", [40, 110], [14, 38], baseY - 4);
+    // Mid row — medium height, near-black with hot pink windows
+    drawCityRow("#15052a", "#f472b6", [25, 80], [12, 32], baseY - 2);
+    // Front row — shorter foreground buildings, very dark with cyan windows
+    drawCityRow("#070111", "#22d3ee", [18, 55], [10, 26], baseY);
   });
 
   return (
-    // Big plane parked far back so it fills the entire frustum on any
-    // viewport (narrow mobile up to ultrawide desktop).
-    <mesh position={[0, 5, -5]}>
-      <planeGeometry args={[60, 18]} />
+    <mesh position={[0, PLANE_CENTER_Y, -5]}>
+      <planeGeometry args={[PLANE_W, PLANE_H]} />
       <meshBasicMaterial map={skyTex} toneMapped={false} />
     </mesh>
   );
