@@ -113,6 +113,7 @@ export default function GameScene(props: GameSceneProps) {
       <ambientLight intensity={1.05} />
       <directionalLight position={[5, 8, 5]} intensity={0.65} />
 
+      <SkylineBackdrop />
       <Floor />
       <BackFlames />
 
@@ -182,11 +183,37 @@ function ResponsiveCamera() {
 }
 
 function Floor() {
+  // Grey BAPE ABC camo — same splotchy pattern as the hoodie but in a light
+  // grey palette so the action on top stays readable. Tiled across the floor.
+  const camoTex = useCanvasTexture(
+    512,
+    512,
+    (ctx, w, h) => {
+      ctx.fillStyle = "#ececef";
+      ctx.fillRect(0, 0, w, h);
+      const palette = ["#c7c7cc", "#9a9aa3", "#7d7d87", "#b6b6bd"];
+      for (let i = 0; i < 110; i++) {
+        ctx.fillStyle = palette[i % palette.length];
+        const r = 18 + Math.random() * 22;
+        ctx.beginPath();
+        ctx.arc(Math.random() * w, Math.random() * h, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    },
+    {
+      setup: (tex) => {
+        tex.wrapS = THREE.RepeatWrapping;
+        tex.wrapT = THREE.RepeatWrapping;
+        tex.repeat.set(5, 2);
+      },
+    }
+  );
+
   return (
     <group>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.01, 0]}>
         <planeGeometry args={[40, 16]} />
-        <meshStandardMaterial color={COLORS.floor} />
+        <meshStandardMaterial map={camoTex} />
       </mesh>
       {/* Subtle accent stripes on the floor — soft purple band running across */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 2.1]}>
@@ -198,6 +225,126 @@ function Floor() {
         <meshBasicMaterial color={COLORS.neonCool} />
       </mesh>
     </group>
+  );
+}
+
+/** Pixel-art Miami Nights skyline backdrop — purple/orange sunset gradient
+ *  with blocky building silhouettes and a few lit windows. Sits well behind
+ *  the workstations so it never interferes with gameplay. */
+function SkylineBackdrop() {
+  const skyTex = useCanvasTexture(1024, 512, (ctx, w, h) => {
+    // ---- Sunset gradient (Miami Nights palette) ----
+    const sky = ctx.createLinearGradient(0, 0, 0, h);
+    sky.addColorStop(0.0, "#1a0b33"); // deep purple top
+    sky.addColorStop(0.45, "#7c1d6f"); // magenta band
+    sky.addColorStop(0.7, "#f97316"); // orange horizon
+    sky.addColorStop(1.0, "#fbbf24"); // pale yellow bottom band
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, w, h);
+
+    // ---- Pixel sun on the horizon ----
+    const sunCx = w * 0.5;
+    const sunCy = h * 0.62;
+    const sunR = 70;
+    // Block-stepped sun (so it reads as pixel-art)
+    for (let r = sunR; r >= 0; r -= 8) {
+      const ratio = r / sunR;
+      ctx.fillStyle = `rgb(${255}, ${Math.floor(180 + 60 * (1 - ratio))}, ${Math.floor(120 * (1 - ratio))})`;
+      ctx.beginPath();
+      ctx.arc(sunCx, sunCy, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // Horizontal sun bands (the classic 80s sunset stripes through the sun)
+    ctx.fillStyle = "#1a0b33";
+    for (let y = sunCy + 5; y < sunCy + sunR; y += 12) {
+      ctx.fillRect(sunCx - sunR, y, sunR * 2, 4);
+    }
+
+    // ---- Tiny pixel stars in the upper sky ----
+    ctx.fillStyle = "#ffffff";
+    for (let i = 0; i < 60; i++) {
+      const x = Math.random() * w;
+      const y = Math.random() * h * 0.35;
+      ctx.fillRect(x, y, 2, 2);
+    }
+
+    // ---- Pixelated city skyline ----
+    // Two passes: a back row of taller dark-purple buildings, a front row of
+    // shorter darker silhouettes — gives a tiny bit of depth.
+    function drawCityRow(
+      baseColor: string,
+      windowColor: string,
+      heightRange: [number, number],
+      widthRange: [number, number],
+      baseY: number
+    ) {
+      let x = 0;
+      while (x < w) {
+        const bw = widthRange[0] + Math.random() * (widthRange[1] - widthRange[0]);
+        const bh = heightRange[0] + Math.random() * (heightRange[1] - heightRange[0]);
+        // Building body (pixel-style: chunky rect, no antialiased corners)
+        ctx.fillStyle = baseColor;
+        ctx.fillRect(Math.floor(x), Math.floor(baseY - bh), Math.floor(bw), Math.floor(bh));
+        // A simple rooftop notch on some buildings
+        if (Math.random() > 0.6) {
+          const nW = 12;
+          ctx.fillRect(
+            Math.floor(x + bw / 2 - nW / 2),
+            Math.floor(baseY - bh - 18),
+            nW,
+            18
+          );
+        }
+        // Lit windows in a grid
+        const winRows = Math.floor(bh / 18);
+        const winCols = Math.floor(bw / 14);
+        for (let row = 0; row < winRows; row++) {
+          for (let col = 0; col < winCols; col++) {
+            if (Math.random() > 0.55) continue;
+            ctx.fillStyle = windowColor;
+            ctx.fillRect(
+              Math.floor(x + 4 + col * 14),
+              Math.floor(baseY - bh + 6 + row * 18),
+              6,
+              7
+            );
+          }
+        }
+        x += bw + (Math.random() > 0.7 ? 6 : 0);
+      }
+    }
+
+    drawCityRow(
+      "#2a0b4d", // back row — dark violet
+      "#fde68a", // warm yellow windows
+      [80, 220],
+      [40, 110],
+      h * 0.92
+    );
+    drawCityRow(
+      "#11041f", // front row — almost black
+      "#f472b6", // hot-pink windows
+      [50, 150],
+      [30, 80],
+      h * 0.98
+    );
+
+    // ---- A faint horizontal grid on the ground for the "endless road" vibe
+    ctx.strokeStyle = "rgba(232,121,249,0.4)";
+    ctx.lineWidth = 2;
+    for (let y = h * 0.78; y < h; y += 14) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(w, y);
+      ctx.stroke();
+    }
+  });
+
+  return (
+    <mesh position={[0, 4.6, -4.2]}>
+      <planeGeometry args={[32, 11]} />
+      <meshBasicMaterial map={skyTex} toneMapped={false} depthWrite={false} />
+    </mesh>
   );
 }
 
@@ -354,10 +501,16 @@ function StationGlow({ active }: { active: boolean }) {
   );
 }
 
+interface CanvasTextureOptions {
+  /** Optional setup pass run once on the texture — useful for wrap/repeat. */
+  setup?: (tex: THREE.CanvasTexture) => void;
+}
+
 function useCanvasTexture(
   width: number,
   height: number,
-  draw: (ctx: CanvasRenderingContext2D, w: number, h: number) => void
+  draw: (ctx: CanvasRenderingContext2D, w: number, h: number) => void,
+  options?: CanvasTextureOptions
 ): THREE.Texture {
   return useMemo(() => {
     const canvas = document.createElement("canvas");
@@ -369,6 +522,7 @@ function useCanvasTexture(
     tex.colorSpace = THREE.SRGBColorSpace;
     tex.minFilter = THREE.NearestFilter;
     tex.magFilter = THREE.NearestFilter;
+    options?.setup?.(tex);
     return tex;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -597,21 +751,30 @@ function PhotoStation({ flashing }: { flashing: boolean }) {
         <meshStandardMaterial color={COLORS.silver} />
       </mesh>
 
-      {/* Black LV t-shirt hanging directly in front of the phone — this is
-          the subject being photographed. */}
-      <LVTShirt position={[0, 1.35, 0.65]} />
+      {/* Black LV t-shirt hangs on the BACK of the phone (camera-lens side).
+          Slightly higher so it peeks above the phone from the player POV.
+          Rotated 180° so the LV print faces the phone's camera, not the player. */}
+      <LVTShirt position={[0, 1.7, -0.7]} rotateY={Math.PI} />
 
-      {/* Bright flash burst — bigger + brighter so the click feels punchy. */}
+      {/* Camera flash — fires backward toward the shirt (camera-lens side).
+          Bright inner sphere + wide halo so the click feels punchy. */}
       {flashing && (
         <>
-          <mesh position={[0, 1.6, 0.2]}>
-            <sphereGeometry args={[0.72, 16, 16]} />
-            <meshBasicMaterial color="#ffffff" transparent opacity={0.75} />
+          {/* Brief boost light pointed AT the shirt so it momentarily lights up */}
+          <pointLight
+            position={[0, 1.6, -0.2]}
+            intensity={4}
+            distance={2.5}
+            color="#ffffff"
+          />
+          <mesh position={[0, 1.6, -0.3]}>
+            <sphereGeometry args={[0.7, 16, 16]} />
+            <meshBasicMaterial color="#ffffff" transparent opacity={0.8} />
           </mesh>
           {/* Wider outer halo */}
-          <mesh position={[0, 1.6, 0.18]}>
-            <sphereGeometry args={[1.15, 16, 16]} />
-            <meshBasicMaterial color="#ffffff" transparent opacity={0.28} />
+          <mesh position={[0, 1.6, -0.25]}>
+            <sphereGeometry args={[1.2, 16, 16]} />
+            <meshBasicMaterial color="#ffffff" transparent opacity={0.3} />
           </mesh>
         </>
       )}
@@ -619,26 +782,32 @@ function PhotoStation({ flashing }: { flashing: boolean }) {
   );
 }
 
-/** Upright black t-shirt with a white LV monogram on the chest, hanging
- *  vertically in front of the phone as the photo subject. */
-function LVTShirt({ position }: { position: [number, number, number] }) {
+/** Upright black t-shirt with a small white LV monogram on the chest. The
+ *  `rotateY` prop lets us flip the print to face either side of the scene. */
+function LVTShirt({
+  position,
+  rotateY = 0,
+}: {
+  position: [number, number, number];
+  rotateY?: number;
+}) {
   const lvTex = useCanvasTexture(256, 320, (ctx, w, h) => {
     // Solid black tee background
     ctx.fillStyle = "#0a0a0a";
     ctx.fillRect(0, 0, w, h);
-    // White LV monogram, centered, big and bold
+    // White LV monogram — smaller + bolder
     ctx.fillStyle = "#ffffff";
-    ctx.font = "bold 150px 'Press Start 2P', system-ui, sans-serif";
+    ctx.font = "bold 90px 'Press Start 2P', system-ui, sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText("LV", w / 2, h / 2);
   });
 
   return (
-    <group position={position}>
+    <group position={position} rotation={[0, rotateY, 0]}>
       {/* Hanger bar just above the shoulders */}
       <mesh position={[0, 0.5, 0]}>
-        <boxGeometry args={[0.22, 0.02, 0.02]} />
+        <boxGeometry args={[0.24, 0.02, 0.02]} />
         <meshStandardMaterial color={COLORS.silver} />
       </mesh>
       {/* Hanger hook */}
@@ -647,36 +816,36 @@ function LVTShirt({ position }: { position: [number, number, number] }) {
         <meshStandardMaterial color={COLORS.silver} />
       </mesh>
 
-      {/* Shirt body — flat upright panel facing the player */}
-      <mesh position={[0, 0, 0.01]}>
-        <planeGeometry args={[0.7, 0.85]} />
+      {/* Shirt body — flat upright panel with the LV print */}
+      <mesh position={[0, 0, 0.012]}>
+        <planeGeometry args={[0.8, 0.95]} />
         <meshBasicMaterial map={lvTex} toneMapped={false} />
       </mesh>
-      {/* Back of the shirt so it's solid from behind too */}
+      {/* Back of the shirt so it's solid black from behind */}
       <mesh position={[0, 0, 0]} rotation={[0, Math.PI, 0]}>
-        <planeGeometry args={[0.7, 0.85]} />
+        <planeGeometry args={[0.8, 0.95]} />
         <meshStandardMaterial color={COLORS.shirtBlack} />
       </mesh>
       {/* Shoulders / sleeves — chunky pixel cubes off to the sides */}
       <RoundedBox
-        args={[0.22, 0.18, 0.06]}
+        args={[0.24, 0.2, 0.06]}
         radius={0.02}
         smoothness={2}
-        position={[-0.4, 0.32, 0]}
+        position={[-0.46, 0.36, 0]}
       >
         <meshStandardMaterial color={COLORS.shirtBlack} />
       </RoundedBox>
       <RoundedBox
-        args={[0.22, 0.18, 0.06]}
+        args={[0.24, 0.2, 0.06]}
         radius={0.02}
         smoothness={2}
-        position={[0.4, 0.32, 0]}
+        position={[0.46, 0.36, 0]}
       >
         <meshStandardMaterial color={COLORS.shirtBlack} />
       </RoundedBox>
       {/* Collar notch */}
-      <mesh position={[0, 0.42, 0.02]}>
-        <boxGeometry args={[0.12, 0.04, 0.005]} />
+      <mesh position={[0, 0.47, 0.02]}>
+        <boxGeometry args={[0.14, 0.04, 0.005]} />
         <meshStandardMaterial color={COLORS.shirtBlack} />
       </mesh>
     </group>
