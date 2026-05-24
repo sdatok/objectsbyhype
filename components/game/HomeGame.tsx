@@ -45,6 +45,15 @@ const STREAK_BONUS_PER_LEVEL = 2;
 const STREAK_BONUS_CAP = 30;
 const WRONG_TAP_PENALTY = 5;
 
+// Anti-spam: if the player makes WRONG_TAP_BURST_LIMIT wrong taps within
+// WRONG_TAP_BURST_WINDOW_MS, lock all stations for COOLDOWN_MS. While in
+// cooldown, every tap costs COOLDOWN_TAP_PENALTY points. This makes the
+// "1,2,3,1,2,3" bot crash its own score because ~67% of taps are wrong.
+const WRONG_TAP_BURST_LIMIT = 3;
+const WRONG_TAP_BURST_WINDOW_MS = 1500;
+const COOLDOWN_MS = 1000;
+const COOLDOWN_TAP_PENALTY = 10;
+
 // Game tuning — rounds end only on misses (no time cap). Difficulty ramps
 // continuously: spawns get tighter and drop windows shrink until mins.
 const INITIAL_SPAWN_MS = 1250;
@@ -89,6 +98,48 @@ function pointsForStreak(streak: number): number {
   );
 }
 
+interface SubmittedTapStats {
+  total: number;
+  wrong: number;
+  minIntervalMs: number;
+  intervalCV: number;
+}
+
+/**
+ * Compress a round's tap timeline into the four numbers the server cares
+ * about. We keep this on the client so we don't have to ship hundreds of
+ * timestamps over the wire — and so server-side validation stays cheap.
+ */
+function computeTapStats(
+  taps: number[],
+  total: number,
+  wrong: number
+): SubmittedTapStats {
+  if (taps.length < 2) {
+    return { total, wrong, minIntervalMs: Infinity, intervalCV: 1 };
+  }
+  let minInterval = Infinity;
+  const intervals: number[] = [];
+  for (let i = 1; i < taps.length; i++) {
+    const dt = taps[i] - taps[i - 1];
+    if (dt < minInterval) minInterval = dt;
+    intervals.push(dt);
+  }
+  const mean =
+    intervals.reduce((a, b) => a + b, 0) / Math.max(1, intervals.length);
+  const variance =
+    intervals.reduce((acc, x) => acc + (x - mean) * (x - mean), 0) /
+    Math.max(1, intervals.length);
+  const std = Math.sqrt(variance);
+  const cv = mean > 0 ? std / mean : 0;
+  return {
+    total,
+    wrong,
+    minIntervalMs: minInterval,
+    intervalCV: cv,
+  };
+}
+
 export default function HomeGame() {
   const [state, setState] = useState<PublicGameState | null>(null);
   const [stateError, setStateError] = useState<string | null>(null);
@@ -108,11 +159,24 @@ export default function HomeGame() {
     expired: false,
   });
   const [streak, setStreak] = useState(0);
+  const [cooldownUntil, setCooldownUntil] = useState(0);
   const startedAtRef = useRef<number>(0);
   const lastSpawnRef = useRef<number>(0);
   const nextTaskIdRef = useRef<number>(0);
   const nextImageIdxRef = useRef<number>(0);
   const elapsedSecondsRef = useRef<number>(0);
+  // Anti-cheat tracking — every tap stamps `tapTimestampsRef`, and
+  // `wrongTapTimestampsRef` is the rolling window used to detect spam.
+  const tapTimestampsRef = useRef<number[]>([]);
+  const wrongTapTimestampsRef = useRef<number[]>([]);
+  const totalTapsRef = useRef(0);
+  const wrongTapsRef = useRef(0);
+  const cooldownUntilRef = useRef(0);
+  const sessionRef = useRef<{
+    sessionId: string;
+    signature: string;
+  } | null>(null);
+  const sessionFetchingRef = useRef(false);
 
   // Submission UI
   const [email, setEmail] = useState("");
@@ -221,10 +285,11 @@ export default function HomeGame() {
     return () => window.cancelAnimationFrame(raf);
   }, [phase]);
 
-  function startGame() {
+  async function startGame() {
     setScore(0);
     setMisses(0);
     setStreak(0);
+    setCooldownUntil(0);
     setTasks([]);
     setCharacterAt("packing");
     setFlashStation(null);
@@ -232,6 +297,37 @@ export default function HomeGame() {
     setSubmitError(null);
     nextTaskIdRef.current = 0;
     nextImageIdxRef.current = 0;
+    tapTimestampsRef.current = [];
+    wrongTapTimestampsRef.current = [];
+    totalTapsRef.current = 0;
+    wrongTapsRef.current = 0;
+    cooldownUntilRef.current = 0;
+
+    // Grab a fresh anti-cheat session before the round actually begins so
+    // the score submit always has a single-use, signed token to send back.
+    if (!sessionFetchingRef.current) {
+      sessionFetchingRef.current = true;
+      try {
+        const res = await fetch("/api/game/start", { method: "POST" });
+        if (res.ok) {
+          const json = (await res.json()) as {
+            sessionId: string;
+            signature: string;
+          };
+          sessionRef.current = {
+            sessionId: json.sessionId,
+            signature: json.signature,
+          };
+        } else {
+          sessionRef.current = null;
+        }
+      } catch {
+        sessionRef.current = null;
+      } finally {
+        sessionFetchingRef.current = false;
+      }
+    }
+
     startedAtRef.current = performance.now();
     lastSpawnRef.current = performance.now() - 500;
     elapsedSecondsRef.current = 0;
@@ -240,6 +336,19 @@ export default function HomeGame() {
 
   const handleStationClick = useCallback((id: StationId) => {
     if (phaseRef.current !== "playing") return;
+
+    const now = performance.now();
+    totalTapsRef.current += 1;
+    tapTimestampsRef.current.push(now);
+
+    // While locked out, every tap stings and registers no hit. Bots
+    // mashing 1,2,3 spend the whole round here.
+    if (now < cooldownUntilRef.current) {
+      setScore((s) => Math.max(0, s - COOLDOWN_TAP_PENALTY));
+      wrongTapsRef.current += 1;
+      return;
+    }
+
     setCharacterAt(id);
     // Camera-station click always pops a "flash" — even on a wrong tap,
     // because that's what you'd see if a phone shutter fired in an empty frame.
@@ -263,12 +372,30 @@ export default function HomeGame() {
     } else {
       setStreak(0);
       setScore((s) => Math.max(0, s - WRONG_TAP_PENALTY));
+      wrongTapsRef.current += 1;
+
+      // Roll the wrong-tap window forward and check for spam.
+      const cutoff = now - WRONG_TAP_BURST_WINDOW_MS;
+      wrongTapTimestampsRef.current = wrongTapTimestampsRef.current.filter(
+        (t) => t >= cutoff
+      );
+      wrongTapTimestampsRef.current.push(now);
+      if (wrongTapTimestampsRef.current.length >= WRONG_TAP_BURST_LIMIT) {
+        const until = now + COOLDOWN_MS;
+        cooldownUntilRef.current = until;
+        setCooldownUntil(until);
+        wrongTapTimestampsRef.current = [];
+      }
     }
   }, []);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (phaseRef.current !== "playing") return;
+      // Anti-bot: ignore key auto-repeat. Real players release between
+      // taps, but a held-down key (or a script firing keydown in a tight
+      // loop with the same modifier set) often comes through as repeats.
+      if (e.repeat) return;
       if (e.key === "1") handleStationClick("computer");
       else if (e.key === "2") handleStationClick("packing");
       else if (e.key === "3") handleStationClick("camera");
@@ -277,11 +404,33 @@ export default function HomeGame() {
     return () => window.removeEventListener("keydown", onKey);
   }, [handleStationClick]);
 
+  // Tick the cooldown badge off the screen when it ends.
+  useEffect(() => {
+    if (phase !== "playing" || !cooldownUntil) return;
+    const id = window.setTimeout(
+      () => setCooldownUntil((c) => (c === cooldownUntil ? 0 : c)),
+      Math.max(0, cooldownUntil - performance.now())
+    );
+    return () => window.clearTimeout(id);
+  }, [cooldownUntil, phase]);
+
   async function submitScore(e: React.FormEvent) {
     e.preventDefault();
     setSubmitting(true);
     setSubmitError(null);
     try {
+      if (!sessionRef.current) {
+        throw new Error(
+          "Game session missing — refresh the page and play again."
+        );
+      }
+
+      const tapStats = computeTapStats(
+        tapTimestampsRef.current,
+        totalTapsRef.current,
+        wrongTapsRef.current
+      );
+
       const res = await fetch("/api/game/scores", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -290,12 +439,17 @@ export default function HomeGame() {
           displayName: displayName.trim() || undefined,
           score,
           secondsPlayed: elapsedSecondsRef.current,
+          sessionId: sessionRef.current.sessionId,
+          signature: sessionRef.current.signature,
+          tapStats,
         }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error ?? "Submit failed");
       }
+      // Single-use session — clear it so a retry has to start a new round.
+      sessionRef.current = null;
       setPhase("submitted");
       loadState();
     } catch (err) {
@@ -550,6 +704,21 @@ export default function HomeGame() {
                           {STATION_LABELS[id]}
                         </button>
                       ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Cooldown badge — shown when the wrong-tap spam guard fires */}
+                {phase === "playing" && cooldownUntil > 0 && (
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                    <div
+                      className="font-pixel text-[14px] sm:text-[18px] text-white px-4 py-3 border-2 border-black"
+                      style={{
+                        background: "rgba(225,29,72,0.92)",
+                        boxShadow: "5px 5px 0 #000",
+                      }}
+                    >
+                      TOO FAST — COOL IT
                     </div>
                   </div>
                 )}

@@ -313,3 +313,22 @@ model PageView {
   @@index([createdAt])
   @@index([path])
 }
+
+/// Anti-cheat session for the home-page mini-game. Issued by /api/game/start
+/// and consumed exactly once by /api/game/scores. The signature column lets
+/// the server verify the client didn't tamper with the issued-at timestamp,
+/// and usedAt enforces single-use so the same session can't submit twice.
+model GameSession {
+  id        String    @id @default(cuid())
+  /// HMAC over `${id}:${issuedAt.getTime()}` using SESSION_SECRET. Server
+  /// re-derives this on submit and compares constant-time.
+  signature String
+  issuedAt  DateTime  @default(now())
+  /// Set once when the score is successfully submitted. Re-submits 409.
+  usedAt    DateTime?
+  /// Best-effort source IP (forwarded-for / x-real-ip) for abuse triage.
+  ip        String?
+
+  @@index([issuedAt])
+  @@index([usedAt])
+}
