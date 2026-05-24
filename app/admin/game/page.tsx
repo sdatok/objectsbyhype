@@ -18,6 +18,8 @@ export default async function AdminGamePage() {
 
   const buckets = await Promise.all(
     distinctWindows.map(async (w) => {
+      const isCurrent =
+        w.windowStartedAt.getTime() === config.windowStartedAt.getTime();
       const scores = await prisma.gameScore.findMany({
         where: { windowStartedAt: w.windowStartedAt },
         orderBy: [
@@ -25,7 +27,9 @@ export default async function AdminGamePage() {
           { secondsPlayed: "asc" },
           { createdAt: "asc" },
         ],
-        take: 25,
+        // Current window: show every player so admin can email all eligible
+        // entrants. Previous windows: cap at 25 to keep the page light.
+        ...(isCurrent ? {} : { take: 25 }),
       });
       return { windowStartedAt: w.windowStartedAt, scores };
     })
@@ -85,6 +89,11 @@ export default async function AdminGamePage() {
                   <div className="flex items-baseline justify-between gap-3 mb-3">
                     <p className="text-[11px] uppercase tracking-widest font-bold">
                       {isCurrent ? "Current window" : "Previous"}
+                      <span className="ml-2 text-neutral-400 font-normal">
+                        · {b.scores.length}{" "}
+                        {b.scores.length === 1 ? "entrant" : "entrants"}
+                        {!isCurrent && b.scores.length === 25 ? "+" : ""}
+                      </span>
                     </p>
                     <p className="text-[10px] text-neutral-400">
                       Started {b.windowStartedAt.toLocaleString()}
@@ -96,41 +105,49 @@ export default async function AdminGamePage() {
                     </p>
                   ) : (
                     <ol className="space-y-1.5">
-                      {b.scores.map((s, i) => (
-                        <li
-                          key={s.id}
-                          className={`flex items-center justify-between text-[12px] border-b border-neutral-100 pb-1.5 ${
-                            !isCurrent && i === 0
-                              ? "font-medium"
-                              : ""
-                          }`}
-                        >
-                          <span className="flex items-center gap-3 min-w-0">
-                            <span className="text-[10px] uppercase tracking-widest text-neutral-300 w-6 shrink-0">
-                              {i + 1}
-                              {!isCurrent && i === 0 ? "★" : ""}
-                            </span>
-                            <span className="truncate">
-                              {s.displayName && (
-                                <span className="font-medium">
-                                  {s.displayName}{" "}
+                      {b.scores.map((s, i) => {
+                        const isTop3 = i < 3;
+                        const medal = ["★", "◆", "▲"][i] ?? "";
+                        return (
+                          <li
+                            key={s.id}
+                            className={`flex items-center justify-between text-[12px] border-b border-neutral-100 pb-1.5 ${
+                              isTop3 ? "font-medium" : ""
+                            }`}
+                          >
+                            <span className="flex items-center gap-3 min-w-0">
+                              <span
+                                className={`text-[10px] uppercase tracking-widest w-7 shrink-0 ${
+                                  isTop3
+                                    ? "text-fuchsia-600"
+                                    : "text-neutral-300"
+                                }`}
+                              >
+                                {i + 1}
+                                {isTop3 ? medal : ""}
+                              </span>
+                              <span className="truncate">
+                                {s.displayName && (
+                                  <span className="font-medium">
+                                    {s.displayName}{" "}
+                                  </span>
+                                )}
+                                <span className="text-neutral-500">
+                                  {s.email}
                                 </span>
-                              )}
-                              <span className="text-neutral-500">
-                                {s.email}
                               </span>
                             </span>
-                          </span>
-                          <span className="font-mono tabular-nums shrink-0 ml-3">
-                            {s.score}
-                          </span>
-                        </li>
-                      ))}
+                            <span className="font-mono tabular-nums shrink-0 ml-3">
+                              {s.score}
+                            </span>
+                          </li>
+                        );
+                      })}
                     </ol>
                   )}
                   {idx === 0 && isCurrent && b.scores.length > 0 && (
                     <p className="text-[10px] text-neutral-400 mt-3">
-                      Winner will be the top entry when the window ends.
+                      Top 3 ★◆▲ will win when the window ends.
                     </p>
                   )}
                 </div>

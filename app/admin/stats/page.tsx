@@ -6,6 +6,25 @@ export const dynamic = "force-dynamic";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * Tiny helper so a single query failure (e.g. PageView table missing on a
+ * stale DB, transient connection error) can't take down the whole stats page.
+ * Logs the failure and falls back to a default value.
+ */
+async function safe<T>(label: string, fn: () => Promise<T>, fallback: T): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    console.error(`[admin/stats] ${label} failed`, err);
+    return fallback;
+  }
+}
+
+interface TopPathRow {
+  path: string;
+  _count: { _all: number };
+}
+
 export default async function AdminStatsPage() {
   const now = new Date();
   const oneDayAgo = new Date(now.getTime() - DAY_MS);
@@ -16,7 +35,7 @@ export default async function AdminStatsPage() {
     now.getDate()
   );
 
-  const config = await getOrCreateGameConfig();
+  const config = await safe("getOrCreateGameConfig", getOrCreateGameConfig, null);
 
   const [
     paidCount,
@@ -32,35 +51,89 @@ export default async function AdminStatsPage() {
     viewsLast7d,
     topPaths,
   ] = await Promise.all([
-    prisma.order.count({ where: { status: "PAID" } }),
-    prisma.order.aggregate({
-      where: { status: "PAID" },
-      _sum: { total: true },
-    }),
-    prisma.customerProfile.count(),
-    prisma.order.count({ where: { status: "PENDING" } }),
-    prisma.gameScore.count(),
-    prisma.gameScore.count({ where: { createdAt: { gte: oneDayAgo } } }),
-    prisma.gameScore.count({
-      where: { windowStartedAt: config.windowStartedAt },
-    }),
-    prisma.gameScore.findMany({ distinct: ["email"], select: { email: true } }),
-    prisma.gameScore.findFirst({
-      orderBy: [{ score: "desc" }, { secondsPlayed: "asc" }],
-      select: { score: true, displayName: true, email: true },
-    }),
-    prisma.pageView.count({ where: { createdAt: { gte: todayStart } } }),
-    prisma.pageView.count({ where: { createdAt: { gte: sevenDaysAgo } } }),
-    prisma.pageView.groupBy({
-      by: ["path"],
-      where: { createdAt: { gte: sevenDaysAgo } },
-      _count: { _all: true },
-      orderBy: { _count: { path: "desc" } },
-      take: 5,
-    }),
+    safe("paidCount", () => prisma.order.count({ where: { status: "PAID" } }), 0),
+    safe(
+      "paidRevenue",
+      async () => {
+        const r = await prisma.order.aggregate({
+          where: { status: "PAID" },
+          _sum: { total: true },
+        });
+        return Number(r._sum.total ?? 0);
+      },
+      0
+    ),
+    safe("profileCount", () => prisma.customerProfile.count(), 0),
+    safe(
+      "pendingCount",
+      () => prisma.order.count({ where: { status: "PENDING" } }),
+      0
+    ),
+    safe("totalPlays", () => prisma.gameScore.count(), 0),
+    safe(
+      "playsLast24h",
+      () => prisma.gameScore.count({ where: { createdAt: { gte: oneDayAgo } } }),
+      0
+    ),
+    safe(
+      "playsThisWindow",
+      () =>
+        config
+          ? prisma.gameScore.count({
+              where: { windowStartedAt: config.windowStartedAt },
+            })
+          : Promise.resolve(0),
+      0
+    ),
+    safe(
+      "distinctPlayerEmails",
+      () =>
+        prisma.gameScore.findMany({
+          distinct: ["email"],
+          select: { email: true },
+        }),
+      [] as { email: string }[]
+    ),
+    safe(
+      "topScoreAllTime",
+      () =>
+        prisma.gameScore.findFirst({
+          orderBy: [{ score: "desc" }, { secondsPlayed: "asc" }],
+          select: { score: true, displayName: true, email: true },
+        }),
+      null as null | { score: number; displayName: string | null; email: string }
+    ),
+    safe(
+      "viewsToday",
+      () =>
+        prisma.pageView.count({
+          where: { createdAt: { gte: todayStart } },
+        }),
+      0
+    ),
+    safe(
+      "viewsLast7d",
+      () =>
+        prisma.pageView.count({
+          where: { createdAt: { gte: sevenDaysAgo } },
+        }),
+      0
+    ),
+    safe<TopPathRow[]>(
+      "topPaths",
+      () =>
+        prisma.pageView.groupBy({
+          by: ["path"],
+          where: { createdAt: { gte: sevenDaysAgo } },
+          _count: { _all: true },
+          orderBy: { _count: { path: "desc" } },
+          take: 5,
+        }) as unknown as Promise<TopPathRow[]>,
+      []
+    ),
   ]);
 
-  const revenue = Number(paidRevenue._sum.total ?? 0);
+  const revenue = paidRevenue;
   const uniquePlayers = distinctPlayerEmails.length;
 
   return (
@@ -130,7 +203,11 @@ export default async function AdminStatsPage() {
           <StatCard
             label="Plays this window"
             value={playsThisWindow.toString()}
-            hint={`Started ${config.windowStartedAt.toLocaleString()}`}
+            hint={
+              config
+                ? `Started ${config.windowStartedAt.toLocaleString()}`
+                : "No active window"
+            }
           />
           <StatCard
             label="Plays last 24h"
