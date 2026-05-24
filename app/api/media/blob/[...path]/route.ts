@@ -7,9 +7,22 @@ export const runtime = "nodejs";
 /**
  * Proxies Blob storage for private stores (and can fetch public blobs by pathname).
  * Uploads with BLOB_PUT_ACCESS=private return URLs like /api/media/blob/products/...
+ *
+ * Caching: blob filenames embed an upload timestamp (`<ms>-<sanitized-name>`),
+ * so the content at any given path is effectively immutable. We send a
+ * `public, immutable, max-age=1y` header so the Vercel Edge cache and the
+ * browser hold the bytes indefinitely instead of re-fetching from Blob
+ * storage (which is what was burning through Blob Data Transfer).
+ *
+ * `If-None-Match` is forwarded to Vercel Blob so that even on a cold edge
+ * miss we get a 304 instead of paying the egress for a re-stream when the
+ * client/CDN already has the right ETag.
  */
+const IMMUTABLE_CACHE =
+  "public, max-age=31536000, s-maxage=31536000, immutable, stale-while-revalidate=86400";
+
 export async function GET(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ path: string[] }> }
 ) {
   const { path: segments } = await context.params;
@@ -48,22 +61,42 @@ export async function GET(
     );
   }
 
+  const ifNoneMatch = request.headers.get("if-none-match") ?? undefined;
+
   try {
     const result = await get(pathname, {
       access,
       token,
+      ...(ifNoneMatch ? { ifNoneMatch } : {}),
     });
 
-    if (!result || result.statusCode !== 200 || !result.stream) {
+    if (!result) {
       return new NextResponse("Not found", { status: 404 });
     }
 
-    return new NextResponse(result.stream, {
-      headers: {
-        "Content-Type": result.blob.contentType ?? "application/octet-stream",
-        "Cache-Control": "public, max-age=86400, stale-while-revalidate=604800",
-      },
-    });
+    // 304 from Blob means the caller's ETag still matches — zero egress.
+    if (result.statusCode === 304) {
+      return new NextResponse(null, {
+        status: 304,
+        headers: { "Cache-Control": IMMUTABLE_CACHE },
+      });
+    }
+
+    if (result.statusCode !== 200 || !result.stream) {
+      return new NextResponse("Not found", { status: 404 });
+    }
+
+    const etag =
+      (result.blob as unknown as { etag?: string }).etag ??
+      (result as unknown as { headers?: { etag?: string } }).headers?.etag;
+
+    const headers: Record<string, string> = {
+      "Content-Type": result.blob.contentType ?? "application/octet-stream",
+      "Cache-Control": IMMUTABLE_CACHE,
+    };
+    if (etag) headers["ETag"] = etag;
+
+    return new NextResponse(result.stream, { headers });
   } catch (e) {
     console.error("Blob media proxy failed:", e);
     return new NextResponse("Not found", { status: 404 });

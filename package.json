@@ -13,7 +13,8 @@
     "db:studio": "prisma studio",
     "scrape": "tsx scripts/scrape-stockx.ts",
     "seed": "tsx scripts/seed.ts",
-    "seed:submissions": "tsx scripts/seed-submissions.ts"
+    "seed:submissions": "tsx scripts/seed-submissions.ts",
+    "migrate:blob": "tsx scripts/migrate-blob-to-public.ts"
   },
   "dependencies": {
     "@clerk/nextjs": "^7.0.12",
