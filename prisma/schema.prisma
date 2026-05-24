@@ -278,7 +278,7 @@ model GameConfig {
   /// Number of misses before game over (3 = arcade-classic, lower = harder).
   maxMisses         Int      @default(3)
   /// Initial seconds each task gives the player; difficulty scales these down over time.
-  taskBaseSeconds   Int      @default(8)
+  taskBaseSeconds   Int      @default(6)
   updatedAt         DateTime @updatedAt
 }
 
@@ -299,4 +299,17 @@ model GameScore {
 
   @@index([windowStartedAt, score])
   @@index([email])
+}
+
+/// Lightweight, self-hosted page-view counter used by the admin stats page.
+/// One row per storefront page hit; aggregations are computed at read time.
+/// Admin and API routes are intentionally excluded.
+model PageView {
+  id        String   @id @default(cuid())
+  /// Pathname only (e.g. "/" or "/product/foo"). Query strings are stripped.
+  path      String
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([path])
 }

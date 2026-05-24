@@ -27,11 +27,30 @@ function formatRemaining(endsAt: number): string {
   const diff = endsAt - Date.now();
   if (diff <= 0) return "Window expired — next score will start a new one.";
   const totalSeconds = Math.floor(diff / 1000);
-  const h = Math.floor(totalSeconds / 3600);
+  const days = Math.floor(totalSeconds / 86400);
+  const h = Math.floor((totalSeconds % 86400) / 3600);
   const m = Math.floor((totalSeconds % 3600) / 60);
   const s = totalSeconds % 60;
-  return `${pad(h)}:${pad(m)}:${pad(s)} until winner is locked in`;
+  const stamp = `${pad(h)}:${pad(m)}:${pad(s)}`;
+  return days > 0
+    ? `${days}d ${stamp} until top 3 are locked in`
+    : `${stamp} until top 3 are locked in`;
 }
+
+/**
+ * `<input type="datetime-local">` wants `YYYY-MM-DDTHH:MM` in local time.
+ * Build that from a Date without falling back to ISO/UTC formatting.
+ */
+function toLocalDatetimeInputValue(d: Date): string {
+  const y = d.getFullYear();
+  const m = pad(d.getMonth() + 1);
+  const day = pad(d.getDate());
+  const h = pad(d.getHours());
+  const min = pad(d.getMinutes());
+  return `${y}-${m}-${day}T${h}:${min}`;
+}
+
+const MAX_WINDOW_HOURS = 24 * 30;
 
 export default function GameConfigForm({ initialConfig }: GameConfigFormProps) {
   const router = useRouter();
@@ -41,6 +60,9 @@ export default function GameConfigForm({ initialConfig }: GameConfigFormProps) {
     initialConfig.prizeDescription
   );
   const [windowHours, setWindowHours] = useState(initialConfig.windowHours);
+  const [endsAtLocal, setEndsAtLocal] = useState(() =>
+    toLocalDatetimeInputValue(new Date(initialConfig.windowEndsAt))
+  );
   const [gameSpeed, setGameSpeed] = useState(initialConfig.gameSpeed);
   const [maxMisses, setMaxMisses] = useState(initialConfig.maxMisses);
   const [taskBaseSeconds, setTaskBaseSeconds] = useState(
@@ -50,9 +72,11 @@ export default function GameConfigForm({ initialConfig }: GameConfigFormProps) {
   const [resetting, setResetting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [remaining, setRemaining] = useState(
+  const [remaining, setRemaining] = useState(() =>
     formatRemaining(new Date(initialConfig.windowEndsAt).getTime())
   );
+
+  const startedAtMs = new Date(initialConfig.windowStartedAt).getTime();
 
   useEffect(() => {
     const endsAt = new Date(initialConfig.windowEndsAt).getTime();
@@ -61,6 +85,27 @@ export default function GameConfigForm({ initialConfig }: GameConfigFormProps) {
     }, 1000);
     return () => window.clearInterval(id);
   }, [initialConfig.windowEndsAt]);
+
+  /** Recompute windowHours from a chosen end-time, preserving the current
+   *  windowStartedAt so existing scores stay in the same window. */
+  function applyEndsAtToHours(localValue: string) {
+    setEndsAtLocal(localValue);
+    if (!localValue) return;
+    const endMs = new Date(localValue).getTime();
+    if (Number.isNaN(endMs)) return;
+    const hours = Math.max(
+      1,
+      Math.min(MAX_WINDOW_HOURS, Math.round((endMs - startedAtMs) / 3600000))
+    );
+    setWindowHours(hours);
+  }
+
+  /** Quick-set: end exactly N days from *now*. Keeps current scores by
+   *  leaving windowStartedAt untouched and bumping windowHours. */
+  function setEndInDays(days: number) {
+    const target = new Date(Date.now() + days * 86400000);
+    applyEndsAtToHours(toLocalDatetimeInputValue(target));
+  }
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -178,51 +223,74 @@ export default function GameConfigForm({ initialConfig }: GameConfigFormProps) {
         />
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+      <div className="border border-neutral-200 rounded p-4 space-y-3 bg-neutral-50">
         <div>
           <label
-            htmlFor="window-hours"
+            htmlFor="ends-at"
             className="block text-[10px] uppercase tracking-widest text-neutral-500 mb-2"
           >
-            Window length (hours)
+            Top 3 announced at
           </label>
           <input
-            id="window-hours"
-            type="number"
-            inputMode="numeric"
-            min={1}
-            max={168}
-            value={windowHours}
-            onChange={(e) =>
-              setWindowHours(Math.max(1, parseInt(e.target.value, 10) || 1))
-            }
-            className="w-full border border-neutral-300 px-3 py-3 min-h-[44px] text-base sm:text-[13px] focus:outline-none focus:border-black transition-colors"
+            id="ends-at"
+            type="datetime-local"
+            value={endsAtLocal}
+            onChange={(e) => applyEndsAtToHours(e.target.value)}
+            className="w-full border border-neutral-300 px-3 py-3 min-h-[44px] text-base sm:text-[13px] focus:outline-none focus:border-black transition-colors bg-white"
           />
           <p className="text-[10px] text-neutral-400 mt-1">
-            Applies to the next window. The current window keeps its existing
-            length unless you reset it below.
+            Updates the live countdown and keeps every score already submitted
+            in the current window. Save to apply.
           </p>
         </div>
-        <div>
-          <label
-            htmlFor="max-misses"
-            className="block text-[10px] uppercase tracking-widest text-neutral-500 mb-2"
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setEndInDays(1)}
+            className="border border-neutral-300 bg-white text-[10px] uppercase tracking-widest px-3 py-2 hover:border-black transition-colors"
           >
-            Max misses before game over
-          </label>
-          <input
-            id="max-misses"
-            type="number"
-            inputMode="numeric"
-            min={1}
-            max={10}
-            value={maxMisses}
-            onChange={(e) =>
-              setMaxMisses(Math.max(1, parseInt(e.target.value, 10) || 1))
-            }
-            className="w-full border border-neutral-300 px-3 py-3 min-h-[44px] text-base sm:text-[13px] focus:outline-none focus:border-black transition-colors"
-          />
+            +1 day
+          </button>
+          <button
+            type="button"
+            onClick={() => setEndInDays(2)}
+            className="border border-black bg-black text-white text-[10px] uppercase tracking-widest px-3 py-2 hover:bg-neutral-800 transition-colors"
+          >
+            +2 days from now
+          </button>
+          <button
+            type="button"
+            onClick={() => setEndInDays(7)}
+            className="border border-neutral-300 bg-white text-[10px] uppercase tracking-widest px-3 py-2 hover:border-black transition-colors"
+          >
+            +7 days
+          </button>
         </div>
+        <p className="text-[10px] text-neutral-400">
+          Currently {windowHours}h after window start
+          {windowHours >= 24 && ` (${(windowHours / 24).toFixed(1)} days)`}.
+        </p>
+      </div>
+
+      <div>
+        <label
+          htmlFor="max-misses"
+          className="block text-[10px] uppercase tracking-widest text-neutral-500 mb-2"
+        >
+          Max misses before game over
+        </label>
+        <input
+          id="max-misses"
+          type="number"
+          inputMode="numeric"
+          min={1}
+          max={10}
+          value={maxMisses}
+          onChange={(e) =>
+            setMaxMisses(Math.max(1, parseInt(e.target.value, 10) || 1))
+          }
+          className="w-full border border-neutral-300 px-3 py-3 min-h-[44px] text-base sm:text-[13px] focus:outline-none focus:border-black transition-colors"
+        />
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">

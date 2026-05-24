@@ -36,21 +36,27 @@ interface PublicGameState {
 
 type Phase = "idle" | "playing" | "gameOver" | "submitted";
 
-const POINTS_PER_TASK = 10;
-const WRONG_TAP_PENALTY = 2;
+// Base scoring. Streak combos add up to +30 on top of the base, so a hot
+// player banks ~40/hit while a button-masher keeps drifting back to 10/hit.
+// This is what spreads scores out across the 2-day window so the top 3
+// actually feel earned.
+const BASE_POINTS_PER_TASK = 10;
+const STREAK_BONUS_PER_LEVEL = 2;
+const STREAK_BONUS_CAP = 30;
+const WRONG_TAP_PENALTY = 5;
 
-// Game tuning — short, intense rounds. Difficulty ramps fast so even good
-// players cap out around the 45-60s mark.
-const ROUND_MAX_SECONDS = 60;
-const INITIAL_SPAWN_MS = 1700;
-const SPAWN_DECAY_MS_PER_SEC = 38;
-const MIN_SPAWN_MS = 480;
-// Task drops live for at most ~4s at the start, ramping down toward MIN.
-const MAX_TASK_MS = 4000;
-const TASK_DECAY_MS_PER_SEC = 120;
-const MIN_TASK_MS = 1100;
+// Game tuning — rounds end only on misses (no time cap). Difficulty ramps
+// continuously: spawns get tighter and drop windows shrink until mins.
+const INITIAL_SPAWN_MS = 1250;
+const SPAWN_DECAY_MS_PER_SEC = 55;
+const MIN_SPAWN_MS = 340;
+// Drop lifetime starts from admin taskBaseSeconds (capped) and decays fast.
+const MAX_TASK_MS = 3200;
+const TASK_DECAY_MS_PER_SEC = 175;
+const MIN_TASK_MS = 720;
 
 interface RemainingTime {
+  days: number;
   hours: number;
   minutes: number;
   seconds: number;
@@ -60,11 +66,12 @@ interface RemainingTime {
 function computeRemaining(endsAt: number): RemainingTime {
   const diff = endsAt - Date.now();
   if (diff <= 0) {
-    return { hours: 0, minutes: 0, seconds: 0, expired: true };
+    return { days: 0, hours: 0, minutes: 0, seconds: 0, expired: true };
   }
   const totalSeconds = Math.floor(diff / 1000);
   return {
-    hours: Math.floor(totalSeconds / 3600),
+    days: Math.floor(totalSeconds / 86400),
+    hours: Math.floor((totalSeconds % 86400) / 3600),
     minutes: Math.floor((totalSeconds % 3600) / 60),
     seconds: totalSeconds % 60,
     expired: false,
@@ -73,6 +80,13 @@ function computeRemaining(endsAt: number): RemainingTime {
 
 function pad(n: number): string {
   return n.toString().padStart(2, "0");
+}
+
+function pointsForStreak(streak: number): number {
+  return (
+    BASE_POINTS_PER_TASK +
+    Math.min(STREAK_BONUS_CAP, streak * STREAK_BONUS_PER_LEVEL)
+  );
 }
 
 export default function HomeGame() {
@@ -87,11 +101,13 @@ export default function HomeGame() {
   const [flashStation, setFlashStation] = useState<StationId | null>(null);
   const [cameraFlash, setCameraFlash] = useState(false);
   const [remaining, setRemaining] = useState<RemainingTime>({
+    days: 0,
     hours: 0,
     minutes: 0,
     seconds: 0,
     expired: false,
   });
+  const [streak, setStreak] = useState(0);
   const startedAtRef = useRef<number>(0);
   const lastSpawnRef = useRef<number>(0);
   const nextTaskIdRef = useRef<number>(0);
@@ -154,13 +170,7 @@ export default function HomeGame() {
       const elapsedSec = (now - startedAtRef.current) / 1000;
       elapsedSecondsRef.current = Math.floor(elapsedSec);
 
-      // Hard cap — every round ends at ROUND_MAX_SECONDS regardless of misses.
-      if (elapsedSec >= ROUND_MAX_SECONDS) {
-        queueMicrotask(() => setPhase("gameOver"));
-        return;
-      }
-
-      // Spawn cadence shrinks quickly so the game gets harder fast.
+      // Spawn cadence shrinks over time — no round time limit.
       const baseSpawn = Math.max(
         MIN_SPAWN_MS,
         INITIAL_SPAWN_MS / cfg.gameSpeed - elapsedSec * SPAWN_DECAY_MS_PER_SEC
@@ -195,6 +205,7 @@ export default function HomeGame() {
       const expired = tasksRef.current.filter((t) => t.expiresAt <= now);
       if (expired.length > 0) {
         setTasks((prev) => prev.filter((t) => t.expiresAt > now));
+        setStreak(0);
         setMisses((prev) => {
           const next = prev + expired.length;
           if (next >= (stateRef.current?.maxMisses ?? 3)) {
@@ -213,6 +224,7 @@ export default function HomeGame() {
   function startGame() {
     setScore(0);
     setMisses(0);
+    setStreak(0);
     setTasks([]);
     setCharacterAt("packing");
     setFlashStation(null);
@@ -221,7 +233,7 @@ export default function HomeGame() {
     nextTaskIdRef.current = 0;
     nextImageIdxRef.current = 0;
     startedAtRef.current = performance.now();
-    lastSpawnRef.current = performance.now() - 200;
+    lastSpawnRef.current = performance.now() - 500;
     elapsedSecondsRef.current = 0;
     setPhase("playing");
   }
@@ -238,13 +250,18 @@ export default function HomeGame() {
     const hit = tasksRef.current.find((t) => t.stationId === id);
     if (hit) {
       setTasks((prev) => prev.filter((t) => t.id !== hit.id));
-      setScore((s) => s + POINTS_PER_TASK);
+      setStreak((prevStreak) => {
+        const next = prevStreak + 1;
+        setScore((s) => s + pointsForStreak(prevStreak));
+        return next;
+      });
       setFlashStation(id);
       window.setTimeout(
         () => setFlashStation((f) => (f === id ? null : f)),
         220
       );
     } else {
+      setStreak(0);
       setScore((s) => Math.max(0, s - WRONG_TAP_PENALTY));
     }
   }, []);
@@ -350,7 +367,7 @@ export default function HomeGame() {
           <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
             <div className="min-w-0">
               <p className="font-pixel text-[9px] sm:text-[10px] text-fuchsia-600">
-                HOURLY GIVEAWAY
+                TOP 3 GIVEAWAY · 2 DAYS
               </p>
               <h2 className="font-pixel text-black text-[18px] sm:text-[24px] md:text-[30px] leading-[1.25] mt-2 break-words">
                 {state.prizeTitle}
@@ -364,17 +381,29 @@ export default function HomeGame() {
             <div className="flex items-end gap-4 md:gap-5">
               <div className="text-left md:text-right">
                 <p className="font-pixel text-[9px] sm:text-[10px] text-fuchsia-600">
-                  NEXT WINNER IN
+                  TOP 3 LOCKED IN
                 </p>
                 <p
-                  className="font-pixel text-black text-[22px] sm:text-[30px] md:text-[36px] leading-none mt-1 tabular-nums"
+                  className="font-pixel text-black text-[18px] sm:text-[26px] md:text-[32px] leading-none mt-1 tabular-nums"
                   style={{
                     textShadow:
                       "2px 2px 0 rgba(232,121,249,0.35), 4px 4px 0 rgba(124,58,237,0.18)",
                   }}
                 >
-                  {pad(remaining.hours)}:{pad(remaining.minutes)}:
-                  {pad(remaining.seconds)}
+                  {remaining.days > 0 ? (
+                    <>
+                      <span className="text-fuchsia-600">
+                        {remaining.days}d
+                      </span>{" "}
+                      {pad(remaining.hours)}:{pad(remaining.minutes)}:
+                      {pad(remaining.seconds)}
+                    </>
+                  ) : (
+                    <>
+                      {pad(remaining.hours)}:{pad(remaining.minutes)}:
+                      {pad(remaining.seconds)}
+                    </>
+                  )}
                 </p>
               </div>
               {/* Open/close chevron + label */}
@@ -415,13 +444,28 @@ export default function HomeGame() {
         >
           {expanded && (
             <>
-              {/* HUD: score / misses / start */}
+              {/* HUD: score / streak / misses / start */}
               <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
                 <div className="flex items-center gap-5 sm:gap-6">
                   <div>
                     <p className="font-pixel text-[9px] text-fuchsia-600">SCORE</p>
                     <p className="font-pixel text-[18px] sm:text-[20px] tabular-nums text-black mt-1">
                       {score.toString().padStart(4, "0")}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="font-pixel text-[9px] text-fuchsia-600">STREAK</p>
+                    <p
+                      className="font-pixel text-[18px] sm:text-[20px] tabular-nums mt-1 transition-colors"
+                      style={{
+                        color: streak >= 5 ? "#c026d3" : "#000",
+                        textShadow:
+                          streak >= 10
+                            ? "2px 2px 0 rgba(232,121,249,0.55)"
+                            : "none",
+                      }}
+                    >
+                      x{streak}
                     </p>
                   </div>
                   <div>
@@ -527,8 +571,12 @@ export default function HomeGame() {
                         Run the OBH ops desk. Tap a station the second a drop
                         lands: <span className="text-fuchsia-600">LIST IT</span>
                         , <span className="text-violet-600">PACK IT</span>, or{" "}
-                        <span className="text-pink-600">SHOOT IT</span>. Miss{" "}
-                        {state.maxMisses} and you&apos;re out — top score wins.
+                        <span className="text-pink-600">SHOOT IT</span>. Build
+                        a streak for combo points — miss {state.maxMisses} and
+                        you&apos;re out.{" "}
+                        <span className="text-fuchsia-700 font-bold">
+                          TOP 3 WIN.
+                        </span>
                       </p>
                       <p className="font-pixel text-[8px] text-fuchsia-600 mt-4">
                         DESKTOP: PRESS 1 / 2 / 3
@@ -558,10 +606,11 @@ export default function HomeGame() {
                           {score.toString().padStart(4, "0")}
                         </p>
                         <p className="font-pixel-body text-[18px] text-neutral-700 mt-2 leading-snug">
-                          Submit to be eligible for{" "}
+                          Submit to lock your spot. Top 3 in 2 days win{" "}
                           <span className="text-fuchsia-700 font-bold">
                             {state.prizeTitle}
                           </span>
+                          .
                         </p>
                       </div>
                       <input
@@ -628,8 +677,8 @@ export default function HomeGame() {
                         {score.toString().padStart(4, "0")}
                       </p>
                       <p className="font-pixel-body text-[18px] text-neutral-700 leading-snug">
-                        If your score is highest when the countdown hits zero,
-                        we&apos;ll email you about{" "}
+                        If you finish in the top 3 when the countdown hits
+                        zero, we&apos;ll email you about{" "}
                         <span className="text-fuchsia-700 font-bold">
                           {state.prizeTitle}
                         </span>
@@ -652,70 +701,167 @@ export default function HomeGame() {
                 )}
               </div>
 
-              {/* Leaderboard + last winner */}
-              <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-8">
-                <div>
-                  <p className="font-pixel text-[10px] text-fuchsia-600 mb-3">
-                    THIS WINDOW&apos;S LEADERBOARD
-                  </p>
-                  {state.leaderboard.length === 0 ? (
-                    <p className="font-pixel-body text-[18px] text-neutral-500">
-                      No scores yet. Be the first.
-                    </p>
-                  ) : (
-                    <ol className="space-y-2">
-                      {state.leaderboard.slice(0, 5).map((s, i) => (
-                        <li
-                          key={`${s.email}-${s.createdAt}`}
-                          className="flex items-center justify-between border-b-2 border-black/10 pb-2"
-                        >
-                          <span className="flex items-center gap-3 min-w-0">
-                            <span className="font-pixel text-[10px] text-fuchsia-600 w-5">
-                              {i + 1}
-                            </span>
-                            <span className="font-pixel-body text-[18px] text-black truncate">
-                              {s.displayName || s.email.split("@")[0]}
-                            </span>
-                          </span>
-                          <span className="font-pixel text-[12px] tabular-nums text-black shrink-0">
-                            {s.score.toString().padStart(4, "0")}
-                          </span>
-                        </li>
-                      ))}
-                    </ol>
-                  )}
-                </div>
-                <div>
-                  <p className="font-pixel text-[10px] text-fuchsia-600 mb-3">
-                    LAST WINDOW&apos;S WINNER
-                  </p>
-                  {state.lastWinner ? (
-                    <div className="text-black">
-                      <p className="font-pixel text-[14px]">
-                        {state.lastWinner.displayName ||
-                          state.lastWinner.email.split("@")[0]}
-                      </p>
-                      <p className="font-pixel-body text-[18px] text-neutral-700 mt-1">
-                        Score{" "}
-                        <span className="font-pixel text-[12px] tabular-nums text-fuchsia-700">
-                          {state.lastWinner.score}
-                        </span>
-                      </p>
-                      <p className="font-pixel-body text-[16px] text-neutral-500 mt-1">
-                        {state.lastWinner.email}
-                      </p>
-                    </div>
-                  ) : (
-                    <p className="font-pixel-body text-[18px] text-neutral-500">
-                      No previous winner yet — this could be the first.
-                    </p>
-                  )}
-                </div>
-              </div>
+              {/* Top-3 podium + rest of leaderboard */}
+              <Top3Podium
+                leaderboard={state.leaderboard}
+                prizeTitle={state.prizeTitle}
+              />
             </>
           )}
         </div>
       </div>
     </section>
+  );
+}
+
+interface Top3PodiumProps {
+  leaderboard: PublicScore[];
+  prizeTitle: string;
+}
+
+const PODIUM_META: Array<{
+  place: 1 | 2 | 3;
+  label: string;
+  medal: string;
+  badge: string;
+  ring: string;
+  glow: string;
+}> = [
+  {
+    place: 1,
+    label: "1ST",
+    medal: "★",
+    badge: "bg-amber-400 text-black",
+    ring: "border-amber-400",
+    glow: "0 0 0 2px rgba(251,191,36,0.45)",
+  },
+  {
+    place: 2,
+    label: "2ND",
+    medal: "◆",
+    badge: "bg-fuchsia-400 text-black",
+    ring: "border-fuchsia-400",
+    glow: "0 0 0 2px rgba(232,121,249,0.45)",
+  },
+  {
+    place: 3,
+    label: "3RD",
+    medal: "▲",
+    badge: "bg-violet-400 text-black",
+    ring: "border-violet-400",
+    glow: "0 0 0 2px rgba(167,139,250,0.45)",
+  },
+];
+
+function Top3Podium({ leaderboard, prizeTitle }: Top3PodiumProps) {
+  const top3 = leaderboard.slice(0, 3);
+  const rest = leaderboard.slice(3, 10);
+
+  return (
+    <div className="mt-8 space-y-8">
+      <div>
+        <div className="flex items-baseline justify-between flex-wrap gap-2 mb-3">
+          <p className="font-pixel text-[10px] text-fuchsia-600">
+            TOP 3 WIN — 2 DAY GIVEAWAY
+          </p>
+          <p className="font-pixel-body text-[16px] text-neutral-600">
+            Prize:{" "}
+            <span className="text-fuchsia-700 font-bold">{prizeTitle}</span>
+          </p>
+        </div>
+        {top3.length === 0 ? (
+          <p className="font-pixel-body text-[18px] text-neutral-500">
+            Nobody on the podium yet. Be the first.
+          </p>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {PODIUM_META.map((meta) => {
+              const entry = top3[meta.place - 1];
+              const filled = !!entry;
+              return (
+                <div
+                  key={meta.place}
+                  className={`relative border-2 ${meta.ring} bg-white p-4 ${
+                    filled ? "" : "opacity-60"
+                  }`}
+                  style={{
+                    boxShadow: filled
+                      ? `5px 5px 0 #000, ${meta.glow}`
+                      : "5px 5px 0 #000",
+                  }}
+                >
+                  <div className="flex items-center justify-between mb-3">
+                    <span
+                      className={`font-pixel text-[10px] px-2 py-1 ${meta.badge}`}
+                    >
+                      {meta.label} {meta.medal}
+                    </span>
+                    <span className="font-pixel text-[8px] text-fuchsia-600">
+                      PRIZE
+                    </span>
+                  </div>
+                  {filled && entry ? (
+                    <>
+                      <p className="font-pixel-body text-[20px] text-black truncate">
+                        {entry.displayName || entry.email.split("@")[0]}
+                      </p>
+                      <p
+                        className="font-pixel text-[16px] sm:text-[20px] tabular-nums text-black mt-2"
+                        style={{
+                          textShadow:
+                            "2px 2px 0 rgba(232,121,249,0.4), 4px 4px 0 rgba(124,58,237,0.18)",
+                        }}
+                      >
+                        {entry.score.toString().padStart(4, "0")}
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="font-pixel-body text-[20px] text-neutral-400">
+                        — open spot —
+                      </p>
+                      <p className="font-pixel text-[14px] tabular-nums text-neutral-300 mt-2">
+                        0000
+                      </p>
+                    </>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {rest.length > 0 && (
+        <div>
+          <div className="flex items-center gap-3 mb-3">
+            <p className="font-pixel text-[9px] text-neutral-500">
+              CHASING THE PODIUM
+            </p>
+            <div className="flex-1 h-px bg-neutral-200" />
+          </div>
+          <ol className="space-y-1">
+            {rest.map((s, i) => (
+              <li
+                key={`${s.email}-${s.createdAt}`}
+                className="flex items-center justify-between border-b border-neutral-200 pb-1.5"
+              >
+                <span className="flex items-center gap-3 min-w-0">
+                  <span className="font-pixel text-[9px] text-neutral-400 w-6">
+                    {i + 4}
+                  </span>
+                  <span className="font-pixel-body text-[16px] text-neutral-600 truncate">
+                    {s.displayName || s.email.split("@")[0]}
+                  </span>
+                </span>
+                <span className="font-pixel text-[10px] tabular-nums text-neutral-500 shrink-0">
+                  {s.score.toString().padStart(4, "0")}
+                </span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+    </div>
   );
 }

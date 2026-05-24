@@ -53,9 +53,9 @@ export async function PUT(request: Request) {
     }
     if (typeof body.windowHours === "number") {
       const n = Math.floor(body.windowHours);
-      if (n < 1 || n > 24 * 7) {
+      if (n < 1 || n > 24 * 30) {
         return NextResponse.json(
-          { error: "Window hours must be between 1 and 168" },
+          { error: "Window hours must be between 1 and 720" },
           { status: 400 }
         );
       }
