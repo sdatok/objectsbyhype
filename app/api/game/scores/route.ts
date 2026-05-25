@@ -9,12 +9,8 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /* ---------- anti-cheat tunables ---------- */
 
-/** Hard ceiling — way above any legit score. */
+/** Absolute hard ceiling — sane against the "submit 999999" attack. */
 const MAX_SCORE = 50_000;
-/** Generous server-side rate ceiling. Real top is ~30 pts/sec. */
-const MAX_POINTS_PER_SECOND = 50;
-/** Constant headroom so very short rounds aren't punished. */
-const SCORE_HEADROOM = 100;
 /** A round must take at least this long. */
 const MIN_SECONDS = 3;
 const MAX_SECONDS = 60 * 60;
@@ -125,16 +121,6 @@ export async function POST(request: Request) {
       // Client claims more elapsed time than the session has been alive.
       return NextResponse.json(
         { error: "Round timing is implausible." },
-        { status: 400 }
-      );
-    }
-
-    /* ---------- score plausibility ---------- */
-
-    const ceiling = secondsPlayed * MAX_POINTS_PER_SECOND + SCORE_HEADROOM;
-    if (score > ceiling) {
-      return NextResponse.json(
-        { error: "Score exceeds plausible cap." },
         { status: 400 }
       );
     }
