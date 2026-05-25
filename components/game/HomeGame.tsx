@@ -8,30 +8,14 @@ import {
   type ActiveTask,
   type StationId,
 } from "./GameScene";
+import type { PublicGameState, PublicScore } from "@/lib/game-config";
 
 // SSR-safe: r3f's Canvas needs the browser window.
 const GameScene = dynamic(() => import("./GameScene"), { ssr: false });
 
-interface PublicScore {
-  email: string;
-  displayName: string | null;
-  score: number;
-  createdAt: string;
-}
-
-interface PublicGameState {
-  enabled: boolean;
-  prizeTitle: string;
-  prizeDescription: string | null;
-  windowStartedAt: string;
-  windowEndsAt: string;
-  windowHours: number;
-  gameSpeed: number;
-  maxMisses: number;
-  taskBaseSeconds: number;
-  productImageUrls: string[];
-  leaderboard: PublicScore[];
-  lastWinner: PublicScore | null;
+interface HomeGameProps {
+  /** Server-rendered snapshot — avoids /api/game/state on every home-page visit. */
+  initialState?: PublicGameState | null;
 }
 
 type Phase = "idle" | "playing" | "gameOver" | "submitted";
@@ -140,8 +124,10 @@ function computeTapStats(
   };
 }
 
-export default function HomeGame() {
-  const [state, setState] = useState<PublicGameState | null>(null);
+export default function HomeGame({ initialState }: HomeGameProps) {
+  const [state, setState] = useState<PublicGameState | null>(
+    initialState ?? null
+  );
   const [stateError, setStateError] = useState<string | null>(null);
   const [phase, setPhase] = useState<Phase>("idle");
   const [expanded, setExpanded] = useState(false);
@@ -205,8 +191,16 @@ export default function HomeGame() {
   }, []);
 
   useEffect(() => {
+    // Server passed a snapshot — skip the mount fetch. Refresh when the
+    // player opens the game (fresh leaderboard) or when we have nothing.
+    if (initialState !== undefined) return;
     loadState();
-  }, [loadState]);
+  }, [loadState, initialState]);
+
+  useEffect(() => {
+    if (!expanded) return;
+    loadState();
+  }, [expanded, loadState]);
 
   useEffect(() => {
     if (!state) return;

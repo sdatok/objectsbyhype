@@ -1,4 +1,3 @@
-import { unstable_noStore } from "next/cache";
 import { prisma } from "@/lib/db";
 import Reviews from "@/components/store/Reviews";
 import StoreFaq from "@/components/store/StoreFaq";
@@ -11,6 +10,10 @@ import BrandShowcase from "@/components/store/BrandShowcase";
 import type { Product } from "@/types";
 import { STORE_VISIBLE_STATUSES } from "@/types";
 import { toStoreProduct, PRODUCT_INCLUDE } from "@/lib/map-product";
+import { buildPublicGameState } from "@/lib/game-config";
+
+/** Cache the catalog + game header for 60s — cuts DB + function cost on repeat traffic. */
+export const revalidate = 60;
 
 async function getHomeProducts(): Promise<Product[]> {
   try {
@@ -29,14 +32,16 @@ async function getHomeProducts(): Promise<Product[]> {
 }
 
 export default async function HomePage() {
-  unstable_noStore();
-  const products = await getHomeProducts();
+  const [products, initialGameState] = await Promise.all([
+    getHomeProducts(),
+    buildPublicGameState().catch(() => null),
+  ]);
 
   return (
     <div className="bg-white">
       <HomeHero />
 
-      <HomeGame />
+      <HomeGame initialState={initialGameState} />
 
       <HomeCatalogClient products={products} />
 

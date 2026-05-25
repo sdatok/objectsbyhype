@@ -147,7 +147,7 @@ export default async function AdminStatsPage() {
         </Link>
         <h1 className="text-[18px] font-bold mt-3">Store stats</h1>
         <p className="text-[12px] text-neutral-500 mt-0.5">
-          Pulled from the database. Detailed funnel data lives in{" "}
+          From your database. Traffic detail is in{" "}
           <a
             href="https://vercel.com/docs/analytics"
             target="_blank"
@@ -156,7 +156,8 @@ export default async function AdminStatsPage() {
           >
             Vercel Analytics
           </a>
-          .
+          . Page-view counts below are historical (self-hosted tracker removed
+          to cut function invocations).
         </p>
       </div>
 

@@ -1,6 +1,5 @@
 import Link from "next/link";
 import type { Metadata } from "next";
-import { unstable_noStore } from "next/cache";
 import { prisma } from "@/lib/db";
 import { STORE_VISIBLE_STATUSES } from "@/types";
 import type { Product } from "@/types";
@@ -14,6 +13,8 @@ export const metadata: Metadata = {
 };
 
 const WALL_DISPLAY_CATEGORY = "Wall Display";
+
+export const revalidate = 60;
 
 async function getWallDisplayProducts(): Promise<Product[]> {
   try {
@@ -33,7 +34,6 @@ async function getWallDisplayProducts(): Promise<Product[]> {
 }
 
 export default async function WallDisplayPage() {
-  unstable_noStore();
   const products = await getWallDisplayProducts();
 
   return (

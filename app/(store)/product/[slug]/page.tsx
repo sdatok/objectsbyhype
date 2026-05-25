@@ -7,6 +7,8 @@ import { STORE_VISIBLE_STATUSES } from "@/types";
 import type { Metadata } from "next";
 import { toStoreProduct, PRODUCT_INCLUDE } from "@/lib/map-product";
 
+export const revalidate = 60;
+
 interface ProductPageProps {
   params: Promise<{ slug: string }>;
   searchParams: Promise<{ color?: string }>;
