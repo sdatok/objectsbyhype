@@ -70,6 +70,7 @@ export default function GameConfigForm({ initialConfig }: GameConfigFormProps) {
   );
   const [saving, setSaving] = useState(false);
   const [resetting, setResetting] = useState(false);
+  const [clearing, setClearing] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [remaining, setRemaining] = useState(() =>
@@ -158,6 +159,31 @@ export default function GameConfigForm({ initialConfig }: GameConfigFormProps) {
       setError(err instanceof Error ? err.message : "Reset failed");
     } finally {
       setResetting(false);
+    }
+  }
+
+  async function clearLeaderboard() {
+    if (
+      !confirm(
+        "Permanently delete EVERY score in the current window? Previous windows are left intact. This cannot be undone."
+      )
+    )
+      return;
+    setClearing(true);
+    setMessage(null);
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/game/scores/clear", {
+        method: "POST",
+      });
+      if (!res.ok) throw new Error("Clear failed");
+      const data = (await res.json()) as { deleted?: number };
+      setMessage(`Cleared ${data.deleted ?? 0} score(s) from the current window.`);
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Clear failed");
+    } finally {
+      setClearing(false);
     }
   }
 
@@ -357,6 +383,14 @@ export default function GameConfigForm({ initialConfig }: GameConfigFormProps) {
           className="border border-black text-[11px] uppercase tracking-widest px-6 py-3 min-h-[44px] hover:bg-black hover:text-white transition-colors disabled:opacity-50"
         >
           {resetting ? "Resetting…" : "Force-start new window"}
+        </button>
+        <button
+          type="button"
+          onClick={clearLeaderboard}
+          disabled={clearing}
+          className="border border-rose-600 text-rose-700 text-[11px] uppercase tracking-widest px-6 py-3 min-h-[44px] hover:bg-rose-600 hover:text-white transition-colors disabled:opacity-50"
+        >
+          {clearing ? "Clearing…" : "Clear current leaderboard"}
         </button>
       </div>
     </form>
