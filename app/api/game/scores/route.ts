@@ -9,8 +9,6 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /* ---------- anti-cheat tunables ---------- */
 
-/** Absolute hard ceiling — sane against the "submit 999999" attack. */
-const MAX_SCORE = 50_000;
 /** A round must take at least this long. */
 const MIN_SECONDS = 3;
 const MAX_SECONDS = 60 * 60;
@@ -60,7 +58,7 @@ export async function POST(request: Request) {
     }
 
     const score = Math.floor(Number(body.score));
-    if (!Number.isFinite(score) || score < 0 || score > MAX_SCORE) {
+    if (!Number.isFinite(score) || score < 0) {
       return NextResponse.json({ error: "Invalid score" }, { status: 400 });
     }
 
