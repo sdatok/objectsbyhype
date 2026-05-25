@@ -17,13 +17,13 @@ const SESSION_MAX_AGE_MS = 15 * 60 * 1000;
 /** Wall-clock elapsed time must be within ±10s of secondsPlayed. */
 const WALL_CLOCK_TOLERANCE_MS = 10_000;
 /** Max wrong-tap ratio. Bots spamming 1,2,3 land ~33% but we allow slack. */
-const MAX_WRONG_TAP_RATIO = 0.7;
-/** No two taps closer than this. */
-const MIN_INTER_TAP_MS = 60;
+const MAX_WRONG_TAP_RATIO = 0.85;
+/** No two taps closer than this. 30ms allows fast legit play; sub-20ms is script territory. */
+const MIN_INTER_TAP_MS = 30;
 /** Inter-tap interval coefficient of variation floor — bots are too regular. */
-const MIN_INTERVAL_CV = 0.08;
-/** A round needs at least this many real taps to be considered. */
-const MIN_TAPS_FOR_TIMING_CHECK = 6;
+const MIN_INTERVAL_CV = 0.04;
+/** A round needs at least this many real taps before timing heuristics apply. */
+const MIN_TAPS_FOR_TIMING_CHECK = 12;
 
 interface SubmitBody {
   email?: string;
