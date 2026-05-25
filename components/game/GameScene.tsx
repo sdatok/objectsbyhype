@@ -88,9 +88,12 @@ interface GameSceneProps {
   cameraFlash: boolean;
   productImageUrls: string[];
   onStationClick: (id: StationId) => void;
+  /** When true, block browser pan/zoom gestures on the canvas (active round). */
+  lockTouch?: boolean;
 }
 
 export default function GameScene(props: GameSceneProps) {
+  const { lockTouch = false, ...sceneProps } = props;
   return (
     <Canvas
       shadows={false}
@@ -103,7 +106,7 @@ export default function GameScene(props: GameSceneProps) {
         scene.background = new THREE.Color(COLORS.white);
         gl.toneMapping = THREE.NoToneMapping;
       }}
-      style={{ touchAction: "manipulation" }}
+      style={{ touchAction: lockTouch ? "none" : "manipulation" }}
       frameloop="always"
     >
       <ResponsiveCamera />

@@ -163,6 +163,7 @@ export default function HomeGame({ initialState }: HomeGameProps) {
     signature: string;
   } | null>(null);
   const sessionFetchingRef = useRef(false);
+  const gameBodyRef = useRef<HTMLDivElement>(null);
 
   // Submission UI
   const [email, setEmail] = useState("");
@@ -201,6 +202,82 @@ export default function HomeGame({ initialState }: HomeGameProps) {
     if (!expanded) return;
     loadState();
   }, [expanded, loadState]);
+
+  /**
+   * Game tab open → lock the page behind it. While not playing, the panel
+   * itself can still scroll (leaderboard). During a round, freeze that too.
+   */
+  useEffect(() => {
+    if (!expanded) return;
+    const html = document.documentElement;
+    const body = document.body;
+    const prevHtmlOverflow = html.style.overflow;
+    const prevBodyOverflow = body.style.overflow;
+    const prevBodyTouchAction = body.style.touchAction;
+    const prevBodyOverscroll = body.style.overscrollBehavior;
+    html.style.overflow = "hidden";
+    body.style.overflow = "hidden";
+    body.style.overscrollBehavior = "none";
+    if (phase === "playing") {
+      body.style.touchAction = "none";
+    }
+    const panel = gameBodyRef.current;
+    const prevPanelOverflow = panel?.style.overflow ?? "";
+    if (phase === "playing" && panel) {
+      panel.style.overflow = "hidden";
+    }
+    return () => {
+      html.style.overflow = prevHtmlOverflow;
+      body.style.overflow = prevBodyOverflow;
+      body.style.touchAction = prevBodyTouchAction;
+      body.style.overscrollBehavior = prevBodyOverscroll;
+      if (panel) panel.style.overflow = prevPanelOverflow;
+    };
+  }, [expanded, phase]);
+
+  /**
+   * While the game panel is open, block pinch-zoom / zoom-out cheats.
+   * Restores the previous viewport meta on close.
+   */
+  useEffect(() => {
+    if (!expanded) return;
+    let meta = document.querySelector<HTMLMetaElement>('meta[name="viewport"]');
+    const created = !meta;
+    if (!meta) {
+      meta = document.createElement("meta");
+      meta.name = "viewport";
+      document.head.appendChild(meta);
+    }
+    const prevContent = meta.getAttribute("content");
+    meta.setAttribute(
+      "content",
+      "width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no, viewport-fit=cover"
+    );
+
+    const blockGesture = (e: Event) => e.preventDefault();
+    const blockPinchWheel = (e: WheelEvent) => {
+      if (e.ctrlKey) e.preventDefault();
+    };
+    const blockMultiTouch = (e: TouchEvent) => {
+      if (e.touches.length > 1) e.preventDefault();
+    };
+
+    document.addEventListener("gesturestart", blockGesture, { passive: false });
+    document.addEventListener("gesturechange", blockGesture, { passive: false });
+    document.addEventListener("gestureend", blockGesture, { passive: false });
+    document.addEventListener("wheel", blockPinchWheel, { passive: false });
+    document.addEventListener("touchmove", blockMultiTouch, { passive: false });
+
+    return () => {
+      if (prevContent) meta!.setAttribute("content", prevContent);
+      else if (created) meta!.remove();
+      document.removeEventListener("gesturestart", blockGesture);
+      document.removeEventListener("gesturechange", blockGesture);
+      document.removeEventListener("gestureend", blockGesture);
+      document.removeEventListener("wheel", blockPinchWheel);
+      document.removeEventListener("touchmove", blockMultiTouch);
+    };
+  }, [expanded]);
 
   useEffect(() => {
     if (!state) return;
@@ -587,8 +664,13 @@ export default function HomeGame({ initialState }: HomeGameProps) {
         {/* EXPANDED BODY — only here do we mount the heavy 3D canvas + everything else */}
         <div
           id="obh-game-body"
+          ref={gameBodyRef}
           hidden={!expanded}
-          className="mt-5 sm:mt-6"
+          className={`mt-5 sm:mt-6 max-h-[calc(100dvh-7rem)] overscroll-contain ${
+            phase === "playing"
+              ? "overflow-hidden overscroll-none touch-none"
+              : "overflow-y-auto"
+          }`}
         >
           {expanded && (
             <>
@@ -654,8 +736,11 @@ export default function HomeGame({ initialState }: HomeGameProps) {
 
               {/* 3D canvas */}
               <div
-                className="relative w-full overflow-hidden border-2 border-black h-[44vh] sm:h-[48vh] md:h-[54vh] min-h-[320px] bg-white"
-                style={{ boxShadow: "6px 6px 0 #000" }}
+                className="relative w-full overflow-hidden border-2 border-black h-[44vh] sm:h-[48vh] md:h-[54vh] min-h-[320px] bg-white select-none"
+                style={{
+                  boxShadow: "6px 6px 0 #000",
+                  touchAction: phase === "playing" ? "none" : "manipulation",
+                }}
               >
                 <GameScene
                   tasks={tasks}
@@ -664,6 +749,7 @@ export default function HomeGame({ initialState }: HomeGameProps) {
                   cameraFlash={cameraFlash}
                   productImageUrls={state.productImageUrls}
                   onStationClick={handleStationClick}
+                  lockTouch={phase === "playing"}
                 />
 
                 {/* Station name labels */}
