@@ -9,6 +9,7 @@ import {
   type StationId,
 } from "./GameScene";
 import type { PublicGameState, PublicScore } from "@/lib/game-config";
+import { gameFontVariables } from "@/lib/game-fonts";
 
 // SSR-safe: r3f's Canvas needs the browser window.
 const GameScene = dynamic(() => import("./GameScene"), { ssr: false });
@@ -547,14 +548,18 @@ export default function HomeGame({ initialState }: HomeGameProps) {
 
   if (stateError) {
     return (
-      <section className="bg-white px-4 py-8 text-center font-pixel text-[10px] text-neutral-500">
+      <section
+        className={`${gameFontVariables} bg-white px-4 py-8 text-center font-pixel text-[10px] text-neutral-500`}
+      >
         {stateError}
       </section>
     );
   }
   if (!state) {
     return (
-      <section className="bg-white px-4 py-12 text-center font-pixel text-[10px] text-neutral-400">
+      <section
+        className={`${gameFontVariables} bg-white px-4 py-12 text-center font-pixel text-[10px] text-neutral-400`}
+      >
         LOADING…
       </section>
     );
@@ -566,7 +571,7 @@ export default function HomeGame({ initialState }: HomeGameProps) {
   return (
     <section
       aria-label="OBH Giveaway Game"
-      className="relative overflow-hidden bg-white text-black"
+      className={`${gameFontVariables} relative overflow-hidden bg-white text-black`}
     >
       {/* Soft purple glow at the top so the page doesn't feel sterile */}
       <div
