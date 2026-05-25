@@ -163,7 +163,8 @@ export default function HomeGame({ initialState }: HomeGameProps) {
     sessionId: string;
     signature: string;
   } | null>(null);
-  const sessionFetchingRef = useRef(false);
+  /** Bumps on each startGame so stale in-flight /api/game/start responses are ignored. */
+  const sessionGenRef = useRef(0);
   const gameBodyRef = useRef<HTMLDivElement>(null);
 
   // Submission UI
@@ -375,30 +376,29 @@ export default function HomeGame({ initialState }: HomeGameProps) {
     wrongTapsRef.current = 0;
     cooldownUntilRef.current = 0;
 
-    // Grab a fresh anti-cheat session before the round actually begins so
-    // the score submit always has a single-use, signed token to send back.
-    if (!sessionFetchingRef.current) {
-      sessionFetchingRef.current = true;
-      try {
-        const res = await fetch("/api/game/start", { method: "POST" });
-        if (res.ok) {
-          const json = (await res.json()) as {
-            sessionId: string;
-            signature: string;
-          };
-          sessionRef.current = {
-            sessionId: json.sessionId,
-            signature: json.signature,
-          };
-        } else {
-          sessionRef.current = null;
-        }
-      } catch {
+    // Fresh anti-cheat session per round. Always fetch — never skip when a
+    // prior request is still in flight (double-tap PLAY / PLAY AGAIN).
+    const gen = ++sessionGenRef.current;
+    try {
+      const res = await fetch("/api/game/start", { method: "POST" });
+      if (gen !== sessionGenRef.current) return;
+      if (res.ok) {
+        const json = (await res.json()) as {
+          sessionId: string;
+          signature: string;
+        };
+        sessionRef.current = {
+          sessionId: json.sessionId,
+          signature: json.signature,
+        };
+      } else {
         sessionRef.current = null;
-      } finally {
-        sessionFetchingRef.current = false;
       }
+    } catch {
+      if (gen === sessionGenRef.current) sessionRef.current = null;
     }
+
+    if (gen !== sessionGenRef.current) return;
 
     startedAtRef.current = performance.now();
     lastSpawnRef.current = performance.now() - 500;
@@ -518,7 +518,12 @@ export default function HomeGame({ initialState }: HomeGameProps) {
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        throw new Error(data.error ?? "Submit failed");
+        const msg = data.error ?? "Submit failed";
+        // Stale session — clear so PLAY AGAIN fetches a new one.
+        if (typeof msg === "string" && /session expired/i.test(msg)) {
+          sessionRef.current = null;
+        }
+        throw new Error(msg);
       }
       // Single-use session — clear it so a retry has to start a new round.
       sessionRef.current = null;

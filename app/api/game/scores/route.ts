@@ -11,9 +11,15 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /** A round must take at least this long. */
 const MIN_SECONDS = 3;
+/** Max round length the client may report (must stay in sync with HomeGame). */
 const MAX_SECONDS = 60 * 60;
-/** A session must be consumed within 15 min of being issued. */
-const SESSION_MAX_AGE_MS = 15 * 60 * 1000;
+/** Extra time after max round for the game-over email form. */
+const SESSION_SUBMIT_BUFFER_MS = 10 * 60 * 1000;
+/**
+ * Session TTL must cover a full round plus submit UI — not the old 15m cap,
+ * which rejected legit long runs (e.g. ~48k scores after 16+ minutes).
+ */
+const SESSION_MAX_AGE_MS = MAX_SECONDS * 1000 + SESSION_SUBMIT_BUFFER_MS;
 /** Wall-clock elapsed time must be within ±10s of secondsPlayed. */
 const WALL_CLOCK_TOLERANCE_MS = 10_000;
 /** Max wrong-tap ratio. Bots spamming 1,2,3 land ~33% but we allow slack. */
