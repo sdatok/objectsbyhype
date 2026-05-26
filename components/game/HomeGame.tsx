@@ -88,20 +88,31 @@ interface SubmittedTapStats {
   wrong: number;
   minIntervalMs: number;
   intervalCV: number;
+  trusted: number;
+  untrusted: number;
 }
 
 /**
- * Compress a round's tap timeline into the four numbers the server cares
+ * Compress a round's tap timeline into the numbers the server cares
  * about. We keep this on the client so we don't have to ship hundreds of
  * timestamps over the wire — and so server-side validation stays cheap.
  */
 function computeTapStats(
   taps: number[],
   total: number,
-  wrong: number
+  wrong: number,
+  trusted: number,
+  untrusted: number
 ): SubmittedTapStats {
   if (taps.length < 2) {
-    return { total, wrong, minIntervalMs: Infinity, intervalCV: 1 };
+    return {
+      total,
+      wrong,
+      minIntervalMs: Infinity,
+      intervalCV: 1,
+      trusted,
+      untrusted,
+    };
   }
   let minInterval = Infinity;
   const intervals: number[] = [];
@@ -122,6 +133,8 @@ function computeTapStats(
     wrong,
     minIntervalMs: minInterval,
     intervalCV: cv,
+    trusted,
+    untrusted,
   };
 }
 
@@ -158,6 +171,8 @@ export default function HomeGame({ initialState }: HomeGameProps) {
   const wrongTapTimestampsRef = useRef<number[]>([]);
   const totalTapsRef = useRef(0);
   const wrongTapsRef = useRef(0);
+  const trustedTapsRef = useRef(0);
+  const untrustedTapsRef = useRef(0);
   const cooldownUntilRef = useRef(0);
   const sessionRef = useRef<{
     sessionId: string;
@@ -374,6 +389,8 @@ export default function HomeGame({ initialState }: HomeGameProps) {
     wrongTapTimestampsRef.current = [];
     totalTapsRef.current = 0;
     wrongTapsRef.current = 0;
+    trustedTapsRef.current = 0;
+    untrustedTapsRef.current = 0;
     cooldownUntilRef.current = 0;
 
     // Fresh anti-cheat session per round. Always fetch — never skip when a
@@ -406,12 +423,15 @@ export default function HomeGame({ initialState }: HomeGameProps) {
     setPhase("playing");
   }
 
-  const handleStationClick = useCallback((id: StationId) => {
+  const handleStationClick = useCallback(
+    (id: StationId, input?: { trusted?: boolean }) => {
     if (phaseRef.current !== "playing") return;
 
     const now = performance.now();
     totalTapsRef.current += 1;
     tapTimestampsRef.current.push(now);
+    if (input?.trusted === false) untrustedTapsRef.current += 1;
+    else trustedTapsRef.current += 1;
 
     // While locked out, every tap stings and registers no hit. Bots
     // mashing 1,2,3 spend the whole round here.
@@ -459,7 +479,8 @@ export default function HomeGame({ initialState }: HomeGameProps) {
         wrongTapTimestampsRef.current = [];
       }
     }
-  }, []);
+  },
+  []);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -468,9 +489,11 @@ export default function HomeGame({ initialState }: HomeGameProps) {
       // taps, but a held-down key (or a script firing keydown in a tight
       // loop with the same modifier set) often comes through as repeats.
       if (e.repeat) return;
-      if (e.key === "1") handleStationClick("computer");
-      else if (e.key === "2") handleStationClick("packing");
-      else if (e.key === "3") handleStationClick("camera");
+      // Synthetic keydown from scripts has isTrusted=false.
+      if (!e.isTrusted) return;
+      if (e.key === "1") handleStationClick("computer", { trusted: true });
+      else if (e.key === "2") handleStationClick("packing", { trusted: true });
+      else if (e.key === "3") handleStationClick("camera", { trusted: true });
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -500,7 +523,9 @@ export default function HomeGame({ initialState }: HomeGameProps) {
       const tapStats = computeTapStats(
         tapTimestampsRef.current,
         totalTapsRef.current,
-        wrongTapsRef.current
+        wrongTapsRef.current,
+        trustedTapsRef.current,
+        untrustedTapsRef.current
       );
 
       const res = await fetch("/api/game/scores", {
@@ -787,7 +812,9 @@ export default function HomeGame({ initialState }: HomeGameProps) {
                         <button
                           key={id}
                           type="button"
-                          onClick={() => handleStationClick(id)}
+                          onClick={(e) =>
+                            handleStationClick(id, { trusted: e.isTrusted })
+                          }
                           className="pointer-events-auto min-h-[48px] font-pixel text-[9px] text-black border-2 border-black bg-white/90 active:bg-fuchsia-200 transition-colors"
                           style={{ boxShadow: "3px 3px 0 #000" }}
                         >

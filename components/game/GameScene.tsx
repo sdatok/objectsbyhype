@@ -1,6 +1,6 @@
 "use client";
 
-import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import { Canvas, useFrame, useThree, type ThreeEvent } from "@react-three/fiber";
 import { PerspectiveCamera, RoundedBox } from "@react-three/drei";
 import { useMemo, useRef } from "react";
 import * as THREE from "three";
@@ -87,7 +87,7 @@ interface GameSceneProps {
   flashStation: StationId | null;
   cameraFlash: boolean;
   productImageUrls: string[];
-  onStationClick: (id: StationId) => void;
+  onStationClick: (id: StationId, input?: { trusted?: boolean }) => void;
   /** When true, block browser pan/zoom gestures on the canvas (active round). */
   lockTouch?: boolean;
 }
@@ -127,7 +127,11 @@ export default function GameScene(props: GameSceneProps) {
           position={STATION_POSITIONS[id]}
           highlighted={props.flashStation === id}
           cameraFlash={id === "camera" && props.cameraFlash}
-          onClick={() => props.onStationClick(id)}
+          onClick={(e) =>
+            props.onStationClick(id, {
+              trusted: (e.nativeEvent as MouseEvent).isTrusted,
+            })
+          }
         />
       ))}
 
@@ -465,7 +469,7 @@ interface WorkstationProps {
   position: [number, number, number];
   highlighted: boolean;
   cameraFlash: boolean;
-  onClick: () => void;
+  onClick: (e: ThreeEvent<MouseEvent>) => void;
 }
 
 function Workstation({

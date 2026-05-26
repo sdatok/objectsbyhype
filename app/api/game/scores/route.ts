@@ -2,34 +2,21 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getOrCreateGameConfig, rollWindowIfExpired } from "@/lib/game-config";
 import { verifyGameSession } from "@/lib/game-hmac";
+import {
+  validateScorePlausibility,
+  validateTapStats,
+  type TapStatsPayload,
+} from "@/lib/game-anticheat";
 
 export const dynamic = "force-dynamic";
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-/* ---------- anti-cheat tunables ---------- */
-
-/** A round must take at least this long. */
 const MIN_SECONDS = 3;
-/** Max round length the client may report (must stay in sync with HomeGame). */
 const MAX_SECONDS = 60 * 60;
-/** Extra time after max round for the game-over email form. */
 const SESSION_SUBMIT_BUFFER_MS = 10 * 60 * 1000;
-/**
- * Session TTL must cover a full round plus submit UI — not the old 15m cap,
- * which rejected legit long runs (e.g. ~48k scores after 16+ minutes).
- */
 const SESSION_MAX_AGE_MS = MAX_SECONDS * 1000 + SESSION_SUBMIT_BUFFER_MS;
-/** Wall-clock elapsed time must be within ±10s of secondsPlayed. */
 const WALL_CLOCK_TOLERANCE_MS = 10_000;
-/** Max wrong-tap ratio. Bots spamming 1,2,3 land ~33% but we allow slack. */
-const MAX_WRONG_TAP_RATIO = 0.85;
-/** No two taps closer than this. 30ms allows fast legit play; sub-20ms is script territory. */
-const MIN_INTER_TAP_MS = 30;
-/** Inter-tap interval coefficient of variation floor — bots are too regular. */
-const MIN_INTERVAL_CV = 0.04;
-/** A round needs at least this many real taps before timing heuristics apply. */
-const MIN_TAPS_FOR_TIMING_CHECK = 12;
 
 interface SubmitBody {
   email?: string;
@@ -38,22 +25,12 @@ interface SubmitBody {
   secondsPlayed?: number;
   sessionId?: string;
   signature?: string;
-  /** Aggregate stats, computed on the client across the whole round. */
-  tapStats?: {
-    total?: number;
-    wrong?: number;
-    /** Smallest gap between two taps (ms). */
-    minIntervalMs?: number;
-    /** Coefficient of variation = stddev / mean of inter-tap intervals. */
-    intervalCV?: number;
-  };
+  tapStats?: TapStatsPayload;
 }
 
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as SubmitBody;
-
-    /* ---------- field-level validation ---------- */
 
     const email = (body.email ?? "").trim().toLowerCase();
     if (!EMAIL_REGEX.test(email)) {
@@ -79,8 +56,6 @@ export async function POST(request: Request) {
 
     const displayNameRaw = (body.displayName ?? "").trim();
     const displayName = displayNameRaw ? displayNameRaw.slice(0, 32) : null;
-
-    /* ---------- session HMAC ---------- */
 
     const sessionId = (body.sessionId ?? "").trim();
     const signature = (body.signature ?? "").trim();
@@ -121,44 +96,12 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
-    if (sessionAgeMs < (secondsPlayed * 1000) - WALL_CLOCK_TOLERANCE_MS) {
-      // Client claims more elapsed time than the session has been alive.
+    if (sessionAgeMs < secondsPlayed * 1000 - WALL_CLOCK_TOLERANCE_MS) {
       return NextResponse.json(
         { error: "Round timing is implausible." },
         { status: 400 }
       );
     }
-
-    /* ---------- tap-stat checks (defeat 1,2,3 spam) ---------- */
-
-    const stats = body.tapStats ?? {};
-    const totalTaps = Math.floor(Number(stats.total ?? 0));
-    const wrongTaps = Math.floor(Number(stats.wrong ?? 0));
-    const minIntervalMs = Number(stats.minIntervalMs ?? Infinity);
-    const intervalCV = Number(stats.intervalCV ?? 1);
-
-    if (totalTaps >= MIN_TAPS_FOR_TIMING_CHECK) {
-      if (wrongTaps / Math.max(1, totalTaps) > MAX_WRONG_TAP_RATIO) {
-        return NextResponse.json(
-          { error: "Too many wrong taps — looks automated." },
-          { status: 400 }
-        );
-      }
-      if (Number.isFinite(minIntervalMs) && minIntervalMs < MIN_INTER_TAP_MS) {
-        return NextResponse.json(
-          { error: "Tap rate is faster than humanly possible." },
-          { status: 400 }
-        );
-      }
-      if (Number.isFinite(intervalCV) && intervalCV < MIN_INTERVAL_CV) {
-        return NextResponse.json(
-          { error: "Tap timing is too uniform." },
-          { status: 400 }
-        );
-      }
-    }
-
-    /* ---------- write ---------- */
 
     const config = await rollWindowIfExpired(await getOrCreateGameConfig());
     if (!config.enabled) {
@@ -168,8 +111,37 @@ export async function POST(request: Request) {
       );
     }
 
-    // Mark the session used FIRST so a parallel submit can't double-fire.
-    // We check `where: { usedAt: null }` so this is atomic per session.
+    const plausibilityError = validateScorePlausibility(
+      score,
+      secondsPlayed,
+      config.gameSpeed
+    );
+    if (plausibilityError) {
+      return NextResponse.json({ error: plausibilityError }, { status: 400 });
+    }
+
+    const tapError = validateTapStats(
+      score,
+      secondsPlayed,
+      body.tapStats ?? {}
+    );
+    if (tapError) {
+      return NextResponse.json({ error: tapError }, { status: 400 });
+    }
+
+    const existing = await prisma.gameScore.findFirst({
+      where: { email, windowStartedAt: config.windowStartedAt },
+      orderBy: { score: "desc" },
+    });
+    if (existing && existing.score >= score) {
+      return NextResponse.json(
+        {
+          error: `You already submitted ${existing.score.toLocaleString()} this window — beat that to update.`,
+        },
+        { status: 409 }
+      );
+    }
+
     const claim = await prisma.gameSession.updateMany({
       where: { id: session.id, usedAt: null },
       data: { usedAt: new Date() },
@@ -179,6 +151,10 @@ export async function POST(request: Request) {
         { error: "This session was already submitted." },
         { status: 409 }
       );
+    }
+
+    if (existing) {
+      await prisma.gameScore.delete({ where: { id: existing.id } });
     }
 
     const saved = await prisma.gameScore.create({

@@ -12,6 +12,9 @@ function getRequestIp(request: Request): string | null {
   return request.headers.get("x-real-ip");
 }
 
+/** Max sessions one IP can start per hour (blocks brute-force / bot farms). */
+const MAX_SESSIONS_PER_IP_PER_HOUR = 25;
+
 /**
  * Issues an anti-cheat session token. The client must call this when a
  * round starts and send `{ sessionId, signature }` back to /api/game/scores
@@ -28,6 +31,21 @@ export async function POST(request: Request) {
     }
 
     const ip = getRequestIp(request);
+    if (ip) {
+      const recent = await prisma.gameSession.count({
+        where: {
+          ip,
+          issuedAt: { gte: new Date(Date.now() - 60 * 60 * 1000) },
+        },
+      });
+      if (recent >= MAX_SESSIONS_PER_IP_PER_HOUR) {
+        return NextResponse.json(
+          { error: "Too many rounds started — try again later." },
+          { status: 429 }
+        );
+      }
+    }
+
     const session = await prisma.gameSession.create({
       data: {
         signature: "", // filled in below; created so we have a real id first

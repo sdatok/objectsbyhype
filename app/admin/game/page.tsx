@@ -2,6 +2,7 @@ import Link from "next/link";
 import { getOrCreateGameConfig, computeWindowEndsAt } from "@/lib/game-config";
 import { prisma } from "@/lib/db";
 import GameConfigForm from "@/components/admin/GameConfigForm";
+import AdminDeleteScoreButton from "@/components/admin/AdminDeleteScoreButton";
 
 export const dynamic = "force-dynamic";
 
@@ -137,8 +138,19 @@ export default async function AdminGamePage() {
                                 </span>
                               </span>
                             </span>
-                            <span className="font-mono tabular-nums shrink-0 ml-3">
-                              {s.score}
+                            <span className="flex items-center gap-2 shrink-0 ml-3">
+                              <span className="font-mono tabular-nums text-right">
+                                <span className="block">{s.score}</span>
+                                <span className="text-[9px] text-neutral-400 font-sans">
+                                  {s.secondsPlayed}s
+                                </span>
+                              </span>
+                              {isCurrent && (
+                                <AdminDeleteScoreButton
+                                  scoreId={s.id}
+                                  score={s.score}
+                                />
+                              )}
                             </span>
                           </li>
                         );
