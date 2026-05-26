@@ -19,11 +19,29 @@ const ROOM_NAME = "survivor";
 const app = express();
 app.use(express.json({ limit: "32kb" }));
 
-// CORS: the Next.js host may proxy /admin endpoints, but the lobby itself
-// connects over WSS. Allow only configured origins; default permissive in dev.
-const allowedOrigin = process.env.ALLOWED_ORIGIN ?? "*";
+// CORS for the matchmaker HTTP call (Colyseus does a POST to /matchmake/...
+// before upgrading to WSS). ALLOWED_ORIGIN can be a single origin, a
+// comma-separated list, or "*" for permissive dev. We echo the matched
+// origin back instead of "*" so credentials (and a fixed ACAO) work.
+const allowedOriginsRaw = process.env.ALLOWED_ORIGIN ?? "*";
+const allowedOrigins = allowedOriginsRaw
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+const allowAny = allowedOrigins.length === 0 || allowedOrigins.includes("*");
+
 app.use((req, res, next) => {
-  res.setHeader("Access-Control-Allow-Origin", allowedOrigin);
+  const requestOrigin = req.header("origin") ?? "";
+  let echo = "";
+  if (allowAny) {
+    echo = requestOrigin || "*";
+  } else if (allowedOrigins.includes(requestOrigin)) {
+    echo = requestOrigin;
+  }
+  if (echo) {
+    res.setHeader("Access-Control-Allow-Origin", echo);
+    res.setHeader("Vary", "Origin");
+  }
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
   res.setHeader(
     "Access-Control-Allow-Headers",
@@ -224,7 +242,7 @@ const port = Number(process.env.PORT) || 2567;
 gameServer.listen(port).then(() => {
   console.log(`[survivor] listening on :${port}`);
   console.log(
-    `[survivor] admin command TTL=${ADMIN_COMMAND_TTL_MS}ms, allowed origin=${allowedOrigin}`
+    `[survivor] admin command TTL=${ADMIN_COMMAND_TTL_MS}ms, allowed origins=${allowedOriginsRaw}${allowAny ? " (permissive)" : ""}`
   );
 });
 

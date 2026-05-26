@@ -24,19 +24,50 @@ const ROOM_NAME = "survivor";
 
 export async function joinSurvivorRoom(params: JoinParams): Promise<Room> {
   if (!params.wsUrl) {
-    throw new Error("Missing game server URL");
+    throw new Error(
+      "Game server URL is not configured. Ask admin to set NEXT_PUBLIC_SURVIVOR_WS_URL."
+    );
+  }
+  if (typeof window !== "undefined") {
+    console.info("[survivor] connecting", {
+      wsUrl: params.wsUrl,
+      matchId: params.matchId,
+      email: params.email,
+    });
   }
   const client = new Client(params.wsUrl);
-  // joinOrCreate routes you to the existing global SurvivorRoom (the server
-  // never spawns a second one in our setup).
-  const room = await client.joinOrCreate(ROOM_NAME, {
-    email: params.email,
-    displayName: params.displayName,
-    matchId: params.matchId,
-    matchToken: params.matchToken,
-    issuedAtMs: params.issuedAtMs,
-  });
-  return room;
+  try {
+    // joinOrCreate routes you to the existing global SurvivorRoom (the server
+    // never spawns a second one in our setup).
+    const room = await client.joinOrCreate(ROOM_NAME, {
+      email: params.email,
+      displayName: params.displayName,
+      matchId: params.matchId,
+      matchToken: params.matchToken,
+      issuedAtMs: params.issuedAtMs,
+    });
+    if (typeof window !== "undefined") {
+      console.info("[survivor] joined room", {
+        sessionId: room.sessionId,
+        roomId: room.roomId,
+      });
+    }
+    return room;
+  } catch (err) {
+    // Colyseus surfaces matchmaker / CORS / WSS errors as bare errors with a
+    // generic message ("Failed to fetch"). Rewrap so the lobby UI tells the
+    // operator what to actually fix.
+    if (typeof window !== "undefined") {
+      console.error("[survivor] joinOrCreate failed", err);
+    }
+    const original = err instanceof Error ? err.message : String(err);
+    if (/failed to fetch|network|cors/i.test(original)) {
+      throw new Error(
+        `Couldn't reach the game server (${params.wsUrl}). Likely CORS or the server is down. Original: ${original}`
+      );
+    }
+    throw err;
+  }
 }
 
 export interface MutableInput {
