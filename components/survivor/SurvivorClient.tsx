@@ -74,6 +74,35 @@ export default function SurvivorClient({ initialState }: SurvivorClientProps) {
     };
   }, [phase]);
 
+  /**
+   * Mint a token and connect. Returns the live Room on success; throws on
+   * any failure. Pulled out so we can transparently retry once when the
+   * room rejects us with "match has moved on" — which happens during normal
+   * deploy/restart races where the lobby tab held a slightly-stale matchId.
+   */
+  const attemptJoin = useCallback(
+    async (trimmedName: string, trimmedEmail: string) => {
+      const res = await fetch("/api/survivor/match-token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ displayName: trimmedName, email: trimmedEmail }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(json.error || "Could not join lobby");
+      }
+      return joinSurvivorRoom({
+        wsUrl: json.wsUrl,
+        matchId: json.matchId,
+        email: json.email,
+        displayName: json.displayName,
+        matchToken: json.matchToken,
+        issuedAtMs: json.issuedAtMs,
+      });
+    },
+    []
+  );
+
   const join = useCallback(async () => {
     setError(null);
     const trimmedName = displayName.trim();
@@ -91,25 +120,25 @@ export default function SurvivorClient({ initialState }: SurvivorClientProps) {
 
     setPhase("joining");
     try {
-      const res = await fetch("/api/survivor/match-token", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ displayName: trimmedName, email: trimmedEmail }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(json.error || "Could not join lobby");
-      }
-
       setPhase("connecting");
-      const room = await joinSurvivorRoom({
-        wsUrl: json.wsUrl,
-        matchId: json.matchId,
-        email: json.email,
-        displayName: json.displayName,
-        matchToken: json.matchToken,
-        issuedAtMs: json.issuedAtMs,
-      });
+      let room;
+      try {
+        room = await attemptJoin(trimmedName, trimmedEmail);
+      } catch (err) {
+        // The room throws plain Error("Match has moved on…") on stale
+        // matchId. Refetch fresh state from /api/survivor/state and retry
+        // exactly once with a brand-new token before bubbling.
+        const msg = err instanceof Error ? err.message.toLowerCase() : "";
+        const staleToken =
+          msg.includes("match has moved on") ||
+          msg.includes("game server restarted");
+        if (!staleToken) throw err;
+        await fetch("/api/survivor/state", { cache: "no-store" })
+          .then((r) => r.json())
+          .then((next) => setServerState(next))
+          .catch(() => undefined);
+        room = await attemptJoin(trimmedName, trimmedEmail);
+      }
 
       roomRef.current = room;
       setRoomReady(true);
@@ -132,7 +161,7 @@ export default function SurvivorClient({ initialState }: SurvivorClientProps) {
       setError(message);
       setPhase("lobby");
     }
-  }, [displayName, email]);
+  }, [displayName, email, attemptJoin]);
 
   const leaveAndReset = useCallback(() => {
     const room = roomRef.current;

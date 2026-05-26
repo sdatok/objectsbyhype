@@ -64,17 +64,6 @@ export async function POST(request: Request) {
       Math.min(600, Number(body.lobbySeconds) || 60)
     );
 
-    const match = await prisma.survivorMatch.create({
-      data: {
-        prizeTitle: config.prizeTitle,
-        status: "WAITING",
-      },
-    });
-    await prisma.survivorConfig.update({
-      where: { id: SURVIVOR_CONFIG_ID },
-      data: { currentMatchId: match.id },
-    });
-
     const baseUrl = process.env.SURVIVOR_GAME_SERVER_URL;
     if (!baseUrl) {
       return NextResponse.json(
@@ -82,6 +71,19 @@ export async function POST(request: Request) {
         { status: 500 }
       );
     }
+
+    // Create the SurvivorMatch first to get an id, but DON'T point
+    // currentMatchId at it until Railway has accepted the start. If we
+    // flipped currentMatchId before the game server knew, players polling
+    // /api/survivor/state could mint match-tokens for an id the room hasn't
+    // been told about yet, and onAuth would reject them with
+    // "Match has moved on".
+    const match = await prisma.survivorMatch.create({
+      data: {
+        prizeTitle: config.prizeTitle,
+        status: "WAITING",
+      },
+    });
 
     const issuedAtMs = Date.now();
     const signature = signAdminCommand({
@@ -107,14 +109,10 @@ export async function POST(request: Request) {
 
     if (!upstream.ok) {
       const text = await upstream.text().catch(() => "");
-      // Roll back: don't leave currentMatchId pointing at a row the game
-      // server never accepted.
-      await prisma.survivorMatch.delete({ where: { id: match.id } }).catch(() => undefined);
-      await prisma.survivorConfig
-        .update({
-          where: { id: SURVIVOR_CONFIG_ID },
-          data: { currentMatchId: null },
-        })
+      // Roll back: drop the placeholder match row so the matchId can't be
+      // referenced later. currentMatchId was never set so nothing else to undo.
+      await prisma.survivorMatch
+        .delete({ where: { id: match.id } })
         .catch(() => undefined);
       return NextResponse.json(
         {
@@ -123,6 +121,13 @@ export async function POST(request: Request) {
         { status: 502 }
       );
     }
+
+    // Railway has accepted and bound state.matchId — only NOW expose it to
+    // lobby clients.
+    await prisma.survivorConfig.update({
+      where: { id: SURVIVOR_CONFIG_ID },
+      data: { currentMatchId: match.id },
+    });
 
     return NextResponse.json({
       ok: true,

@@ -126,6 +126,52 @@ app.post("/admin/start", async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * Re-bind: only valid if the room has no live matchId (e.g. after a Railway
+ * restart). Lets Next.js re-attach an in-progress DB match to a fresh room
+ * without admin having to End + Start again. We refuse to overwrite an
+ * already-running match (no surprise wipes from concurrent admin actions).
+ */
+app.post("/admin/rebind", async (req: Request, res: Response) => {
+  try {
+    const body = req.body ?? {};
+    const matchId = String(body.matchId ?? "");
+    const prizeTitle = String(body.prizeTitle ?? "OBH Survivor Prize");
+    const matchSeconds = Math.max(
+      30,
+      Math.min(3600, Number(body.matchSeconds) || DEFAULT_MATCH_SECONDS)
+    );
+    const lobbySeconds = Math.max(
+      5,
+      Math.min(600, Number(body.lobbySeconds) || DEFAULT_LOBBY_SECONDS)
+    );
+    if (!matchId) {
+      res.status(400).json({ error: "matchId required" });
+      return;
+    }
+    const auth = parseAdminAuth(req, "start", matchId);
+    if (!auth.ok) {
+      res.status(auth.status).json({ error: auth.error });
+      return;
+    }
+    const room = await ensureRoom();
+    if (room.state.matchId && room.state.matchId !== matchId) {
+      res.status(409).json({
+        error: "Room already has an active match",
+        currentMatchId: room.state.matchId,
+        status: room.state.status,
+      });
+      return;
+    }
+    // Either fresh room or same matchId — safe to (re)start.
+    room.startMatch(matchId, prizeTitle, matchSeconds, lobbySeconds);
+    res.json({ ok: true, rebound: true, matchId });
+  } catch (err) {
+    console.error("[/admin/rebind]", err);
+    res.status(500).json({ error: "internal error" });
+  }
+});
+
 app.post("/admin/end", async (req: Request, res: Response) => {
   try {
     const body = req.body ?? {};

@@ -106,6 +106,17 @@ export class SurvivorRoom extends Room<SurvivorState> {
       throw new Error("Missing token timestamp");
     }
     if (matchId !== this.state.matchId) {
+      console.warn(
+        `[SurvivorRoom] reject join: client matchId=${matchId} email=${email} but room.state.matchId=${this.state.matchId || "<empty>"} status=${this.state.status}`
+      );
+      // Empty room.state.matchId almost always means the container restarted
+      // (Railway redeploy / OOM / etc.) and lost in-memory state. The lobby
+      // will display this verbatim; we phrase it so admin knows what to do.
+      if (!this.state.matchId) {
+        throw new Error(
+          "Game server restarted — ask admin to open a new match."
+        );
+      }
       throw new Error("Match has moved on — refresh the lobby.");
     }
     const ok = verifyMatchToken(
