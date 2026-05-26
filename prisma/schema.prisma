@@ -332,3 +332,70 @@ model GameSession {
   @@index([issuedAt])
   @@index([usedAt])
 }
+
+/// Singleton row (id="default") holding settings for the /survivor 25-player
+/// shooter. Edited from /admin/survivor. Match lifecycle itself lives in the
+/// authoritative Colyseus server; this model just stores what the lobby/admin
+/// UI needs.
+model SurvivorConfig {
+  id               String   @id @default("default")
+  /// Master on/off switch for the /survivor route.
+  enabled          Boolean  @default(true)
+  /// Visible prize for the upcoming/current match.
+  prizeTitle       String   @default("OBH Survivor Prize")
+  prizeDescription String?  @db.Text
+  /// Match length in seconds (default 7 minutes).
+  matchSeconds     Int      @default(420)
+  /// The match currently considered "live" or "waiting" by the lobby. Cleared
+  /// when the game server posts the end webhook. Used so multiple lobby
+  /// visitors all get the same matchToken bucket.
+  currentMatchId   String?
+  updatedAt        DateTime @updatedAt
+}
+
+/// One match. Created when an admin clicks "Start match" from /admin/survivor;
+/// status transitions WAITING -> PLAYING -> ENDED. Players themselves live in
+/// SurvivorParticipant.
+model SurvivorMatch {
+  id           String                 @id @default(cuid())
+  status       SurvivorMatchStatus    @default(WAITING)
+  prizeTitle   String
+  startedAt    DateTime?
+  endedAt      DateTime?
+  /// Email of the winning player (denormalized for quick admin lookups).
+  winnerEmail  String?
+  participants SurvivorParticipant[]
+  createdAt    DateTime               @default(now())
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+enum SurvivorMatchStatus {
+  WAITING
+  PLAYING
+  ENDED
+}
+
+/// One participant in a match. Email + displayName are captured in the lobby
+/// before the player joins the game server. Placement / kills / survival are
+/// filled in by the game server's end-of-match webhook.
+model SurvivorParticipant {
+  id              String        @id @default(cuid())
+  matchId         String
+  match           SurvivorMatch @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  email           String
+  displayName     String
+  /// Final placement (1 = winner, ...). Null until the match ends or if the
+  /// player joined the lobby but never connected to the game server.
+  placement       Int?
+  kills           Int           @default(0)
+  /// Seconds the player stayed alive in the match (capped at match length).
+  survivedSeconds Int           @default(0)
+  joinedAt        DateTime      @default(now())
+  disconnectedAt  DateTime?
+
+  @@unique([matchId, email])
+  @@index([matchId])
+  @@index([email])
+}

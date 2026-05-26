@@ -1,0 +1,3 @@
+# The Colyseus game server is deployed to Railway from /game-server. Vercel
+# never builds or serves it, so don't ship the source/installed deps.
+game-server/

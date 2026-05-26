@@ -60,6 +60,12 @@ export default function AdminLayout({
                 Game
               </Link>
               <Link
+                href="/admin/survivor"
+                className="text-[10px] uppercase tracking-widest text-neutral-400 hover:text-white transition-colors"
+              >
+                Survivor
+              </Link>
+              <Link
                 href="/admin/stats"
                 className="text-[10px] uppercase tracking-widest text-neutral-400 hover:text-white transition-colors"
               >
