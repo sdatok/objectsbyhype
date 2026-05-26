@@ -31,7 +31,7 @@ export default async function AdminSurvivorPage() {
         gitSha?: string;
       };
       serverHealth = {
-        ok: res.ok && body.build === "island-v3",
+        ok: res.ok && body.build === "island-v4",
         build: body.build,
         gitSha: body.gitSha,
       };
@@ -79,7 +79,7 @@ export default async function AdminSurvivorPage() {
             <strong>Game server (Railway):</strong>{" "}
             {serverHealth.ok ? (
               <>
-                island-v3 live · git{" "}
+                island-v4 live · git{" "}
                 <code>{serverHealth.gitSha ?? "?"}</code>
               </>
             ) : serverHealth.error ? (

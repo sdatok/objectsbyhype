@@ -22,7 +22,7 @@ export default function RetroOverlay() {
         className="pointer-events-none absolute inset-0"
         style={{
           background:
-            "radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.55) 100%)",
+            "radial-gradient(ellipse at center, transparent 70%, rgba(0,0,0,0.25) 100%)",
         }}
       />
     </>

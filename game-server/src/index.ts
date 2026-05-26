@@ -69,7 +69,7 @@ app.get("/healthz", (_req, res) => {
     ts: Date.now(),
     service: "objectsbyhype-survivor",
     gitSha: process.env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 7) ?? "unknown",
-    build: "island-v3",
+    build: "island-v4",
     features: ["obstacles", "island-maze", "pickups-v2", "mobile-sticks"],
   });
 });
@@ -77,7 +77,7 @@ app.get("/healthz", (_req, res) => {
 app.get("/version", (_req, res) => {
   res.json({
     ok: true,
-    build: "island-v3",
+    build: "island-v4",
     gitSha: process.env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 7) ?? "unknown",
   });
 });

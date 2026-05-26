@@ -230,8 +230,9 @@ export class SurvivorRoom extends Room<SurvivorState> {
     // Kick everyone from any previous match before swapping matchId.
     this.resetForNewMatch();
 
-    // Lay down a fresh procedural arena. Doing this BEFORE we accept new
-    // joiners in COUNTDOWN guarantees pickSpawn() sees the obstacles.
+    // Lay down island props on the beach (uses zone.radius for placement).
+    this.state.zone.radius = ZONE_START_RADIUS;
+    this.state.zone.targetRadius = ZONE_START_RADIUS;
     generateObstacles(this.state);
 
     const now = Date.now();

@@ -400,10 +400,8 @@ export function tickZone(
 
   state.zone.targetRadius =
     ZONE_START_RADIUS + (ZONE_END_RADIUS - ZONE_START_RADIUS) * t;
-  // Tween current radius gently toward target so the visual is smooth rather
-  // than a stepwise jump every tick.
-  const lerp = Math.min(1, dtSec * 2);
-  state.zone.radius += (state.zone.targetRadius - state.zone.radius) * lerp;
+  // Snap radius to target each tick so clients always see the shrink progress.
+  state.zone.radius = state.zone.targetRadius;
 
   const dps = ZONE_DPS_START + (ZONE_DPS_END - ZONE_DPS_START) * t;
   const dmg = dps * dtSec;
@@ -563,10 +561,17 @@ function withinWorld(r: ObstacleRect): boolean {
   );
 }
 
-/** Obstacle centre + half-size must sit on the sand disc, not in the water. */
-function withinIsland(r: ObstacleRect, margin = 0): boolean {
+/** Obstacle centre must sit on the current safe beach (shrinking zone). */
+function withinPlayableZone(
+  state: SurvivorState,
+  r: ObstacleRect,
+  margin = 0
+): boolean {
   const halfDiag = Math.hypot(r.w, r.h) / 2 + margin;
-  return Math.hypot(r.x, r.y) + halfDiag <= ISLAND_RADIUS - OBSTACLE_EDGE_INSET;
+  const zx = state.zone.cx ?? 0;
+  const zy = state.zone.cy ?? 0;
+  const limit = Math.max(120, state.zone.radius - OBSTACLE_EDGE_INSET);
+  return Math.hypot(r.x - zx, r.y - zy) + halfDiag <= limit;
 }
 
 /**
@@ -574,7 +579,10 @@ function withinIsland(r: ObstacleRect, margin = 0): boolean {
  * segments, optionally with one 90° bend. Returns the segment list or null
  * if no valid placement was found.
  */
-function generateWallCluster(placed: ObstacleRect[]): ObstacleRect[] | null {
+function generateWallCluster(
+  state: SurvivorState,
+  placed: ObstacleRect[]
+): ObstacleRect[] | null {
   const xMax = WORLD_HALF - OBSTACLE_EDGE_INSET - WALL_SEGMENT_LEN;
   const yMax = WORLD_HALF - OBSTACLE_EDGE_INSET - WALL_SEGMENT_LEN;
 
@@ -606,7 +614,7 @@ function generateWallCluster(placed: ObstacleRect[]): ObstacleRect[] | null {
       const h = horizontal ? WALL_SEGMENT_THICKNESS : WALL_SEGMENT_LEN;
       const seg: ObstacleRect = { kind: "cliff", x: cx, y: cy, w, h };
 
-      if (!withinWorld(seg) || !withinIsland(seg, 8)) {
+      if (!withinWorld(seg) || !withinPlayableZone(state, seg, 8)) {
         ok = false;
         break;
       }
@@ -646,7 +654,7 @@ export function generateObstacles(state: SurvivorState): void {
 
   // ---- Pass 1: cliff / rock maze clusters ----
   for (let i = 0; i < CLIFF_CLUSTER_COUNT; i++) {
-    const cluster = generateWallCluster(placed);
+    const cluster = generateWallCluster(state, placed);
     if (!cluster) continue;
     for (const seg of cluster) placed.push(seg);
   }
@@ -681,7 +689,7 @@ export function generateObstacles(state: SurvivorState): void {
     if (Math.hypot(x, y) < OBSTACLE_KEEP_OUT) continue;
 
     const candidate: ObstacleRect = { kind, x, y, w: size.w, h: size.h };
-    if (!withinWorld(candidate) || !withinIsland(candidate, 12)) continue;
+    if (!withinWorld(candidate) || !withinPlayableZone(state, candidate, 12)) continue;
 
     let blocked = false;
     for (const p of placed) {

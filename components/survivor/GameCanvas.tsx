@@ -100,7 +100,8 @@ interface ServerState {
 
 // Must match game-server/src/constants.ts.
 const WORLD = 2800;
-const ISLAND_RADIUS = 1320;
+const ZONE_START_RADIUS = 1900;
+const ZONE_END_RADIUS = 320;
 const PLAYER_R = 18;
 const BULLET_R = 4;
 const PICKUP_R = 14;
@@ -443,6 +444,7 @@ export default function GameCanvas({ room, onLeave }: GameCanvasProps) {
         playerBuf: playerBufRef.current,
         bulletBuf: bulletBufRef.current,
         shake: shakeRef.current,
+        now: Date.now(),
       });
 
       raf = window.requestAnimationFrame(draw);
@@ -876,6 +878,45 @@ interface RenderCtx {
   playerBuf: PlayerBuffer;
   bulletBuf: BulletBuffer;
   shake: { amount: number; until: number };
+  now: number;
+}
+
+/** Beach radius from match clock so the safe zone visibly shrinks even if schema patches lag. */
+function computeVisualZoneRadius(
+  zone: ServerZone,
+  startedAtMs: number,
+  matchEndsAtMs: number
+): number {
+  const serverR =
+    typeof zone?.radius === "number" && zone.radius > 0
+      ? zone.radius
+      : ZONE_START_RADIUS;
+  if (!startedAtMs || !matchEndsAtMs || matchEndsAtMs <= startedAtMs) {
+    return serverR;
+  }
+  const total = matchEndsAtMs - startedAtMs;
+  const elapsed = Math.max(0, Math.min(total, Date.now() - startedAtMs));
+  const t = elapsed / total;
+  return ZONE_START_RADIUS + (ZONE_END_RADIUS - ZONE_START_RADIUS) * t;
+}
+
+/** Colyseus ArraySchema / plain array iteration. */
+function iterateSchemaArray<T>(arr: unknown, fn: (item: T) => void): void {
+  if (arr == null) return;
+  const schema = arr as {
+    forEach?: (cb: (item: T) => void) => void;
+    length?: number;
+    size?: number;
+  };
+  if (typeof schema.forEach === "function") {
+    schema.forEach(fn);
+    return;
+  }
+  const len = schema.length ?? schema.size ?? 0;
+  for (let i = 0; i < len; i++) {
+    const item = (arr as Record<number, T>)[i];
+    if (item != null) fn(item);
+  }
 }
 
 function renderFrame(
@@ -891,7 +932,7 @@ function renderFrame(
   const dpr = window.devicePixelRatio || 1;
   const cssW = canvas.width / dpr;
   const cssH = canvas.height / dpr;
-  const now = Date.now();
+  const now = rctx.now;
 
   // Screen-shake offset.
   let shakeX = 0;
@@ -924,21 +965,29 @@ function renderFrame(
     sy: (y - camY) * scale + screenCy,
   });
 
-  drawIslandTerrain(ctx, w2s, scale, cssW, cssH);
-  drawGrid(ctx, w2s, scale, cssW, cssH, camX, camY);
+  const zone = rs.zone ?? {
+    cx: 0,
+    cy: 0,
+    radius: ZONE_START_RADIUS,
+    targetRadius: ZONE_END_RADIUS,
+  };
+  const beachRadius = computeVisualZoneRadius(
+    zone,
+    rs.startedAtMs ?? 0,
+    rs.matchEndsAtMs ?? 0
+  );
+  const zoneVisual: ServerZone = { ...zone, radius: beachRadius };
 
-  // Obstacles render under the zone-wash so they sit "on the floor" and the
-  // danger tint reads on top of them.
-  if (rs.obstacles && typeof (rs.obstacles as { forEach?: unknown }).forEach === "function") {
-    (rs.obstacles as unknown as {
-      forEach: (cb: (o: ServerObstacle) => void) => void;
-    }).forEach((o) => {
-      drawObstacle(ctx, o, w2s, scale);
-    });
-  }
+  drawOcean(ctx, cssW, cssH);
+  drawBeach(ctx, zoneVisual, w2s, scale);
+  drawGrid(ctx, w2s, scale, cssW, cssH, camX, camY, zoneVisual);
 
-  drawZoneWash(ctx, rs.zone, w2s, scale, cssW, cssH);
-  drawZoneRings(ctx, rs.zone, w2s, scale);
+  iterateSchemaArray<ServerObstacle>(rs.obstacles, (o) => {
+    drawObstacle(ctx, o, w2s, scale);
+  });
+
+  drawCreepingWater(ctx, zoneVisual, w2s, scale, cssW, cssH, now);
+  drawZoneRings(ctx, zoneVisual, w2s, scale, now);
 
   if (rs.pickups && typeof (rs.pickups as { forEach?: unknown }).forEach === "function") {
     (rs.pickups as unknown as {
@@ -964,55 +1013,102 @@ function renderFrame(
   ctx.restore();
 }
 
-function drawIslandTerrain(
-  ctx: CanvasRenderingContext2D,
-  w2s: (x: number, y: number) => { sx: number; sy: number },
-  scale: number,
-  cssW: number,
-  cssH: number
-) {
-  const centre = w2s(0, 0);
-  const r = ISLAND_RADIUS * scale;
+function drawOcean(ctx: CanvasRenderingContext2D, cssW: number, cssH: number) {
+  const ocean = ctx.createLinearGradient(0, 0, 0, cssH);
+  ocean.addColorStop(0, "#0c4a6e");
+  ocean.addColorStop(0.5, "#0e7490");
+  ocean.addColorStop(1, "#082f49");
+  ctx.fillStyle = ocean;
+  ctx.fillRect(0, 0, cssW, cssH);
+}
 
-  // Sand disc.
+/** Sand beach = current safe zone (follows the player camera). */
+function drawBeach(
+  ctx: CanvasRenderingContext2D,
+  zone: ServerZone,
+  w2s: (x: number, y: number) => { sx: number; sy: number },
+  scale: number
+) {
+  const cx = zone.cx ?? 0;
+  const cy = zone.cy ?? 0;
+  const centre = w2s(cx, cy);
+  const r = zone.radius * scale;
+
   const sand = ctx.createRadialGradient(
     centre.sx,
     centre.sy,
-    r * 0.15,
+    r * 0.1,
     centre.sx,
     centre.sy,
     r
   );
-  sand.addColorStop(0, "#e8c992");
-  sand.addColorStop(0.55, "#d4a96a");
-  sand.addColorStop(0.88, "#c49558");
-  sand.addColorStop(1, "#b8844a");
+  sand.addColorStop(0, "#f5e6c8");
+  sand.addColorStop(0.45, "#e8c992");
+  sand.addColorStop(0.75, "#d4a96a");
+  sand.addColorStop(1, "#c49558");
   ctx.fillStyle = sand;
   ctx.beginPath();
   ctx.arc(centre.sx, centre.sy, r, 0, Math.PI * 2);
   ctx.fill();
 
-  // Beach foam ring.
-  ctx.strokeStyle = "rgba(255,255,255,0.35)";
+  // Wet sand ring at the water line.
+  ctx.strokeStyle = "rgba(255,255,255,0.55)";
   ctx.lineWidth = Math.max(2, 3 * scale);
   ctx.beginPath();
-  ctx.arc(centre.sx, centre.sy, r - 4 * scale, 0, Math.PI * 2);
+  ctx.arc(centre.sx, centre.sy, Math.max(0, r - 3 * scale), 0, Math.PI * 2);
   ctx.stroke();
+}
 
-  // Subtle shore shadow on water side.
-  ctx.strokeStyle = "rgba(6,21,37,0.35)";
-  ctx.lineWidth = Math.max(4, 8 * scale);
-  ctx.beginPath();
-  ctx.arc(centre.sx, centre.sy, r + 6 * scale, 0, Math.PI * 2);
-  ctx.stroke();
+/** Danger water overlay outside the beach + animated wave crest on the boundary. */
+function drawCreepingWater(
+  ctx: CanvasRenderingContext2D,
+  zone: ServerZone,
+  w2s: (x: number, y: number) => { sx: number; sy: number },
+  scale: number,
+  cssW: number,
+  cssH: number,
+  now: number
+) {
+  const cx = zone.cx ?? 0;
+  const cy = zone.cy ?? 0;
+  const centre = w2s(cx, cy);
+  const r = zone.radius * scale;
 
-  // Water shimmer bands (screen space, cheap).
   ctx.save();
-  ctx.globalAlpha = 0.08;
-  for (let y = 0; y < cssH; y += 28) {
-    ctx.fillStyle = y % 56 === 0 ? "#ffffff" : "#7dd3fc";
-    ctx.fillRect(0, y, cssW, 2);
+  ctx.beginPath();
+  ctx.rect(0, 0, cssW, cssH);
+  ctx.arc(centre.sx, centre.sy, r, 0, Math.PI * 2, true);
+  ctx.closePath();
+  const water = ctx.createLinearGradient(0, 0, 0, cssH);
+  water.addColorStop(0, "rgba(14,116,144,0.55)");
+  water.addColorStop(1, "rgba(7,89,133,0.7)");
+  ctx.fillStyle = water;
+  ctx.fill("evenodd");
+  ctx.restore();
+
+  // Animated wave line along the shrinking edge.
+  const segments = 72;
+  const waveAmp = Math.max(4, 10 * scale);
+  ctx.save();
+  ctx.strokeStyle = "rgba(186,230,253,0.85)";
+  ctx.lineWidth = Math.max(2, 2.5 * scale);
+  ctx.shadowColor = "rgba(56,189,248,0.6)";
+  ctx.shadowBlur = 8;
+  ctx.beginPath();
+  for (let i = 0; i <= segments; i++) {
+    const ang = (i / segments) * Math.PI * 2;
+    const wobble =
+      Math.sin(ang * 6 + now * 0.005) * waveAmp +
+      Math.sin(ang * 3 - now * 0.003) * (waveAmp * 0.4);
+    const dist = zone.radius + wobble / scale;
+    const wx = cx + Math.cos(ang) * dist;
+    const wy = cy + Math.sin(ang) * dist;
+    const p = w2s(wx, wy);
+    if (i === 0) ctx.moveTo(p.sx, p.sy);
+    else ctx.lineTo(p.sx, p.sy);
   }
+  ctx.closePath();
+  ctx.stroke();
   ctx.restore();
 }
 
@@ -1023,12 +1119,24 @@ function drawGrid(
   cssW: number,
   cssH: number,
   camX: number,
-  camY: number
+  camY: number,
+  zone: ServerZone
 ) {
   const half = WORLD / 2;
   const minorStep = 100;
   const majorStep = 400;
   const visibleSpan = Math.max(cssW, cssH) / scale + minorStep * 2;
+
+  const zcx = zone.cx ?? 0;
+  const zcy = zone.cy ?? 0;
+  const zr = zone.radius;
+  const beachCentre = w2s(zcx, zcy);
+  const beachR = zr * scale;
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(beachCentre.sx, beachCentre.sy, beachR, 0, Math.PI * 2);
+  ctx.clip();
 
   const startX = Math.max(
     -half,
@@ -1086,28 +1194,6 @@ function drawGrid(
     ctx.lineTo(b.sx, b.sy);
   }
   ctx.stroke();
-}
-
-function drawZoneWash(
-  ctx: CanvasRenderingContext2D,
-  zone: ServerZone,
-  w2s: (x: number, y: number) => { sx: number; sy: number },
-  scale: number,
-  cssW: number,
-  cssH: number
-) {
-  if (!zone || typeof zone.radius !== "number") return;
-  const zc = w2s(zone.cx ?? 0, zone.cy ?? 0);
-  const r = zone.radius * scale;
-  ctx.save();
-  ctx.globalCompositeOperation = "source-over";
-  ctx.fillStyle = "rgba(220,38,38,0.12)";
-  ctx.fillRect(0, 0, cssW, cssH);
-  ctx.globalCompositeOperation = "destination-out";
-  ctx.beginPath();
-  ctx.arc(zc.sx, zc.sy, r, 0, Math.PI * 2);
-  ctx.fillStyle = "#fff";
-  ctx.fill();
   ctx.restore();
 }
 
@@ -1115,32 +1201,35 @@ function drawZoneRings(
   ctx: CanvasRenderingContext2D,
   zone: ServerZone,
   w2s: (x: number, y: number) => { sx: number; sy: number },
-  scale: number
+  scale: number,
+  now: number
 ) {
   if (!zone || typeof zone.radius !== "number") return;
-  const zc = w2s(zone.cx ?? 0, zone.cy ?? 0);
+  const cx = zone.cx ?? 0;
+  const cy = zone.cy ?? 0;
+  const zc = w2s(cx, cy);
   const r = zone.radius * scale;
+  const waveAmp = Math.max(3, 6 * scale);
+
   ctx.save();
-  ctx.shadowColor = "rgba(45,212,191,0.45)";
-  ctx.shadowBlur = 10;
-  ctx.strokeStyle = "rgba(45,212,191,0.9)";
-  ctx.lineWidth = 2;
-  ctx.setLineDash([10, 6]);
-  ctx.beginPath();
-  ctx.arc(zc.sx, zc.sy, r, 0, Math.PI * 2);
-  ctx.stroke();
-
-  ctx.shadowBlur = 0;
-  ctx.strokeStyle = "rgba(251,191,36,0.5)";
+  ctx.strokeStyle = "rgba(251,191,36,0.65)";
   ctx.lineWidth = 1.5;
-  ctx.setLineDash([4, 8]);
-  ctx.lineDashOffset = 2;
+  ctx.setLineDash([6, 8]);
   ctx.beginPath();
-  ctx.arc(zc.sx, zc.sy, Math.max(0, r - 4), 0, Math.PI * 2);
+  const innerSegs = 48;
+  for (let i = 0; i <= innerSegs; i++) {
+    const ang = (i / innerSegs) * Math.PI * 2;
+    const wobble = Math.sin(ang * 4 + now * 0.004) * (waveAmp * 0.5);
+    const p = w2s(
+      cx + Math.cos(ang) * (zone.radius - 12 + wobble / scale),
+      cy + Math.sin(ang) * (zone.radius - 12 + wobble / scale)
+    );
+    if (i === 0) ctx.moveTo(p.sx, p.sy);
+    else ctx.lineTo(p.sx, p.sy);
+  }
+  ctx.closePath();
   ctx.stroke();
-
   ctx.setLineDash([]);
-  ctx.lineDashOffset = 0;
   ctx.restore();
 }
 
