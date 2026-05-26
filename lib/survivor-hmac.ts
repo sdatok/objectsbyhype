@@ -17,20 +17,31 @@ import { createHmac, timingSafeEqual } from "crypto";
  *                     verifies it before writing rows to Postgres.
  */
 
-const SECRET = process.env.SURVIVOR_SECRET;
-if (!SECRET) {
-  throw new Error("SURVIVOR_SECRET is required for /survivor HMAC");
+/**
+ * Read the key lazily so module import never crashes during build when the
+ * env var isn't set yet (Vercel build step runs before env can be read at
+ * runtime in some setups). Throws clearly at first sign/verify call instead.
+ */
+function getKey(): Buffer {
+  const SECRET = process.env.SURVIVOR_SECRET;
+  if (!SECRET) {
+    throw new Error("SURVIVOR_SECRET is required for /survivor HMAC");
+  }
+  return Buffer.from(SECRET, "utf8");
 }
 
-const KEY = Buffer.from(SECRET, "utf8");
-
 function sign(payload: string): string {
-  return createHmac("sha256", KEY).update(payload).digest("hex");
+  return createHmac("sha256", getKey()).update(payload).digest("hex");
 }
 
 function verify(payload: string, candidate: string): boolean {
   if (!candidate || typeof candidate !== "string") return false;
-  const expected = sign(payload);
+  let expected: string;
+  try {
+    expected = sign(payload);
+  } catch {
+    return false;
+  }
   if (expected.length !== candidate.length) return false;
   try {
     return timingSafeEqual(
