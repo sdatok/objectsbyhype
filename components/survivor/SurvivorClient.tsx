@@ -8,9 +8,6 @@ import {
   joinSurvivorRoom,
   reconnectSurvivorRoom,
 } from "@/lib/survivor-client";
-import IslandLobbyBackdrop, {
-  IslandLobbyCard,
-} from "./IslandLobbyBackdrop";
 
 // Canvas needs the browser only.
 const GameCanvas = dynamic(() => import("./GameCanvas"), { ssr: false });
@@ -370,21 +367,21 @@ export default function SurvivorClient({ initialState }: SurvivorClientProps) {
 
 function Header({ serverState }: { serverState: PublicSurvivorState }) {
   return (
-    <header className="relative z-20 w-full border-b border-fuchsia-500/15 bg-black/40 backdrop-blur-md px-6 py-4 flex items-baseline justify-between flex-wrap gap-3">
+    <header className="w-full border-b border-white/10 px-6 py-4 flex items-baseline justify-between flex-wrap gap-3">
       <div>
-        <p className="text-[10px] uppercase tracking-[0.3em] text-fuchsia-300/90">
-          OBH Survivor · Internet Money Island
+        <p className="text-[10px] uppercase tracking-[0.3em] text-fuchsia-400">
+          OBH Survivor
         </p>
-        <h1 className="text-xl sm:text-2xl font-bold mt-1 text-white">
+        <h1 className="text-xl sm:text-2xl font-bold mt-1">
           {serverState.prizeTitle}
         </h1>
         {serverState.prizeDescription && (
-          <p className="text-xs text-violet-300/50 mt-1 max-w-prose">
+          <p className="text-xs text-neutral-400 mt-1 max-w-prose">
             {serverState.prizeDescription}
           </p>
         )}
       </div>
-      <p className="text-[10px] uppercase tracking-[0.25em] text-violet-400/50">
+      <p className="text-[10px] uppercase tracking-[0.25em] text-neutral-500">
         25 players · last alive wins
       </p>
     </header>
@@ -397,21 +394,24 @@ function NoMatchPanel({
   last: PublicSurvivorState["lastWinner"];
 }) {
   return (
-    <IslandLobbyBackdrop eyebrow="Internet Money Island · Standby">
-      <IslandLobbyCard className="text-center space-y-4">
+    <div className="flex-1 flex items-center justify-center px-6">
+      <div className="max-w-md text-center space-y-4">
+        <p className="text-xs uppercase tracking-[0.3em] text-fuchsia-400">
+          Standby
+        </p>
         <h2 className="text-2xl font-bold">No match open right now.</h2>
-        <p className="text-sm text-neutral-300/90">
+        <p className="text-sm text-neutral-400">
           Matches are admin-started. Follow OBH on Instagram for drops, or
           keep this tab open — the lobby opens here when one starts.
         </p>
         {last && (
-          <p className="text-xs text-violet-300/60 pt-2 border-t border-white/10">
+          <p className="text-xs text-neutral-500 mt-6">
             Last winner:{" "}
-            <span className="text-fuchsia-200">{last.displayName}</span>
+            <span className="text-white">{last.displayName}</span>
           </p>
         )}
-      </IslandLobbyCard>
-    </IslandLobbyBackdrop>
+      </div>
+    </div>
   );
 }
 
@@ -431,86 +431,85 @@ function LobbyPanel(props: {
   const participantCount = serverState.currentMatch?.participantCount ?? 0;
 
   return (
-    <IslandLobbyBackdrop eyebrow={`Internet Money Island · Lobby${status ? ` · ${status.toLowerCase()}` : ""}`}>
-      <IslandLobbyCard>
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (!busy) onJoin();
-          }}
-          className="space-y-5"
-        >
-          <div>
-            <h2 className="text-xl sm:text-2xl font-bold bg-gradient-to-r from-fuchsia-200 via-white to-violet-200 bg-clip-text text-transparent">
-              Join the arena
-            </h2>
-            <p className="text-xs text-violet-200/60 mt-2">
-              {participantCount} {participantCount === 1 ? "player" : "players"}{" "}
-              queued · waterfront drop incoming
-            </p>
-          </div>
-
-          <div>
-            <label className="block text-[10px] uppercase tracking-widest text-violet-300/70 mb-2">
-              Display name
-            </label>
-            <input
-              type="text"
-              value={displayName}
-              onChange={(e) => onName(e.target.value)}
-              placeholder="GAMERTAG"
-              maxLength={24}
-              required
-              className="w-full bg-black/60 border border-fuchsia-500/20 px-3 py-3 text-base text-white placeholder-violet-400/30 focus:outline-none focus:border-fuchsia-400/60 focus:shadow-[0_0_20px_rgba(192,38,211,0.15)] transition-all"
-            />
-          </div>
-
-          <div>
-            <label className="block text-[10px] uppercase tracking-widest text-violet-300/70 mb-2">
-              Email (for prize delivery)
-            </label>
-            <input
-              type="email"
-              inputMode="email"
-              autoCapitalize="off"
-              autoCorrect="off"
-              value={email}
-              onChange={(e) => onEmail(e.target.value)}
-              placeholder="you@email.com"
-              required
-              className="w-full bg-black/60 border border-fuchsia-500/20 px-3 py-3 text-base text-white placeholder-violet-400/30 focus:outline-none focus:border-fuchsia-400/60 focus:shadow-[0_0_20px_rgba(192,38,211,0.15)] transition-all"
-            />
-          </div>
-
-          {error && (
-            <p className="text-xs text-rose-400 break-words">{error}</p>
-          )}
-
-          <button
-            type="submit"
-            disabled={busy}
-            className="w-full font-bold text-sm tracking-[0.2em] uppercase px-5 py-3.5 text-white border border-fuchsia-300/40 disabled:opacity-50 transition-transform hover:scale-[1.01] active:scale-[0.99]"
-            style={{
-              background:
-                "linear-gradient(135deg, rgba(192,38,211,0.95) 0%, rgba(109,40,217,0.95) 50%, rgba(79,70,229,0.9) 100%)",
-              boxShadow:
-                "0 0 30px rgba(124,58,237,0.35), 4px 4px 0 rgba(255,255,255,0.85)",
-            }}
-          >
-            {phase === "joining"
-              ? "Joining…"
-              : phase === "connecting"
-              ? "Connecting…"
-              : "Enter lobby"}
-          </button>
-
-          <p className="text-[10px] text-violet-300/45 leading-relaxed">
-            Mobile: twin sticks · Desktop: WASD + mouse. Stay inside the safe
-            zone — the tide shrinks. Last alive wins the drop.
+    <div className="flex-1 flex items-center justify-center px-6 py-8">
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (!busy) onJoin();
+        }}
+        className="w-full max-w-md space-y-5 border border-white/10 bg-white/[0.02] backdrop-blur-md p-6 sm:p-8 rounded"
+      >
+        <div>
+          <p className="text-[10px] uppercase tracking-[0.3em] text-fuchsia-400">
+            Lobby {status ? `· ${status.toLowerCase()}` : ""}
           </p>
-        </form>
-      </IslandLobbyCard>
-    </IslandLobbyBackdrop>
+          <h2 className="text-xl font-bold mt-2">Join the arena</h2>
+          <p className="text-xs text-neutral-400 mt-1">
+            {participantCount} {participantCount === 1 ? "player" : "players"}{" "}
+            queued. Match begins when the host starts it.
+          </p>
+        </div>
+
+        <div>
+          <label className="block text-[10px] uppercase tracking-widest text-neutral-400 mb-2">
+            Display name
+          </label>
+          <input
+            type="text"
+            value={displayName}
+            onChange={(e) => onName(e.target.value)}
+            placeholder="GAMERTAG"
+            maxLength={24}
+            required
+            className="w-full bg-black border border-white/15 px-3 py-3 text-base text-white placeholder-neutral-600 focus:outline-none focus:border-fuchsia-500 transition-colors"
+          />
+        </div>
+
+        <div>
+          <label className="block text-[10px] uppercase tracking-widest text-neutral-400 mb-2">
+            Email (for prize delivery)
+          </label>
+          <input
+            type="email"
+            inputMode="email"
+            autoCapitalize="off"
+            autoCorrect="off"
+            value={email}
+            onChange={(e) => onEmail(e.target.value)}
+            placeholder="you@email.com"
+            required
+            className="w-full bg-black border border-white/15 px-3 py-3 text-base text-white placeholder-neutral-600 focus:outline-none focus:border-fuchsia-500 transition-colors"
+          />
+        </div>
+
+        {error && (
+          <p className="text-xs text-rose-400 break-words">{error}</p>
+        )}
+
+        <button
+          type="submit"
+          disabled={busy}
+          className="w-full font-bold text-sm tracking-widest uppercase px-5 py-3 text-white border-2 border-white disabled:opacity-50"
+          style={{
+            background:
+              "linear-gradient(135deg, #c026d3 0%, #7c3aed 100%)",
+            boxShadow: "4px 4px 0 #fff",
+          }}
+        >
+          {phase === "joining"
+            ? "Joining…"
+            : phase === "connecting"
+            ? "Connecting…"
+            : "Enter lobby"}
+        </button>
+
+        <p className="text-[10px] text-neutral-500 leading-relaxed">
+          Mobile: left stick to move, right stick to aim (auto-fire while
+          pushed). Desktop: WASD + mouse. Stay inside the safe zone — it
+          shrinks. Last alive wins.
+        </p>
+      </form>
+    </div>
   );
 }
 
@@ -544,67 +543,63 @@ function StandbyPanel({
   const counting = status === "COUNTDOWN" && countdownEndsAtMs > 0;
 
   return (
-    <IslandLobbyBackdrop
-      eyebrow={
-        counting ? "Internet Money Island · Drop incoming" : "Internet Money Island · In lobby"
-      }
-    >
-      <IslandLobbyCard className="text-center space-y-6">
+    <div className="flex-1 flex items-center justify-center px-6 py-12">
+      <div className="w-full max-w-lg text-center space-y-6 border border-white/10 bg-white/[0.02] backdrop-blur-md p-8 rounded">
         <div>
-          <h2 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-fuchsia-200 via-white to-cyan-200 bg-clip-text text-transparent">
-            {displayName ? `Welcome, ${displayName}` : "You're in."}
+          <p className="text-[10px] uppercase tracking-[0.3em] text-fuchsia-400">
+            {counting ? "Match starting" : "In lobby"}
+          </p>
+          <h2 className="text-2xl font-bold mt-2">
+            {displayName ? `Welcome, ${displayName}.` : "You're in."}
           </h2>
-          <p className="text-xs text-violet-200/60 mt-2 max-w-sm mx-auto">
+          <p className="text-xs text-neutral-400 mt-2">
             {counting
-              ? "The arena opens when the countdown hits zero."
-              : "Docked on the island. Waiting for host to start the drop."}
+              ? "Match begins automatically when the timer hits zero."
+              : "Waiting for host to start. The page will switch you in automatically."}
           </p>
         </div>
 
         {counting ? (
           <div>
-            <p className="text-[10px] uppercase tracking-[0.3em] text-fuchsia-300/80">
+            <p className="text-[10px] uppercase tracking-[0.25em] text-neutral-500">
               Starts in
             </p>
-            <p
-              className="text-7xl sm:text-8xl font-bold tabular-nums leading-none mt-2 text-white"
-              style={{ textShadow: "0 0 40px rgba(192,38,211,0.5)" }}
-            >
+            <p className="text-7xl font-bold tabular-nums leading-none mt-2 text-white">
               {remainingS}
-              <span className="text-xl text-violet-400/70 ml-1">s</span>
+              <span className="text-xl text-neutral-500 ml-1">s</span>
             </p>
           </div>
         ) : (
-          <div className="py-2">
-            <div className="inline-flex items-center gap-2 rounded-full border border-fuchsia-500/25 bg-fuchsia-500/10 px-4 py-2">
-              <span className="inline-block w-2 h-2 rounded-full bg-fuchsia-400 animate-pulse shadow-[0_0_12px_rgba(232,121,249,0.8)]" />
-              <p className="text-xs uppercase tracking-[0.25em] text-fuchsia-100/90">
+          <div className="py-4">
+            <div className="flex items-center justify-center gap-2">
+              <span className="inline-block w-2.5 h-2.5 rounded-full bg-fuchsia-400 animate-pulse" />
+              <p className="text-sm uppercase tracking-widest text-neutral-300">
                 Standby
               </p>
             </div>
           </div>
         )}
 
-        <div className="text-xs text-violet-200/70 border-t border-fuchsia-500/15 pt-4 space-y-1">
+        <div className="text-xs text-neutral-400 border-t border-white/10 pt-4 space-y-1">
           <p>
-            <span className="text-white font-semibold">{alive}</span> / 25 in
-            the arena
+            <span className="text-white">{alive}</span> / 25 player
+            {alive === 1 ? "" : "s"} in the arena
           </p>
-          <p className="text-[10px] text-violet-300/45 leading-relaxed">
-            Twin sticks or WASD + mouse · stay in the safe zone · last alive
-            wins
+          <p className="text-[10px] text-neutral-500 leading-relaxed">
+            Left stick: move · right stick: aim + fire. Desktop: WASD + mouse.
+            Stay in the safe zone (it shrinks). Last alive wins.
           </p>
         </div>
 
         <button
           type="button"
           onClick={onLeave}
-          className="text-[10px] tracking-widest uppercase text-violet-400/70 hover:text-fuchsia-200 transition-colors"
+          className="text-[10px] tracking-widest uppercase text-neutral-400 hover:text-white transition-colors"
         >
           Leave lobby
         </button>
-      </IslandLobbyCard>
-    </IslandLobbyBackdrop>
+      </div>
+    </div>
   );
 }
 
