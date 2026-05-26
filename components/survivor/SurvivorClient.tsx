@@ -2,9 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import type { Room } from "colyseus.js";
+import type { Client, Room } from "colyseus.js";
 import type { PublicSurvivorState } from "@/lib/survivor-config";
-import { joinSurvivorRoom } from "@/lib/survivor-client";
+import {
+  joinSurvivorRoom,
+  reconnectSurvivorRoom,
+} from "@/lib/survivor-client";
 
 // Canvas needs the browser only.
 const GameCanvas = dynamic(() => import("./GameCanvas"), { ssr: false });
@@ -17,8 +20,14 @@ type Phase =
   | "connecting" // Colyseus joinOrCreate
   | "standby" // connected; waiting for host to start (WAITING/COUNTDOWN)
   | "inRoom" // PLAYING — GameCanvas active
+  | "reconnecting" // dropped connection; trying to resume seat
   | "disconnected" // server closed our connection
   | "noMatch"; // no current match (admin hasn't started one yet)
+
+/** Colyseus uses 4000 for intentional leave (matches server Protocol.WS_CLOSE_CONSENTED). */
+const CLOSE_CONSENTED = 4000;
+const RECONNECT_ATTEMPTS = 8;
+const RECONNECT_BASE_MS = 400;
 
 interface SurvivorClientProps {
   initialState: PublicSurvivorState;
@@ -40,6 +49,10 @@ export default function SurvivorClient({ initialState }: SurvivorClientProps) {
   const [countdownEndsAtMs, setCountdownEndsAtMs] = useState<number>(0);
   const [aliveInRoom, setAliveInRoom] = useState<number>(0);
   const roomRef = useRef<Room | null>(null);
+  const clientRef = useRef<Client | null>(null);
+  const reconnectingRef = useRef(false);
+  const credentialsRef = useRef({ displayName: "", email: "" });
+  const fullRejoinRef = useRef<(() => Promise<boolean>) | null>(null);
 
   // Restore previously-used name/email so returning visitors don't retype.
   useEffect(() => {
@@ -80,6 +93,99 @@ export default function SurvivorClient({ initialState }: SurvivorClientProps) {
     };
   }, [phase]);
 
+  const attachRoom = useCallback((room: Room) => {
+    const syncFromState = () => {
+      try {
+        const rs = room.state as unknown as {
+          status?: RoomPhase;
+          countdownEndsAtMs?: number;
+          players?: { forEach: (cb: (v: { alive: boolean }) => void) => void };
+        };
+        const status = (rs?.status ?? "WAITING") as RoomPhase;
+        setRoomStatus(status);
+        setCountdownEndsAtMs(Number(rs?.countdownEndsAtMs ?? 0));
+        let n = 0;
+        rs?.players?.forEach?.((p) => {
+          if (p?.alive) n++;
+        });
+        setAliveInRoom(n);
+        if (status === "ENDED") {
+          setPhase("inRoom");
+        } else if (status === "PLAYING") {
+          setPhase("inRoom");
+        } else {
+          setPhase("standby");
+        }
+      } catch (e) {
+        console.warn("[survivor] state read failed", e);
+      }
+    };
+    syncFromState();
+    room.onStateChange(() => syncFromState());
+
+    room.onLeave(async (code) => {
+      if (roomRef.current !== room) return;
+
+      if (code === CLOSE_CONSENTED) {
+        roomRef.current = null;
+        clientRef.current = null;
+        setRoomReady(false);
+        return;
+      }
+
+      const token = room.reconnectionToken;
+      const client = clientRef.current;
+      if (!token || !client || reconnectingRef.current) {
+        roomRef.current = null;
+        setRoomReady(false);
+        setPhase("disconnected");
+        return;
+      }
+
+      reconnectingRef.current = true;
+      setPhase("reconnecting");
+
+      for (let attempt = 0; attempt < RECONNECT_ATTEMPTS; attempt++) {
+        if (attempt > 0) {
+          await new Promise((r) =>
+            window.setTimeout(r, RECONNECT_BASE_MS * attempt)
+          );
+        }
+        try {
+          const reconnected = await reconnectSurvivorRoom(client, token);
+          if (roomRef.current !== room) {
+            reconnectingRef.current = false;
+            return;
+          }
+          roomRef.current = reconnected;
+          setRoomReady(true);
+          attachRoom(reconnected);
+          reconnectingRef.current = false;
+          return;
+        } catch (err) {
+          console.warn("[survivor] reconnect attempt failed", attempt + 1, err);
+        }
+      }
+
+      reconnectingRef.current = false;
+      roomRef.current = null;
+      setRoomReady(false);
+
+      if (fullRejoinRef.current) {
+        setPhase("reconnecting");
+        const ok = await fullRejoinRef.current().catch(() => false);
+        if (ok) return;
+      }
+
+      setPhase("disconnected");
+    });
+
+    room.onError((code, message) => {
+      console.error("[survivor] room error", code, message);
+      setError(message ?? "Room error");
+    });
+  }, []);
+
   /**
    * Mint a token and connect. Returns the live Room on success; throws on
    * any failure. Pulled out so we can transparently retry once when the
@@ -109,6 +215,22 @@ export default function SurvivorClient({ initialState }: SurvivorClientProps) {
     []
   );
 
+  fullRejoinRef.current = async () => {
+    const { displayName: name, email: addr } = credentialsRef.current;
+    if (!name || !addr) return false;
+    try {
+      const connection = await attemptJoin(name, addr);
+      clientRef.current = connection.client;
+      roomRef.current = connection.room;
+      setRoomReady(true);
+      attachRoom(connection.room);
+      return true;
+    } catch (err) {
+      console.warn("[survivor] full rejoin failed", err);
+      return false;
+    }
+  };
+
   const join = useCallback(async () => {
     setError(null);
     const trimmedName = displayName.trim();
@@ -125,11 +247,15 @@ export default function SurvivorClient({ initialState }: SurvivorClientProps) {
     }
 
     setPhase("joining");
+    credentialsRef.current = {
+      displayName: trimmedName,
+      email: trimmedEmail,
+    };
     try {
       setPhase("connecting");
-      let room;
+      let connection;
       try {
-        room = await attemptJoin(trimmedName, trimmedEmail);
+        connection = await attemptJoin(trimmedName, trimmedEmail);
       } catch (err) {
         // The room throws plain Error("Match has moved on…") on stale
         // matchId. Refetch fresh state from /api/survivor/state and retry
@@ -143,64 +269,24 @@ export default function SurvivorClient({ initialState }: SurvivorClientProps) {
           .then((r) => r.json())
           .then((next) => setServerState(next))
           .catch(() => undefined);
-        room = await attemptJoin(trimmedName, trimmedEmail);
+        connection = await attemptJoin(trimmedName, trimmedEmail);
       }
 
+      const { client, room } = connection;
+      clientRef.current = client;
       roomRef.current = room;
       setRoomReady(true);
-
-      // Track the server status so the UI shows a standby panel during
-      // WAITING/COUNTDOWN and only swaps to the playable canvas during
-      // PLAYING. Reading from the schema can throw if the first patch
-      // hasn't fully decoded yet — defensively pull primitives only.
-      const syncFromState = () => {
-        try {
-          const rs = room.state as unknown as {
-            status?: RoomPhase;
-            countdownEndsAtMs?: number;
-            players?: { forEach: (cb: (v: { alive: boolean }) => void) => void };
-          };
-          const status = (rs?.status ?? "WAITING") as RoomPhase;
-          setRoomStatus(status);
-          setCountdownEndsAtMs(Number(rs?.countdownEndsAtMs ?? 0));
-          let n = 0;
-          rs?.players?.forEach?.((p) => {
-            if (p?.alive) n++;
-          });
-          setAliveInRoom(n);
-          if (status === "PLAYING" || status === "ENDED") {
-            setPhase("inRoom");
-          } else {
-            setPhase("standby");
-          }
-        } catch (e) {
-          // First state-decoder frame can race; the next onStateChange will fix it.
-          console.warn("[survivor] state read failed", e);
-        }
-      };
-      syncFromState();
-      room.onStateChange(() => syncFromState());
-
-      room.onLeave(() => {
-        if (roomRef.current === room) {
-          roomRef.current = null;
-          setRoomReady(false);
-          setPhase("disconnected");
-        }
-      });
-      room.onError((code, message) => {
-        console.error("[survivor] room error", code, message);
-        setError(message ?? "Room error");
-      });
+      attachRoom(room);
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Could not join match";
       setError(message);
       setPhase("lobby");
     }
-  }, [displayName, email, attemptJoin]);
+  }, [displayName, email, attemptJoin, attachRoom]);
 
   const leaveAndReset = useCallback(() => {
+    reconnectingRef.current = false;
     const room = roomRef.current;
     if (room) {
       try {
@@ -210,6 +296,7 @@ export default function SurvivorClient({ initialState }: SurvivorClientProps) {
       }
     }
     roomRef.current = null;
+    clientRef.current = null;
     setRoomReady(false);
     setError(null);
     setPhase(serverState.currentMatch ? "lobby" : "noMatch");
@@ -251,6 +338,8 @@ export default function SurvivorClient({ initialState }: SurvivorClientProps) {
       {phase === "disconnected" && (
         <DisconnectedPanel onRetry={leaveAndReset} />
       )}
+
+      {phase === "reconnecting" && <ReconnectingPanel />}
 
       {phase === "standby" && roomReady && (
         <StandbyPanel
@@ -521,18 +610,41 @@ function DisconnectedPanel({ onRetry }: { onRetry: () => void }) {
         <p className="text-xs uppercase tracking-[0.3em] text-fuchsia-400">
           Disconnected
         </p>
-        <h2 className="text-2xl font-bold">You left the match.</h2>
+        <h2 className="text-2xl font-bold">Everyone got dropped.</h2>
         <p className="text-sm text-neutral-400">
-          If the match is still open, you can rejoin. Otherwise wait for the
-          next one.
+          When every player disconnects at once, the game server usually
+          restarted mid-match (Railway redeploy). Tap below to rejoin if the
+          round is still open — the server will sync automatically.
         </p>
         <button
           type="button"
           onClick={onRetry}
           className="text-xs tracking-widest uppercase px-5 py-3 border border-white hover:bg-white hover:text-black transition-colors"
         >
-          Back to lobby
+          Back to lobby & rejoin
         </button>
+      </div>
+    </div>
+  );
+}
+
+function ReconnectingPanel() {
+  return (
+    <div className="flex-1 flex items-center justify-center px-6">
+      <div className="max-w-md text-center space-y-4">
+        <p className="text-xs uppercase tracking-[0.3em] text-fuchsia-400">
+          Reconnecting
+        </p>
+        <h2 className="text-2xl font-bold">Hold on — getting you back in.</h2>
+        <p className="text-sm text-neutral-400">
+          Connection blipped. We&apos;re rejoining your seat automatically.
+        </p>
+        <div className="flex items-center justify-center gap-2 pt-2">
+          <span className="inline-block w-2.5 h-2.5 rounded-full bg-fuchsia-400 animate-pulse" />
+          <span className="text-[10px] uppercase tracking-widest text-neutral-500">
+            Trying to reconnect…
+          </span>
+        </div>
       </div>
     </div>
   );

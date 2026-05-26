@@ -158,8 +158,8 @@ export const OBSTACLE_SIZES: Record<ObstacleKind, Array<{ w: number; h: number }
     { w: 190, h: 58 },
     { w: 58, h: 190 },
   ],
-  gorilla: [{ w: 72, h: 96 }],
-  flower: [{ w: 64, h: 64 }],
+  gorilla: [{ w: 220, h: 290 }],
+  flower: [{ w: 170, h: 170 }],
 };
 
 // ---------- Zone ----------

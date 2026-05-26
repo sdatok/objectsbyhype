@@ -137,25 +137,35 @@ export class SurvivorRoom extends Room<SurvivorState> {
     if (!ok) {
       throw new Error("Invalid join token");
     }
-    // One connection per email. If they reconnect after dropping, the
-    // disconnected slot still occupies the map until we clear it; this is
-    // intentional for v1 (no resume).
-    const existing = Array.from(this.state.players.values()).find(
-      (p) => p.email === email
+    // One live connection per email. Disconnected slots (connected=false) are
+    // cleared so a fresh join works when reconnectionToken was lost (e.g. page
+    // reload). Reconnecting via token skips onAuth and reuses the same seat.
+    const existingEntry = Array.from(this.state.players.entries()).find(
+      ([, p]) => p.email === email
     );
-    if (existing) {
-      throw new Error("You are already in this match in another tab.");
+    if (existingEntry) {
+      const [existingSessionId, existingPlayer] = existingEntry;
+      if (existingPlayer.connected) {
+        throw new Error("You are already in this match in another tab.");
+      }
+      this.state.players.delete(existingSessionId);
+      this.inputs.delete(existingSessionId);
+      this.inputCounters.delete(existingSessionId);
     }
 
-    // Both WAITING and COUNTDOWN admit active players. PLAYING/ENDED only
-    // admit spectators.
+    // WAITING/COUNTDOWN admit everyone as active. During PLAYING we still
+    // admit active players while under the cap so a Railway restart doesn't
+    // trap returning players as permanent spectators.
     const inLobby =
       this.state.status === "WAITING" || this.state.status === "COUNTDOWN";
     const alivePlayers = this.countAlive();
+    const canJoinActive =
+      inLobby ||
+      (this.state.status === "PLAYING" && alivePlayers < MAX_PLAYERS);
     if (inLobby && alivePlayers >= MAX_PLAYERS) {
       throw new Error("Match is full (25 players).");
     }
-    const isSpectator = !inLobby;
+    const isSpectator = !canJoinActive;
     return { email, displayName, matchId, isSpectator };
   }
 
@@ -194,21 +204,56 @@ export class SurvivorRoom extends Room<SurvivorState> {
     );
   }
 
-  override onLeave(client: Client, _consented: boolean): void {
+  /** Seconds to hold a disconnected player's seat before counting them out. */
+  private static readonly RECONNECT_SECONDS = 90;
+
+  override async onLeave(client: Client, consented: boolean): Promise<void> {
     const p = this.state.players.get(client.sessionId);
     if (!p) return;
+
+    const status = this.state.status;
+    const canReconnect =
+      !consented &&
+      p.alive &&
+      (status === "PLAYING" || status === "COUNTDOWN" || status === "WAITING");
+
+    if (canReconnect) {
+      p.connected = false;
+      this.inputs.delete(client.sessionId);
+      this.inputCounters.delete(client.sessionId);
+      console.log(
+        `[SurvivorRoom] disconnect ${client.sessionId}, holding seat ${SurvivorRoom.RECONNECT_SECONDS}s`
+      );
+      try {
+        await this.allowReconnection(client, SurvivorRoom.RECONNECT_SECONDS);
+        p.connected = true;
+        this.inputs.set(client.sessionId, emptyInput());
+        console.log(`[SurvivorRoom] reconnected ${client.sessionId}`);
+      } catch {
+        this.finalizeLeave(client.sessionId, p, status);
+      }
+      return;
+    }
+
+    this.finalizeLeave(client.sessionId, p, status);
+  }
+
+  /** Permanent leave: free lobby slots or count an in-match dropout as dead. */
+  private finalizeLeave(
+    sessionId: string,
+    p: Player,
+    status: SurvivorState["status"]
+  ): void {
     p.connected = false;
-    // If the match hasn't started yet, free the slot completely; otherwise
-    // count the leave as a death so the round can still resolve cleanly.
-    if (this.state.status === "WAITING") {
-      this.state.players.delete(client.sessionId);
-    } else if (p.alive) {
+    if (status === "WAITING") {
+      this.state.players.delete(sessionId);
+    } else if (p.alive && status === "PLAYING") {
       p.alive = false;
       p.deathAt = Date.now();
     }
-    this.inputs.delete(client.sessionId);
-    this.inputCounters.delete(client.sessionId);
-    console.log(`[SurvivorRoom] leave ${client.sessionId}`);
+    this.inputs.delete(sessionId);
+    this.inputCounters.delete(sessionId);
+    console.log(`[SurvivorRoom] leave ${sessionId}`);
   }
 
   // ---------- Match control (called from Express routes) ----------
@@ -227,8 +272,17 @@ export class SurvivorRoom extends Room<SurvivorState> {
     matchSeconds: number,
     lobbySeconds: number
   ): void {
-    // Kick everyone from any previous match before swapping matchId.
-    this.resetForNewMatch();
+    if (
+      this.state.status === "PLAYING" ||
+      this.state.status === "COUNTDOWN"
+    ) {
+      throw new Error(
+        "Match already in progress on the game server — end it before starting a new one."
+      );
+    }
+
+    // Kick everyone from any previous ENDED/WAITING match before swapping matchId.
+    this.resetForNewMatch(false);
 
     // Lay down island props on the beach (uses zone.radius for placement).
     this.state.zone.radius = ZONE_START_RADIUS;
@@ -251,6 +305,65 @@ export class SurvivorRoom extends Room<SurvivorState> {
     this.clock.setTimeout(() => {
       this.beginPlaying();
     }, lobbySeconds * 1000);
+  }
+
+  /**
+   * Re-bind an existing DB match after a process restart. Does not disconnect
+   * clients (usually none are connected right after a crash). Skips the lobby
+   * countdown when restoring straight into PLAYING.
+   */
+  restoreMatch(
+    matchId: string,
+    prizeTitle: string,
+    matchSeconds: number,
+    lobbySeconds: number,
+    targetStatus: "WAITING" | "COUNTDOWN" | "PLAYING",
+    startedAtMs: number,
+    matchEndsAtMs: number
+  ): void {
+    if (
+      this.state.matchId === matchId &&
+      (this.state.status === "PLAYING" || this.state.status === "COUNTDOWN")
+    ) {
+      return;
+    }
+
+    this.resetForNewMatch(false);
+    this.state.zone.radius = ZONE_START_RADIUS;
+    this.state.zone.targetRadius = ZONE_START_RADIUS;
+    generateObstacles(this.state);
+
+    const now = Date.now();
+    this.state.matchId = matchId;
+    this.state.prizeTitle = prizeTitle;
+    this.matchPrize = prizeTitle;
+
+    if (targetStatus === "PLAYING" && startedAtMs > 0 && matchEndsAtMs > startedAtMs) {
+      this.state.status = "PLAYING";
+      this.state.startedAtMs = startedAtMs;
+      this.startedAtServerMs = startedAtMs;
+      this.state.matchEndsAtMs = matchEndsAtMs;
+      this.state.countdownEndsAtMs = 0;
+      this.pickupCtx = {
+        nextSpawnAtMs: now + Math.floor(PICKUP_SPAWN_INTERVAL_MS * 0.6),
+      };
+      // Snap zone to the correct point on the shrink curve immediately.
+      tickZone(this.state, 0, now, emptyEvents());
+      console.log(
+        `[SurvivorRoom] restoreMatch PLAYING matchId=${matchId} obstacles=${this.state.obstacles.length}`
+      );
+      return;
+    }
+
+    this.state.status = "COUNTDOWN";
+    this.state.countdownEndsAtMs = now + lobbySeconds * 1000;
+    this.state.matchEndsAtMs = this.state.countdownEndsAtMs + matchSeconds * 1000;
+    this.clock.setTimeout(() => {
+      this.beginPlaying();
+    }, lobbySeconds * 1000);
+    console.log(
+      `[SurvivorRoom] restoreMatch COUNTDOWN matchId=${matchId} lobby=${lobbySeconds}s`
+    );
   }
 
   endMatch(reason: "admin" | "lastAlive" | "timer"): void {
@@ -314,6 +427,14 @@ export class SurvivorRoom extends Room<SurvivorState> {
   // ---------- Tick ----------
 
   private tick(dtMs: number) {
+    try {
+      this.tickSimulation(dtMs);
+    } catch (err) {
+      console.error("[SurvivorRoom] tick error (match kept alive)", err);
+    }
+  }
+
+  private tickSimulation(dtMs: number) {
     const now = Date.now();
     const dtSec = dtMs / 1000;
     if (this.state.status !== "PLAYING") return;
@@ -450,13 +571,15 @@ export class SurvivorRoom extends Room<SurvivorState> {
     return Math.max(0, Math.floor((endMs - this.startedAtServerMs) / 1000));
   }
 
-  private resetForNewMatch() {
-    this.state.players.forEach((_, sessionId) => {
-      // Existing clients have to rejoin via the new matchId; cleanest is to
-      // disconnect them all so they re-flow through onAuth.
-      const cli = this.clients.find((c) => c.sessionId === sessionId);
-      cli?.leave(4000, "New match starting");
-    });
+  private resetForNewMatch(kickClients = true) {
+    if (kickClients) {
+      this.state.players.forEach((_, sessionId) => {
+        // Existing clients have to rejoin via the new matchId; cleanest is to
+        // disconnect them all so they re-flow through onAuth.
+        const cli = this.clients.find((c) => c.sessionId === sessionId);
+        cli?.leave(4000, "New match starting");
+      });
+    }
     this.state.players.clear();
     this.state.bullets.clear();
     this.state.pickups.clear();

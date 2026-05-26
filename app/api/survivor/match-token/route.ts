@@ -5,6 +5,7 @@ import {
   getOrCreateSurvivorConfig,
   getCurrentMatch,
 } from "@/lib/survivor-config";
+import { ensureGameServerMatchBound } from "@/lib/survivor-game-server-sync";
 
 export const dynamic = "force-dynamic";
 
@@ -81,6 +82,8 @@ export async function POST(request: Request) {
         { status: 409 }
       );
     }
+
+    await ensureGameServerMatchBound(current, config);
 
     // Reserve / reuse the player's slot. Display name is captured the first
     // time so a returning player can't shadow their original entry.

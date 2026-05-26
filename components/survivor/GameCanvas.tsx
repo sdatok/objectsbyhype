@@ -118,7 +118,34 @@ const OBSTACLE_SPRITE_URLS: Record<string, string> = {
   gorilla: "/survivor/obstacles/gorilla.png",
   flower: "/survivor/obstacles/flower.png",
 };
-const obstacleSpriteCache = new Map<string, HTMLImageElement>();
+/** Black-backed PNGs are keyed out at load time so only the art shows on sand. */
+const SPRITE_BLACK_KEY_THRESHOLD = 16;
+const obstacleSpriteCache = new Map<string, HTMLCanvasElement>();
+
+function processObstacleSprite(img: HTMLImageElement): HTMLCanvasElement {
+  const canvas = document.createElement("canvas");
+  canvas.width = img.naturalWidth;
+  canvas.height = img.naturalHeight;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return canvas;
+  ctx.drawImage(img, 0, 0);
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const d = imageData.data;
+  for (let i = 0; i < d.length; i += 4) {
+    const r = d[i];
+    const g = d[i + 1];
+    const b = d[i + 2];
+    if (
+      r <= SPRITE_BLACK_KEY_THRESHOLD &&
+      g <= SPRITE_BLACK_KEY_THRESHOLD &&
+      b <= SPRITE_BLACK_KEY_THRESHOLD
+    ) {
+      d[i + 3] = 0;
+    }
+  }
+  ctx.putImageData(imageData, 0, 0);
+  return canvas;
+}
 
 function preloadObstacleSprites(): void {
   for (const [kind, src] of Object.entries(OBSTACLE_SPRITE_URLS)) {
@@ -126,7 +153,7 @@ function preloadObstacleSprites(): void {
     const img = new Image();
     img.src = src;
     img.onload = () => {
-      obstacleSpriteCache.set(kind, img);
+      obstacleSpriteCache.set(kind, processObstacleSprite(img));
     };
   }
 }
@@ -1362,7 +1389,7 @@ function drawSpriteObstacle(
 
   ctx.save();
   ctx.imageSmoothingEnabled = false;
-  if (img && img.complete && img.naturalWidth > 0) {
+  if (img && img.width > 0 && img.height > 0) {
     ctx.drawImage(img, tl.sx, tl.sy, w, h);
   } else {
     ctx.fillStyle = kind === "flower" ? "#f472b6" : "#78716c";

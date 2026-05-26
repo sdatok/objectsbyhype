@@ -69,15 +69,15 @@ app.get("/healthz", (_req, res) => {
     ts: Date.now(),
     service: "objectsbyhype-survivor",
     gitSha: process.env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 7) ?? "unknown",
-    build: "island-v5",
-    features: ["obstacles", "island-maze", "zone-shrink", "mobile-sticks", "gorilla-flower"],
+    build: "island-v6",
+    features: ["obstacles", "island-maze", "zone-shrink", "mobile-sticks", "gorilla-flower", "reconnect", "sprite-key"],
   });
 });
 
 app.get("/version", (_req, res) => {
   res.json({
     ok: true,
-    build: "island-v5",
+    build: "island-v6",
     gitSha: process.env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 7) ?? "unknown",
   });
 });
@@ -146,7 +146,14 @@ app.post("/admin/start", async (req: Request, res: Response) => {
       return;
     }
     const room = await ensureRoom();
-    room.startMatch(matchId, prizeTitle, matchSeconds, lobbySeconds);
+    try {
+      room.startMatch(matchId, prizeTitle, matchSeconds, lobbySeconds);
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Could not start match";
+      res.status(409).json({ error: message });
+      return;
+    }
     res.json({
       ok: true,
       matchId,
@@ -160,10 +167,9 @@ app.post("/admin/start", async (req: Request, res: Response) => {
 });
 
 /**
- * Re-bind: only valid if the room has no live matchId (e.g. after a Railway
- * restart). Lets Next.js re-attach an in-progress DB match to a fresh room
- * without admin having to End + Start again. We refuse to overwrite an
- * already-running match (no surprise wipes from concurrent admin actions).
+ * Re-bind: valid after a Railway restart wiped in-memory state, or when the
+ * room lost track of the current matchId. Restores PLAYING when timing fields
+ * are supplied so mid-match crashes don't force a fresh lobby countdown.
  */
 app.post("/admin/rebind", async (req: Request, res: Response) => {
   try {
@@ -178,6 +184,12 @@ app.post("/admin/rebind", async (req: Request, res: Response) => {
       5,
       Math.min(600, Number(body.lobbySeconds) || DEFAULT_LOBBY_SECONDS)
     );
+    const targetStatus = String(body.targetStatus ?? "COUNTDOWN") as
+      | "WAITING"
+      | "COUNTDOWN"
+      | "PLAYING";
+    const startedAtMs = Number(body.startedAtMs) || 0;
+    const matchEndsAtMs = Number(body.matchEndsAtMs) || 0;
     if (!matchId) {
       res.status(400).json({ error: "matchId required" });
       return;
@@ -188,7 +200,11 @@ app.post("/admin/rebind", async (req: Request, res: Response) => {
       return;
     }
     const room = await ensureRoom();
-    if (room.state.matchId && room.state.matchId !== matchId) {
+    if (
+      room.state.matchId &&
+      room.state.matchId !== matchId &&
+      (room.state.status === "PLAYING" || room.state.status === "COUNTDOWN")
+    ) {
       res.status(409).json({
         error: "Room already has an active match",
         currentMatchId: room.state.matchId,
@@ -196,9 +212,16 @@ app.post("/admin/rebind", async (req: Request, res: Response) => {
       });
       return;
     }
-    // Either fresh room or same matchId — safe to (re)start.
-    room.startMatch(matchId, prizeTitle, matchSeconds, lobbySeconds);
-    res.json({ ok: true, rebound: true, matchId });
+    room.restoreMatch(
+      matchId,
+      prizeTitle,
+      matchSeconds,
+      lobbySeconds,
+      targetStatus,
+      startedAtMs,
+      matchEndsAtMs
+    );
+    res.json({ ok: true, rebound: true, matchId, targetStatus });
   } catch (err) {
     console.error("[/admin/rebind]", err);
     res.status(500).json({ error: "internal error" });

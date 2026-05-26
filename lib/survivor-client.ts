@@ -22,7 +22,14 @@ export interface JoinParams {
 
 const ROOM_NAME = "survivor";
 
-export async function joinSurvivorRoom(params: JoinParams): Promise<Room> {
+export interface SurvivorConnection {
+  client: Client;
+  room: Room;
+}
+
+export async function joinSurvivorRoom(
+  params: JoinParams
+): Promise<SurvivorConnection> {
   if (!params.wsUrl) {
     throw new Error(
       "Game server URL is not configured. Ask admin to set NEXT_PUBLIC_SURVIVOR_WS_URL."
@@ -52,7 +59,7 @@ export async function joinSurvivorRoom(params: JoinParams): Promise<Room> {
         roomId: room.roomId,
       });
     }
-    return room;
+    return { client, room };
   } catch (err) {
     // Colyseus surfaces matchmaker / CORS / WSS errors as bare errors with a
     // generic message ("Failed to fetch"). Rewrap so the lobby UI tells the
@@ -68,6 +75,14 @@ export async function joinSurvivorRoom(params: JoinParams): Promise<Room> {
     }
     throw err;
   }
+}
+
+/** Re-attach to a room after an unexpected WebSocket drop (needs allowReconnection on server). */
+export async function reconnectSurvivorRoom(
+  client: Client,
+  reconnectionToken: string
+): Promise<Room> {
+  return client.reconnect(reconnectionToken);
 }
 
 export interface MutableInput {
