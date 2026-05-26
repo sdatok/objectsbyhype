@@ -9,11 +9,14 @@ import { joinSurvivorRoom } from "@/lib/survivor-client";
 // Canvas needs the browser only.
 const GameCanvas = dynamic(() => import("./GameCanvas"), { ssr: false });
 
+type RoomPhase = "WAITING" | "COUNTDOWN" | "PLAYING" | "ENDED";
+
 type Phase =
   | "lobby" // form to enter name + email
   | "joining" // POSTing /api/survivor/match-token
   | "connecting" // Colyseus joinOrCreate
-  | "inRoom" // connected; GameCanvas drives the visuals
+  | "standby" // connected; waiting for host to start (WAITING/COUNTDOWN)
+  | "inRoom" // PLAYING — GameCanvas active
   | "disconnected" // server closed our connection
   | "noMatch"; // no current match (admin hasn't started one yet)
 
@@ -33,6 +36,9 @@ export default function SurvivorClient({ initialState }: SurvivorClientProps) {
   const [email, setEmail] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [roomReady, setRoomReady] = useState(false);
+  const [roomStatus, setRoomStatus] = useState<RoomPhase>("WAITING");
+  const [countdownEndsAtMs, setCountdownEndsAtMs] = useState<number>(0);
+  const [aliveInRoom, setAliveInRoom] = useState<number>(0);
   const roomRef = useRef<Room | null>(null);
 
   // Restore previously-used name/email so returning visitors don't retype.
@@ -142,7 +148,38 @@ export default function SurvivorClient({ initialState }: SurvivorClientProps) {
 
       roomRef.current = room;
       setRoomReady(true);
-      setPhase("inRoom");
+
+      // Track the server status so the UI shows a standby panel during
+      // WAITING/COUNTDOWN and only swaps to the playable canvas during
+      // PLAYING. Reading from the schema can throw if the first patch
+      // hasn't fully decoded yet — defensively pull primitives only.
+      const syncFromState = () => {
+        try {
+          const rs = room.state as unknown as {
+            status?: RoomPhase;
+            countdownEndsAtMs?: number;
+            players?: { forEach: (cb: (v: { alive: boolean }) => void) => void };
+          };
+          const status = (rs?.status ?? "WAITING") as RoomPhase;
+          setRoomStatus(status);
+          setCountdownEndsAtMs(Number(rs?.countdownEndsAtMs ?? 0));
+          let n = 0;
+          rs?.players?.forEach?.((p) => {
+            if (p?.alive) n++;
+          });
+          setAliveInRoom(n);
+          if (status === "PLAYING" || status === "ENDED") {
+            setPhase("inRoom");
+          } else {
+            setPhase("standby");
+          }
+        } catch (e) {
+          // First state-decoder frame can race; the next onStateChange will fix it.
+          console.warn("[survivor] state read failed", e);
+        }
+      };
+      syncFromState();
+      room.onStateChange(() => syncFromState());
 
       room.onLeave(() => {
         if (roomRef.current === room) {
@@ -213,6 +250,16 @@ export default function SurvivorClient({ initialState }: SurvivorClientProps) {
 
       {phase === "disconnected" && (
         <DisconnectedPanel onRetry={leaveAndReset} />
+      )}
+
+      {phase === "standby" && roomReady && (
+        <StandbyPanel
+          status={roomStatus}
+          countdownEndsAtMs={countdownEndsAtMs}
+          alive={aliveInRoom}
+          displayName={displayName}
+          onLeave={leaveAndReset}
+        />
       )}
 
       {phase === "inRoom" && roomReady && roomRef.current && (
@@ -373,6 +420,96 @@ function LobbyPanel(props: {
           by kills, then HP.
         </p>
       </form>
+    </div>
+  );
+}
+
+/**
+ * Connected to the room but the match hasn't started yet. Shows a live
+ * countdown if the server has set countdownEndsAtMs, otherwise a "waiting
+ * for host" screen. Replaces the immediate canvas mount so players see a
+ * clear "you're in, just waiting" state.
+ */
+function StandbyPanel({
+  status,
+  countdownEndsAtMs,
+  alive,
+  displayName,
+  onLeave,
+}: {
+  status: RoomPhase;
+  countdownEndsAtMs: number;
+  alive: number;
+  displayName: string;
+  onLeave: () => void;
+}) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 250);
+    return () => window.clearInterval(id);
+  }, []);
+
+  const remainingMs = countdownEndsAtMs > 0 ? Math.max(0, countdownEndsAtMs - now) : 0;
+  const remainingS = Math.ceil(remainingMs / 1000);
+  const counting = status === "COUNTDOWN" && countdownEndsAtMs > 0;
+
+  return (
+    <div className="flex-1 flex items-center justify-center px-6 py-12">
+      <div className="w-full max-w-lg text-center space-y-6 border border-white/10 bg-white/[0.02] backdrop-blur-md p-8 rounded">
+        <div>
+          <p className="text-[10px] uppercase tracking-[0.3em] text-fuchsia-400">
+            {counting ? "Match starting" : "In lobby"}
+          </p>
+          <h2 className="text-2xl font-bold mt-2">
+            {displayName ? `Welcome, ${displayName}.` : "You're in."}
+          </h2>
+          <p className="text-xs text-neutral-400 mt-2">
+            {counting
+              ? "Match begins automatically when the timer hits zero."
+              : "Waiting for host to start. The page will switch you in automatically."}
+          </p>
+        </div>
+
+        {counting ? (
+          <div>
+            <p className="text-[10px] uppercase tracking-[0.25em] text-neutral-500">
+              Starts in
+            </p>
+            <p className="text-7xl font-bold tabular-nums leading-none mt-2 text-white">
+              {remainingS}
+              <span className="text-xl text-neutral-500 ml-1">s</span>
+            </p>
+          </div>
+        ) : (
+          <div className="py-4">
+            <div className="flex items-center justify-center gap-2">
+              <span className="inline-block w-2.5 h-2.5 rounded-full bg-fuchsia-400 animate-pulse" />
+              <p className="text-sm uppercase tracking-widest text-neutral-300">
+                Standby
+              </p>
+            </div>
+          </div>
+        )}
+
+        <div className="text-xs text-neutral-400 border-t border-white/10 pt-4 space-y-1">
+          <p>
+            <span className="text-white">{alive}</span> / 25 player
+            {alive === 1 ? "" : "s"} in the arena
+          </p>
+          <p className="text-[10px] text-neutral-500 leading-relaxed">
+            WASD to move · mouse to aim · left click to fire. Stay in the
+            safe zone (it shrinks). Last alive wins.
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={onLeave}
+          className="text-[10px] tracking-widest uppercase text-neutral-400 hover:text-white transition-colors"
+        >
+          Leave lobby
+        </button>
+      </div>
     </div>
   );
 }

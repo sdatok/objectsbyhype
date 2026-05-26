@@ -322,14 +322,6 @@ function Hud(props: {
         </div>
       )}
 
-      {snapshot.status === "COUNTDOWN" && (
-        <div className="absolute inset-x-0 bottom-6 flex justify-center pointer-events-none">
-          <p className="text-xs uppercase tracking-[0.25em] text-neutral-400 bg-black/60 px-4 py-2 border border-white/10">
-            Waiting for host to start · {snapshot.aliveCount}/25 in arena
-          </p>
-        </div>
-      )}
-
       {snapshot.status === "PLAYING" && !snapshot.selfAlive && (
         <div className="absolute inset-x-0 bottom-6 flex justify-center pointer-events-none">
           <p className="text-xs uppercase tracking-[0.25em] text-rose-400 bg-black/60 px-4 py-2 border border-rose-400/30">
@@ -377,23 +369,41 @@ function lookupPlayer(
 }
 
 function snapshotStatus(room: Room) {
-  const rs = room.state as unknown as ServerState;
-  let aliveCount = 0;
-  rs.players.forEach((p: ServerPlayer) => {
-    if (p.alive) aliveCount++;
-  });
-  const self = lookupPlayer(rs, room.sessionId);
-  return {
-    status: rs.status,
-    aliveCount,
-    selfAlive: self?.alive ?? false,
-    selfHp: self?.hp ?? 0,
-    selfKills: self?.kills ?? 0,
-    selfPlacement: self?.placement ?? 0,
-    matchEndsAtMs: rs.matchEndsAtMs,
-    countdownEndsAtMs: rs.countdownEndsAtMs,
-    startedAtMs: rs.startedAtMs,
+  const empty = {
+    status: "WAITING" as ServerState["status"],
+    aliveCount: 0,
+    selfAlive: false,
+    selfHp: 0,
+    selfKills: 0,
+    selfPlacement: 0,
+    matchEndsAtMs: 0,
+    countdownEndsAtMs: 0,
+    startedAtMs: 0,
   };
+  try {
+    const rs = room.state as unknown as ServerState | undefined;
+    if (!rs || !rs.players || typeof rs.players.forEach !== "function") {
+      return empty;
+    }
+    let aliveCount = 0;
+    rs.players.forEach((p: ServerPlayer) => {
+      if (p?.alive) aliveCount++;
+    });
+    const self = lookupPlayer(rs, room.sessionId);
+    return {
+      status: rs.status ?? "WAITING",
+      aliveCount,
+      selfAlive: self?.alive ?? false,
+      selfHp: self?.hp ?? 0,
+      selfKills: self?.kills ?? 0,
+      selfPlacement: self?.placement ?? 0,
+      matchEndsAtMs: rs.matchEndsAtMs ?? 0,
+      countdownEndsAtMs: rs.countdownEndsAtMs ?? 0,
+      startedAtMs: rs.startedAtMs ?? 0,
+    };
+  } catch {
+    return empty;
+  }
 }
 
 /** Choose a uniform world->screen scale that fits the world inside the
@@ -411,6 +421,11 @@ function renderFrame(
   rs: ServerState,
   selfId: string
 ) {
+  // Guard against pre-decoded state: schema may be present but inner
+  // collections undefined for a few frames after join.
+  if (!rs || !rs.players || typeof rs.players.forEach !== "function") {
+    return;
+  }
   const dpr = window.devicePixelRatio || 1;
   const cssW = canvas.width / dpr;
   const cssH = canvas.height / dpr;
@@ -432,37 +447,37 @@ function renderFrame(
     sy: (y - camY) * scale + cy,
   });
 
-  // World grid for spatial sense.
   drawGrid(ctx, w2s, cssW, cssH, scale);
 
-  // World boundary box.
   const tl = w2s(-WORLD / 2, -WORLD / 2);
   ctx.strokeStyle = "rgba(255,255,255,0.18)";
   ctx.lineWidth = 2;
   ctx.strokeRect(tl.sx, tl.sy, WORLD * scale, WORLD * scale);
 
-  // Safe zone (dashed circle).
-  const zc = w2s(rs.zone.cx, rs.zone.cy);
-  ctx.strokeStyle = "rgba(192,38,211,0.65)";
-  ctx.lineWidth = 3;
-  ctx.setLineDash([10, 8]);
-  ctx.beginPath();
-  ctx.arc(zc.sx, zc.sy, rs.zone.radius * scale, 0, Math.PI * 2);
-  ctx.stroke();
-  ctx.setLineDash([]);
+  // Safe zone — only draw if zone schema is populated.
+  if (rs.zone && typeof rs.zone.radius === "number") {
+    const zc = w2s(rs.zone.cx ?? 0, rs.zone.cy ?? 0);
+    ctx.strokeStyle = "rgba(192,38,211,0.65)";
+    ctx.lineWidth = 3;
+    ctx.setLineDash([10, 8]);
+    ctx.beginPath();
+    ctx.arc(zc.sx, zc.sy, rs.zone.radius * scale, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
 
-  // Bullets.
-  ctx.fillStyle = "#fde047";
-  (rs.bullets as unknown as { forEach: (cb: (b: ServerBullet) => void) => void }).forEach(
-    (b) => {
-      const p = w2s(b.x, b.y);
-      ctx.beginPath();
-      ctx.arc(p.sx, p.sy, Math.max(2, BULLET_R * scale), 0, Math.PI * 2);
-      ctx.fill();
-    }
-  );
+  if (rs.bullets && typeof (rs.bullets as { forEach?: unknown }).forEach === "function") {
+    ctx.fillStyle = "#fde047";
+    (rs.bullets as unknown as { forEach: (cb: (b: ServerBullet) => void) => void }).forEach(
+      (b) => {
+        const p = w2s(b.x, b.y);
+        ctx.beginPath();
+        ctx.arc(p.sx, p.sy, Math.max(2, BULLET_R * scale), 0, Math.PI * 2);
+        ctx.fill();
+      }
+    );
+  }
 
-  // Players.
   rs.players.forEach((p: ServerPlayer, sessionId: string) => {
     const isSelf = sessionId === selfId;
     const s = w2s(p.x, p.y);
