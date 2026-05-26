@@ -102,6 +102,8 @@ export class SurvivorState extends Schema {
   @type("number") countdownEndsAtMs = 0;
   /** UNIX ms when the playing phase auto-ends (only while PLAYING). */
   @type("number") matchEndsAtMs = 0;
+  /** 0..1 how far the safe zone has shrunk (synced each tick for reliable client render). */
+  @type("number") zoneShrink01 = 0;
 
   @type({ map: Player }) players = new MapSchema<Player>();
   @type([Bullet]) bullets = new ArraySchema<Bullet>();

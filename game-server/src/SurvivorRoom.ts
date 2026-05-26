@@ -358,6 +358,9 @@ export class SurvivorRoom extends Room<SurvivorState> {
     this.state.status = "PLAYING";
     this.state.startedAtMs = now;
     this.startedAtServerMs = now;
+    this.state.zoneShrink01 = 0;
+    this.state.zone.radius = ZONE_START_RADIUS;
+    this.state.zone.targetRadius = ZONE_START_RADIUS;
     // matchEndsAtMs was set in startMatch; just nudge to a clean value.
     this.state.countdownEndsAtMs = 0;
     // Skip the very first beat so pickups appear shortly after combat begins
@@ -463,6 +466,7 @@ export class SurvivorRoom extends Room<SurvivorState> {
     this.state.endedAtMs = 0;
     this.state.startedAtMs = 0;
     this.state.countdownEndsAtMs = 0;
+    this.state.zoneShrink01 = 0;
     this.state.matchEndsAtMs = 0;
     this.state.zone.radius = ZONE_START_RADIUS;
     this.state.zone.targetRadius = ZONE_START_RADIUS;

@@ -120,19 +120,23 @@ export const ISLAND_BEACH_WIDTH = 80;
  * boulders, and wreckage. Everything spawns on the sand disc, not in the
  * surrounding water.
  */
-export const CLIFF_CLUSTER_COUNT = 11;
-export const STANDALONE_OBSTACLE_COUNT = 16;
-export const WALL_SEGMENT_LEN = 110;
-export const WALL_SEGMENT_THICKNESS = 46;
-export const WALL_SEG_MIN = 2;
-export const WALL_SEG_MAX = 4;
-export const WALL_BEND_PROB = 0.45;
-export const OBSTACLE_KEEP_OUT = 80;
-export const OBSTACLE_MIN_SPACING = 120;
-export const OBSTACLE_EDGE_INSET = 60;
-export const OBSTACLE_PLACEMENT_ATTEMPTS = 50;
+export const CLIFF_CLUSTER_COUNT = 18;
+export const STANDALONE_OBSTACLE_COUNT = 28;
+/** Radial maze spokes (cliff segments from centre outward). */
+export const MAZE_SPOKE_COUNT = 8;
+/** How many guaranteed gorilla + flower statue props per match. */
+export const FEATURE_PROP_COUNT = 6;
+export const WALL_SEGMENT_LEN = 100;
+export const WALL_SEGMENT_THICKNESS = 42;
+export const WALL_SEG_MIN = 3;
+export const WALL_SEG_MAX = 5;
+export const WALL_BEND_PROB = 0.55;
+export const OBSTACLE_KEEP_OUT = 70;
+export const OBSTACLE_MIN_SPACING = 85;
+export const OBSTACLE_EDGE_INSET = 50;
+export const OBSTACLE_PLACEMENT_ATTEMPTS = 60;
 
-export type ObstacleKind = "cliff" | "rock" | "palm" | "wreck";
+export type ObstacleKind = "cliff" | "rock" | "palm" | "wreck" | "gorilla" | "flower";
 
 export const OBSTACLE_SIZES: Record<ObstacleKind, Array<{ w: number; h: number }>> = {
   cliff: [
@@ -140,20 +144,22 @@ export const OBSTACLE_SIZES: Record<ObstacleKind, Array<{ w: number; h: number }
     { w: WALL_SEGMENT_THICKNESS, h: WALL_SEGMENT_LEN },
   ],
   rock: [
-    { w: 70, h: 58 },
-    { w: 55, h: 55 },
-    { w: 90, h: 72 },
+    { w: 64, h: 52 },
+    { w: 48, h: 48 },
+    { w: 78, h: 62 },
   ],
   palm: [
+    { w: 36, h: 36 },
     { w: 44, h: 44 },
-    { w: 52, h: 52 },
   ],
   wreck: [
-    { w: 180, h: 60 },
-    { w: 60, h: 180 },
-    { w: 200, h: 70 },
-    { w: 70, h: 200 },
+    { w: 160, h: 52 },
+    { w: 52, h: 160 },
+    { w: 190, h: 58 },
+    { w: 58, h: 190 },
   ],
+  gorilla: [{ w: 72, h: 96 }],
+  flower: [{ w: 64, h: 64 }],
 };
 
 // ---------- Zone ----------

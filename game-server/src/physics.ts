@@ -23,8 +23,9 @@ import {
   OBSTACLE_PLACEMENT_ATTEMPTS,
   OBSTACLE_SIZES,
   CLIFF_CLUSTER_COUNT,
+  MAZE_SPOKE_COUNT,
+  FEATURE_PROP_COUNT,
   STANDALONE_OBSTACLE_COUNT,
-  ISLAND_RADIUS,
   WALL_SEGMENT_LEN,
   WALL_SEGMENT_THICKNESS,
   WALL_SEG_MIN,
@@ -400,8 +401,8 @@ export function tickZone(
 
   state.zone.targetRadius =
     ZONE_START_RADIUS + (ZONE_END_RADIUS - ZONE_START_RADIUS) * t;
-  // Snap radius to target each tick so clients always see the shrink progress.
   state.zone.radius = state.zone.targetRadius;
+  state.zoneShrink01 = t;
 
   const dps = ZONE_DPS_START + (ZONE_DPS_END - ZONE_DPS_START) * t;
   const dmg = dps * dtSec;
@@ -638,6 +639,85 @@ function generateWallCluster(
   return null;
 }
 
+function tryPlaceObstacle(
+  state: SurvivorState,
+  placed: ObstacleRect[],
+  candidate: ObstacleRect
+): boolean {
+  if (!withinWorld(candidate) || !withinPlayableZone(state, candidate, 10)) {
+    return false;
+  }
+  for (const p of placed) {
+    if (rectOverlap(candidate, p, OBSTACLE_MIN_SPACING)) return false;
+  }
+  placed.push(candidate);
+  return true;
+}
+
+/** Radial cliff spokes from the zone centre to carve maze corridors. */
+function generateMazeSpokes(
+  state: SurvivorState,
+  placed: ObstacleRect[]
+): void {
+  const zr = state.zone.radius - OBSTACLE_EDGE_INSET * 2;
+  for (let i = 0; i < MAZE_SPOKE_COUNT; i++) {
+    const baseAngle = (i / MAZE_SPOKE_COUNT) * Math.PI * 2 + Math.random() * 0.15;
+    const segCount = 2 + Math.floor(Math.random() * 3);
+    for (let s = 0; s < segCount; s++) {
+      const dist = OBSTACLE_KEEP_OUT + 120 + s * (WALL_SEGMENT_LEN * 0.95);
+      if (dist > zr * 0.82) break;
+      const x = Math.cos(baseAngle) * dist;
+      const y = Math.sin(baseAngle) * dist;
+      const along = baseAngle + Math.PI / 2;
+      const w = WALL_SEGMENT_LEN;
+      const h = WALL_SEGMENT_THICKNESS;
+      const cx = x + Math.cos(along) * (s % 2 === 0 ? 0 : WALL_SEGMENT_LEN * 0.35);
+      const cy = y + Math.sin(along) * (s % 2 === 0 ? 0 : WALL_SEGMENT_LEN * 0.35);
+      tryPlaceObstacle(state, placed, {
+        kind: "cliff",
+        x: cx,
+        y: cy,
+        w,
+        h,
+      });
+    }
+  }
+}
+
+/** Place guaranteed gorilla + flower props (user-provided art). */
+function generateFeatureProps(
+  state: SurvivorState,
+  placed: ObstacleRect[]
+): void {
+  const kinds: ObstacleKind[] = [
+    "gorilla",
+    "flower",
+    "gorilla",
+    "flower",
+    "gorilla",
+    "flower",
+  ];
+  let placedCount = 0;
+  let attempts = FEATURE_PROP_COUNT * OBSTACLE_PLACEMENT_ATTEMPTS;
+  while (placedCount < FEATURE_PROP_COUNT && attempts > 0) {
+    attempts--;
+    const kind = kinds[placedCount % kinds.length];
+    const size = OBSTACLE_SIZES[kind][0];
+    const angle = Math.random() * Math.PI * 2;
+    const dist =
+      OBSTACLE_KEEP_OUT +
+      Math.random() * (state.zone.radius * 0.65 - OBSTACLE_KEEP_OUT);
+    const candidate: ObstacleRect = {
+      kind,
+      x: Math.cos(angle) * dist,
+      y: Math.sin(angle) * dist,
+      w: size.w,
+      h: size.h,
+    };
+    if (tryPlaceObstacle(state, placed, candidate)) placedCount++;
+  }
+}
+
 /**
  * Generate a fresh obstacle layout for a new match and write it into
  * `state.obstacles`.
@@ -659,11 +739,19 @@ export function generateObstacles(state: SurvivorState): void {
     for (const seg of cluster) placed.push(seg);
   }
 
-  // ---- Pass 2: standalone cover ----
+  // ---- Pass 2: radial maze spokes ----
+  generateMazeSpokes(state, placed);
+
+  // ---- Pass 3: gorilla + flower feature props ----
+  generateFeatureProps(state, placed);
+
+  // ---- Pass 4: standalone cover (palms, rocks, wreckage) ----
   const kindWeights: Array<{ kind: ObstacleKind; weight: number }> = [
-    { kind: "palm", weight: 35 },
-    { kind: "rock", weight: 35 },
-    { kind: "wreck", weight: 30 },
+    { kind: "palm", weight: 40 },
+    { kind: "rock", weight: 30 },
+    { kind: "wreck", weight: 20 },
+    { kind: "gorilla", weight: 5 },
+    { kind: "flower", weight: 5 },
   ];
   const totalWeight = kindWeights.reduce((s, k) => s + k.weight, 0);
 

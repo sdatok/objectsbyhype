@@ -89,6 +89,8 @@ interface ServerState {
   endedAtMs: number;
   countdownEndsAtMs: number;
   matchEndsAtMs: number;
+  /** 0..1 safe-zone shrink progress (synced each server tick). */
+  zoneShrink01: number;
   players:
     | Map<string, ServerPlayer>
     | { forEach: (cb: (p: ServerPlayer, k: string) => void) => void; size: number };
@@ -111,6 +113,23 @@ const PICKUP_R = 14;
 // 130ms is ~4 patches of buffer — plenty of headroom without feeling laggy.
 const INTERP_DELAY_MS = 130;
 const WEAPON_BUFF_MS = 20_000;
+
+const OBSTACLE_SPRITE_URLS: Record<string, string> = {
+  gorilla: "/survivor/obstacles/gorilla.png",
+  flower: "/survivor/obstacles/flower.png",
+};
+const obstacleSpriteCache = new Map<string, HTMLImageElement>();
+
+function preloadObstacleSprites(): void {
+  for (const [kind, src] of Object.entries(OBSTACLE_SPRITE_URLS)) {
+    if (obstacleSpriteCache.has(kind)) continue;
+    const img = new Image();
+    img.src = src;
+    img.onload = () => {
+      obstacleSpriteCache.set(kind, img);
+    };
+  }
+}
 
 const WEAPON_COLORS: Record<string, { core: string; glow: string; label: string }> = {
   pistol: { core: "#f5f5f5", glow: "rgba(245,245,245,0.55)", label: "PISTOL" },
@@ -155,6 +174,12 @@ export default function GameCanvas({ room, onLeave }: GameCanvasProps) {
   const aimStickRef = useRef<VirtualStickState>(emptyStick());
   const mobileControls = useMobileControls();
   const sessionIdRef = useRef<string>(room.sessionId);
+  /** Match clock for zone shrink (updated every state patch). */
+  const matchClockRef = useRef({
+    startedAtMs: 0,
+    matchEndsAtMs: 0,
+    zoneShrink01: 0,
+  });
 
   // Interpolation buffers. Each entry holds `prev` (older snapshot) and
   // `curr` (newer); we render at `now - INTERP_DELAY_MS` and lerp between
@@ -194,10 +219,12 @@ export default function GameCanvas({ room, onLeave }: GameCanvasProps) {
     matchEndsAtMs: number;
     countdownEndsAtMs: number;
     startedAtMs: number;
+    zoneShrink01: number;
   }>(() => snapshotStatus(room));
 
   useEffect(() => {
     sessionIdRef.current = room.sessionId;
+    preloadObstacleSprites();
   }, [room]);
 
   // Push fresh snapshots into the interpolation buffer on each state patch.
@@ -252,6 +279,15 @@ export default function GameCanvas({ room, onLeave }: GameCanvasProps) {
           }
           lastSelfHpRef.current = self.hp;
         }
+
+        matchClockRef.current = {
+          startedAtMs: rs.startedAtMs ?? 0,
+          matchEndsAtMs: rs.matchEndsAtMs ?? 0,
+          zoneShrink01:
+            typeof (rs as { zoneShrink01?: number }).zoneShrink01 === "number"
+              ? (rs as { zoneShrink01: number }).zoneShrink01
+              : 0,
+        };
       } catch (e) {
         console.warn("[survivor] state patch snapshot failed", e);
       }
@@ -445,6 +481,7 @@ export default function GameCanvas({ room, onLeave }: GameCanvasProps) {
         bulletBuf: bulletBufRef.current,
         shake: shakeRef.current,
         now: Date.now(),
+        matchClock: matchClockRef.current,
       });
 
       raf = window.requestAnimationFrame(draw);
@@ -591,6 +628,13 @@ function Hud(props: {
             value={snapshot.aliveCount.toString()}
             tone="ok"
           />
+          {snapshot.status === "PLAYING" && (
+            <StatPill
+              label="TIDE"
+              value={`${Math.round(snapshot.zoneShrink01 * 100)}%`}
+              tone={snapshot.zoneShrink01 > 0.6 ? "danger" : snapshot.zoneShrink01 > 0.3 ? "warn" : "ok"}
+            />
+          )}
         </div>
       </div>
 
@@ -810,6 +854,7 @@ function snapshotStatus(room: Room) {
     matchEndsAtMs: 0,
     countdownEndsAtMs: 0,
     startedAtMs: 0,
+    zoneShrink01: 0,
   };
   try {
     const rs = room.state as unknown as ServerState | undefined;
@@ -833,6 +878,10 @@ function snapshotStatus(room: Room) {
       matchEndsAtMs: rs.matchEndsAtMs ?? 0,
       countdownEndsAtMs: rs.countdownEndsAtMs ?? 0,
       startedAtMs: rs.startedAtMs ?? 0,
+      zoneShrink01:
+        typeof (rs as { zoneShrink01?: number }).zoneShrink01 === "number"
+          ? (rs as { zoneShrink01: number }).zoneShrink01
+          : 0,
     };
   } catch {
     return empty;
@@ -879,25 +928,34 @@ interface RenderCtx {
   bulletBuf: BulletBuffer;
   shake: { amount: number; until: number };
   now: number;
+  matchClock: {
+    startedAtMs: number;
+    matchEndsAtMs: number;
+    zoneShrink01: number;
+  };
 }
 
-/** Beach radius from match clock so the safe zone visibly shrinks even if schema patches lag. */
+/** Beach radius from synced zoneShrink01 (primary) or match clock fallback. */
 function computeVisualZoneRadius(
   zone: ServerZone,
+  zoneShrink01: number,
   startedAtMs: number,
   matchEndsAtMs: number
 ): number {
-  const serverR =
-    typeof zone?.radius === "number" && zone.radius > 0
-      ? zone.radius
-      : ZONE_START_RADIUS;
-  if (!startedAtMs || !matchEndsAtMs || matchEndsAtMs <= startedAtMs) {
-    return serverR;
+  if (typeof zoneShrink01 === "number" && zoneShrink01 >= 0 && zoneShrink01 <= 1) {
+    return (
+      ZONE_START_RADIUS +
+      (ZONE_END_RADIUS - ZONE_START_RADIUS) * zoneShrink01
+    );
   }
-  const total = matchEndsAtMs - startedAtMs;
-  const elapsed = Math.max(0, Math.min(total, Date.now() - startedAtMs));
-  const t = elapsed / total;
-  return ZONE_START_RADIUS + (ZONE_END_RADIUS - ZONE_START_RADIUS) * t;
+  if (startedAtMs > 0 && matchEndsAtMs > startedAtMs) {
+    const total = matchEndsAtMs - startedAtMs;
+    const elapsed = Math.max(0, Math.min(total, Date.now() - startedAtMs));
+    const t = elapsed / total;
+    return ZONE_START_RADIUS + (ZONE_END_RADIUS - ZONE_START_RADIUS) * t;
+  }
+  if (typeof zone?.radius === "number" && zone.radius > 0) return zone.radius;
+  return ZONE_START_RADIUS;
 }
 
 /** Colyseus ArraySchema / plain array iteration. */
@@ -971,10 +1029,15 @@ function renderFrame(
     radius: ZONE_START_RADIUS,
     targetRadius: ZONE_END_RADIUS,
   };
+  const shrink01 =
+    typeof (rs as { zoneShrink01?: number }).zoneShrink01 === "number"
+      ? (rs as { zoneShrink01: number }).zoneShrink01
+      : rctx.matchClock.zoneShrink01;
   const beachRadius = computeVisualZoneRadius(
     zone,
-    rs.startedAtMs ?? 0,
-    rs.matchEndsAtMs ?? 0
+    shrink01,
+    rctx.matchClock.startedAtMs,
+    rctx.matchClock.matchEndsAtMs
   );
   const zoneVisual: ServerZone = { ...zone, radius: beachRadius };
 
@@ -1272,15 +1335,42 @@ function drawObstacle(
   scale: number
 ) {
   const kind = o.kind;
-  if (kind === "cliff" || kind === "wall") {
+  if (kind === "gorilla" || kind === "flower") {
+    drawSpriteObstacle(ctx, o, w2s, scale, kind);
+  } else if (kind === "cliff" || kind === "wall") {
     drawCliff(ctx, o, w2s, scale);
   } else if (kind === "palm" || kind === "crate") {
-    drawPalm(ctx, o, w2s, scale);
+    drawPixelPalm(ctx, o, w2s, scale);
   } else if (kind === "wreck" || kind === "pallet") {
     drawWreck(ctx, o, w2s, scale);
   } else {
     drawRock(ctx, o, w2s, scale);
   }
+}
+
+function drawSpriteObstacle(
+  ctx: CanvasRenderingContext2D,
+  o: ServerObstacle,
+  w2s: (x: number, y: number) => { sx: number; sy: number },
+  scale: number,
+  kind: string
+) {
+  const tl = w2s(o.x - o.w / 2, o.y - o.h / 2);
+  const w = o.w * scale;
+  const h = o.h * scale;
+  const img = obstacleSpriteCache.get(kind);
+
+  ctx.save();
+  ctx.imageSmoothingEnabled = false;
+  if (img && img.complete && img.naturalWidth > 0) {
+    ctx.drawImage(img, tl.sx, tl.sy, w, h);
+  } else {
+    ctx.fillStyle = kind === "flower" ? "#f472b6" : "#78716c";
+    ctx.fillRect(tl.sx, tl.sy, w, h);
+    ctx.strokeStyle = "#fff";
+    ctx.strokeRect(tl.sx, tl.sy, w, h);
+  }
+  ctx.restore();
 }
 
 /** Rocky cliff segment — maze walls on the island. */
@@ -1359,45 +1449,58 @@ function drawRock(
   ctx.restore();
 }
 
-/** Palm tree — trunk collision box with fronds drawn above. */
-function drawPalm(
+/** Chunky pixel-art palm tree. */
+function drawPixelPalm(
   ctx: CanvasRenderingContext2D,
   o: ServerObstacle,
   w2s: (x: number, y: number) => { sx: number; sy: number },
   scale: number
 ) {
-  const base = w2s(o.x, o.y + o.h * 0.15);
-  const trunkW = Math.max(6, o.w * scale * 0.35);
-  const trunkH = Math.max(16, o.h * scale * 0.55);
+  const base = w2s(o.x, o.y + o.h * 0.12);
+  const px = Math.max(3, Math.floor(4 * scale));
+  const trunkW = Math.max(px * 2, Math.floor(o.w * scale * 0.35));
+  const trunkH = Math.max(px * 5, Math.floor(o.h * scale * 0.55));
 
   ctx.save();
-  ctx.fillStyle = "rgba(0,0,0,0.2)";
-  ctx.fillRect(base.sx - trunkW / 2 + 2, base.sy - trunkH / 2 + 4, trunkW, trunkH);
+  ctx.imageSmoothingEnabled = false;
 
-  ctx.fillStyle = "#8B5A2B";
-  ctx.fillRect(base.sx - trunkW / 2, base.sy - trunkH / 2, trunkW, trunkH);
+  ctx.fillStyle = "rgba(0,0,0,0.25)";
+  ctx.fillRect(base.sx - trunkW / 2 + px, base.sy - trunkH / 2 + px, trunkW, trunkH);
 
-  const frondLen = Math.max(20, o.w * scale * 1.1);
-  ctx.strokeStyle = "#15803d";
-  ctx.lineWidth = Math.max(2, 3 * scale);
-  ctx.lineCap = "round";
-  for (let i = 0; i < 6; i++) {
-    const ang = (i / 6) * Math.PI * 2 - Math.PI / 2;
-    ctx.beginPath();
-    ctx.moveTo(base.sx, base.sy - trunkH * 0.35);
-    ctx.quadraticCurveTo(
-      base.sx + Math.cos(ang) * frondLen * 0.5,
-      base.sy - trunkH * 0.35 + Math.sin(ang) * frondLen * 0.5,
-      base.sx + Math.cos(ang) * frondLen,
-      base.sy - trunkH * 0.35 + Math.sin(ang) * frondLen * 0.35
-    );
-    ctx.stroke();
+  for (let ty = 0; ty < trunkH; ty += px) {
+    for (let tx = 0; tx < trunkW; tx += px) {
+      ctx.fillStyle = (tx + ty) % (px * 2) === 0 ? "#78350f" : "#92400e";
+      ctx.fillRect(base.sx - trunkW / 2 + tx, base.sy - trunkH / 2 + ty, px, px);
+    }
   }
 
+  const frondColors = ["#15803d", "#16a34a", "#22c55e", "#14532d"];
+  const frondLen = Math.max(px * 4, Math.floor(o.w * scale * 1.2));
+  const topY = base.sy - trunkH / 2 - px;
+  const dirs: Array<[number, number]> = [
+    [0, -1],
+    [0.7, -0.7],
+    [1, 0],
+    [0.7, 0.7],
+    [0, 1],
+    [-0.7, 0.7],
+    [-1, 0],
+    [-0.7, -0.7],
+  ];
+  dirs.forEach(([dx, dy], i) => {
+    ctx.fillStyle = frondColors[i % frondColors.length];
+    for (let step = 0; step < frondLen; step += px) {
+      const fx = base.sx + dx * step;
+      const fy = topY + dy * step;
+      ctx.fillRect(fx, fy, px, px);
+      if (step > px * 2) {
+        ctx.fillRect(fx + px * dy, fy + px * dx, px, px);
+      }
+    }
+  });
+
   ctx.fillStyle = "#166534";
-  ctx.beginPath();
-  ctx.arc(base.sx, base.sy - trunkH * 0.4, trunkW * 0.9, 0, Math.PI * 2);
-  ctx.fill();
+  ctx.fillRect(base.sx - px * 2, topY - px, px * 4, px * 3);
   ctx.restore();
 }
 
