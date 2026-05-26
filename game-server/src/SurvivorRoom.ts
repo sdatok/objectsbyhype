@@ -7,6 +7,7 @@ import {
   DEFAULT_LOBBY_SECONDS,
   ZONE_START_RADIUS,
   MAX_INPUTS_PER_SEC,
+  PICKUP_SPAWN_INTERVAL_MS,
 } from "./constants";
 import { verifyMatchToken } from "./hmac";
 import {
@@ -14,8 +15,11 @@ import {
   tickShooting,
   tickBullets,
   tickZone,
+  tickPickups,
+  freshPickupCtx,
   sanitizeInput,
   emptyInput,
+  emptyEvents,
   type PlayerInput,
 } from "./physics";
 import { postMatchResult, type ResultParticipant } from "./webhook";
@@ -52,6 +56,8 @@ export class SurvivorRoom extends Room<SurvivorState> {
   private startedAtServerMs = 0;
   /** True once we've kicked off the webhook so we don't double-post. */
   private resultPosted = false;
+  /** Mutable context for pickup spawn cadence (not part of the schema). */
+  private pickupCtx = freshPickupCtx();
 
   override onCreate() {
     const state = new SurvivorState();
@@ -301,10 +307,28 @@ export class SurvivorRoom extends Room<SurvivorState> {
     const dtSec = dtMs / 1000;
     if (this.state.status !== "PLAYING") return;
 
+    const events = emptyEvents();
+
     tickPlayers(this.state, this.inputs, dtSec);
     tickShooting(this.state, this.inputs, now);
-    tickBullets(this.state, dtSec, now);
-    tickZone(this.state, dtSec, now);
+    tickBullets(this.state, dtSec, now, events);
+    tickZone(this.state, dtSec, now, events);
+    this.pickupCtx = tickPickups(this.state, this.pickupCtx, now, events);
+
+    // Forward transient events as room messages so the client can fire
+    // kill-feed + pickup toast UI immediately without waiting for the next
+    // schema patch.
+    if (events.kills.length > 0) {
+      this.broadcast("event:kills", events.kills);
+    }
+    if (events.pickupsCollected.length > 0) {
+      // Send pickup events targeted to the specific session so each player's
+      // toast only fires for their own pickups.
+      for (const ev of events.pickupsCollected) {
+        const cli = this.clients.find((c) => c.sessionId === ev.sessionId);
+        cli?.send("event:pickup", { kind: ev.kind });
+      }
+    }
 
     // End conditions: last alive OR timer expired.
     const aliveCount = this.countAlive();
@@ -325,6 +349,9 @@ export class SurvivorRoom extends Room<SurvivorState> {
     this.startedAtServerMs = now;
     // matchEndsAtMs was set in startMatch; just nudge to a clean value.
     this.state.countdownEndsAtMs = 0;
+    // Skip the very first beat so pickups appear shortly after combat begins
+    // instead of dropping on top of fresh spawns.
+    this.pickupCtx = { nextSpawnAtMs: now + Math.floor(PICKUP_SPAWN_INTERVAL_MS * 0.6) };
     console.log("[SurvivorRoom] PLAYING");
   }
 
@@ -396,6 +423,7 @@ export class SurvivorRoom extends Room<SurvivorState> {
     });
     this.state.players.clear();
     this.state.bullets.clear();
+    this.state.pickups.clear();
     this.inputs.clear();
     this.inputCounters.clear();
     this.state.endedAtMs = 0;
@@ -406,6 +434,7 @@ export class SurvivorRoom extends Room<SurvivorState> {
     this.state.zone.targetRadius = ZONE_START_RADIUS;
     this.resultPosted = false;
     this.startedAtServerMs = 0;
+    this.pickupCtx = freshPickupCtx();
   }
 
   override onDispose() {

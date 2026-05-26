@@ -1,19 +1,29 @@
 import {
   WORLD_HALF,
   PLAYER_RADIUS,
+  PLAYER_MAX_HP,
   PLAYER_SPEED,
-  BULLET_SPEED,
   BULLET_RADIUS,
-  BULLET_TTL_SEC,
-  BULLET_DAMAGE,
-  SHOT_COOLDOWN_MS,
   ZONE_START_RADIUS,
   ZONE_END_RADIUS,
   ZONE_DPS_START,
   ZONE_DPS_END,
+  WEAPONS,
+  WEAPON_BUFF_MS,
+  PICKUP_RADIUS,
+  PICKUP_SPAWN_INTERVAL_MS,
+  PICKUP_TTL_MS,
+  PICKUP_MAX_ACTIVE,
+  PICKUP_ZONE_MARGIN,
+  PICKUP_WEIGHTS,
+  HEALTH_PACK_AMOUNT,
+  type WeaponKind,
 } from "./constants";
-import type { SurvivorState, Player, Bullet } from "./state";
-import { Bullet as BulletCtor } from "./state";
+import type { SurvivorState, Player, Bullet, Pickup } from "./state";
+import {
+  Bullet as BulletCtor,
+  Pickup as PickupCtor,
+} from "./state";
 
 /** Latest input held server-side per player. Stored in a plain Map (NOT
  * Schema) because we never broadcast it to clients. */
@@ -53,6 +63,29 @@ function clamp(v: number, lo: number, hi: number): number {
   return v < lo ? lo : v > hi ? hi : v;
 }
 
+/**
+ * Server-side notification surface for one-off events. The room collects
+ * these every tick and forwards them as out-of-band `room.send` messages so
+ * clients can fire UI toasts (pickup acquired, kill, etc.) without waiting
+ * for a schema sync.
+ */
+export interface TickEvents {
+  kills: Array<{
+    killerSessionId: string;
+    killerName: string;
+    victimSessionId: string;
+    victimName: string;
+  }>;
+  pickupsCollected: Array<{
+    sessionId: string;
+    kind: string;
+  }>;
+}
+
+export function emptyEvents(): TickEvents {
+  return { kills: [], pickupsCollected: [] };
+}
+
 /** Advance every alive player by their latest input. */
 export function tickPlayers(
   state: SurvivorState,
@@ -72,9 +105,14 @@ export function tickPlayers(
   });
 }
 
+function getWeaponSpec(weapon: string) {
+  return WEAPONS[(weapon as WeaponKind) in WEAPONS ? (weapon as WeaponKind) : "pistol"];
+}
+
 /**
  * For every alive player whose input has shooting=true and cooldown expired,
- * spawn a bullet. Returns the number of bullets spawned (mostly for tests).
+ * spawn the weapon's pellet pattern. Also revives players whose weapon-buff
+ * has timed out back to the default pistol.
  */
 export function tickShooting(
   state: SurvivorState,
@@ -83,21 +121,39 @@ export function tickShooting(
 ): number {
   let spawned = 0;
   state.players.forEach((p, sessionId) => {
+    // Expire any active weapon buff first so cooldown/spread reverts cleanly.
+    if (p.weaponExpiresAtMs > 0 && nowMs >= p.weaponExpiresAtMs) {
+      p.weapon = "pistol";
+      p.weaponExpiresAtMs = 0;
+    }
     if (!p.alive) return;
     const inp = inputs.get(sessionId);
     if (!inp?.shooting) return;
-    if (nowMs - p.lastShotAt < SHOT_COOLDOWN_MS) return;
+    const spec = getWeaponSpec(p.weapon);
+    if (nowMs - p.lastShotAt < spec.cooldownMs) return;
 
-    const b = new BulletCtor();
-    b.ownerId = sessionId;
-    b.x = p.x + Math.cos(p.aim) * (PLAYER_RADIUS + 2);
-    b.y = p.y + Math.sin(p.aim) * (PLAYER_RADIUS + 2);
-    b.vx = Math.cos(p.aim) * BULLET_SPEED;
-    b.vy = Math.sin(p.aim) * BULLET_SPEED;
-    b.spawnedAt = nowMs;
-    state.bullets.push(b);
+    const pellets = Math.max(1, spec.pellets);
+    // For an odd pellet count, the middle bullet flies straight; for even
+    // counts the cone is symmetric around `aim`. spreadRad is the TOTAL
+    // cone width — bullets are evenly distributed across it.
+    const step = pellets > 1 ? spec.spreadRad / (pellets - 1) : 0;
+    const base = pellets > 1 ? p.aim - spec.spreadRad / 2 : p.aim;
+
+    for (let i = 0; i < pellets; i++) {
+      const angle = base + step * i;
+      const b = new BulletCtor();
+      b.ownerId = sessionId;
+      b.x = p.x + Math.cos(angle) * (PLAYER_RADIUS + 2);
+      b.y = p.y + Math.sin(angle) * (PLAYER_RADIUS + 2);
+      b.vx = Math.cos(angle) * spec.bulletSpeed;
+      b.vy = Math.sin(angle) * spec.bulletSpeed;
+      b.spawnedAt = nowMs;
+      b.ttlMs = Math.round(spec.ttlSec * 1000);
+      b.kind = p.weapon;
+      state.bullets.push(b);
+      spawned++;
+    }
     p.lastShotAt = nowMs;
-    spawned++;
   });
   return spawned;
 }
@@ -110,14 +166,16 @@ export function tickShooting(
 export function tickBullets(
   state: SurvivorState,
   dtSec: number,
-  nowMs: number
+  nowMs: number,
+  events: TickEvents
 ): void {
   for (let i = state.bullets.length - 1; i >= 0; i--) {
     const b = state.bullets[i] as Bullet;
     b.x += b.vx * dtSec;
     b.y += b.vy * dtSec;
 
-    if (nowMs - b.spawnedAt > BULLET_TTL_SEC * 1000) {
+    const ttlMs = b.ttlMs > 0 ? b.ttlMs : 1500;
+    if (nowMs - b.spawnedAt > ttlMs) {
       state.bullets.splice(i, 1);
       continue;
     }
@@ -139,7 +197,8 @@ export function tickBullets(
       const dy = p.y - b.y;
       const r = PLAYER_RADIUS + BULLET_RADIUS;
       if (dx * dx + dy * dy <= r * r) {
-        applyDamage(state, p, BULLET_DAMAGE, b.ownerId, nowMs);
+        const spec = getWeaponSpec(b.kind || "pistol");
+        applyDamage(state, p, sessionId, spec.damage, b.ownerId, nowMs, events);
         hit = true;
       }
     });
@@ -151,9 +210,11 @@ export function tickBullets(
 function applyDamage(
   state: SurvivorState,
   victim: Player,
+  victimSessionId: string,
   amount: number,
   killerSessionId: string | null,
-  nowMs: number
+  nowMs: number,
+  events: TickEvents
 ): void {
   if (!victim.alive) return;
   victim.hp = Math.max(0, victim.hp - amount);
@@ -166,6 +227,12 @@ function applyDamage(
     // never credits the victim themselves.
     if (killer && killer !== victim && killer.alive) {
       killer.kills += 1;
+      events.kills.push({
+        killerSessionId,
+        killerName: killer.displayName,
+        victimSessionId,
+        victimName: victim.displayName,
+      });
     }
   }
 }
@@ -178,7 +245,8 @@ function applyDamage(
 export function tickZone(
   state: SurvivorState,
   dtSec: number,
-  nowMs: number
+  nowMs: number,
+  events: TickEvents
 ): void {
   if (state.status !== "PLAYING") return;
   const total = state.matchEndsAtMs - state.startedAtMs;
@@ -195,12 +263,125 @@ export function tickZone(
 
   const dps = ZONE_DPS_START + (ZONE_DPS_END - ZONE_DPS_START) * t;
   const dmg = dps * dtSec;
-  state.players.forEach((p) => {
+  state.players.forEach((p, sessionId) => {
     if (!p.alive) return;
     const dx = p.x - state.zone.cx;
     const dy = p.y - state.zone.cy;
     if (Math.hypot(dx, dy) > state.zone.radius) {
-      applyDamage(state, p, dmg, null, nowMs);
+      applyDamage(state, p, sessionId, dmg, null, nowMs, events);
     }
   });
+}
+
+// ---------- Pickups ----------
+
+interface PickupTickContext {
+  /** When the next pickup may spawn. We initialise this once and let the
+   *  caller persist it on the room. */
+  nextSpawnAtMs: number;
+}
+
+/**
+ * Spawn pickups on a jittered interval, despawn old ones, and resolve
+ * player-pickup collisions. Returns a (possibly mutated) context so the
+ * caller can persist `nextSpawnAtMs` across ticks.
+ */
+export function tickPickups(
+  state: SurvivorState,
+  ctx: PickupTickContext,
+  nowMs: number,
+  events: TickEvents
+): PickupTickContext {
+  if (state.status !== "PLAYING") return ctx;
+
+  // Expire stale pickups.
+  for (let i = state.pickups.length - 1; i >= 0; i--) {
+    const pu = state.pickups[i] as Pickup;
+    if (nowMs - pu.spawnedAt > PICKUP_TTL_MS) {
+      state.pickups.splice(i, 1);
+    }
+  }
+
+  // Spawn one new pickup if interval elapsed and we're under the cap.
+  let nextSpawnAtMs = ctx.nextSpawnAtMs;
+  if (
+    nowMs >= nextSpawnAtMs &&
+    state.pickups.length < PICKUP_MAX_ACTIVE
+  ) {
+    const kind = rouletteKind();
+    const pos = randomPointInsideZone(state);
+    if (pos) {
+      const pu = new PickupCtor();
+      pu.kind = kind;
+      pu.x = pos.x;
+      pu.y = pos.y;
+      pu.spawnedAt = nowMs;
+      state.pickups.push(pu);
+    }
+    // Jitter the next spawn by ±25% so the timing isn't metronome-perfect.
+    const jitter = (Math.random() - 0.5) * 0.5;
+    nextSpawnAtMs =
+      nowMs + Math.floor(PICKUP_SPAWN_INTERVAL_MS * (1 + jitter));
+  }
+
+  // Pickup collisions.
+  for (let i = state.pickups.length - 1; i >= 0; i--) {
+    const pu = state.pickups[i] as Pickup;
+    let consumedBy: string | null = null;
+    state.players.forEach((p, sessionId) => {
+      if (consumedBy || !p.alive) return;
+      const dx = p.x - pu.x;
+      const dy = p.y - pu.y;
+      const r = PLAYER_RADIUS + PICKUP_RADIUS;
+      if (dx * dx + dy * dy <= r * r) {
+        applyPickup(p, pu.kind, nowMs);
+        consumedBy = sessionId;
+      }
+    });
+    if (consumedBy) {
+      events.pickupsCollected.push({ sessionId: consumedBy, kind: pu.kind });
+      state.pickups.splice(i, 1);
+    }
+  }
+
+  return { nextSpawnAtMs };
+}
+
+function applyPickup(p: Player, kind: string, nowMs: number): void {
+  if (kind === "health") {
+    p.hp = Math.min(PLAYER_MAX_HP, p.hp + HEALTH_PACK_AMOUNT);
+    return;
+  }
+  if (kind in WEAPONS) {
+    p.weapon = kind;
+    p.weaponExpiresAtMs = nowMs + WEAPON_BUFF_MS;
+  }
+}
+
+function rouletteKind(): string {
+  const total = PICKUP_WEIGHTS.reduce((s, p) => s + p.weight, 0);
+  let r = Math.random() * total;
+  for (const entry of PICKUP_WEIGHTS) {
+    r -= entry.weight;
+    if (r <= 0) return entry.kind;
+  }
+  return PICKUP_WEIGHTS[0].kind;
+}
+
+function randomPointInsideZone(
+  state: SurvivorState
+): { x: number; y: number } | null {
+  const r = Math.max(40, state.zone.radius - PICKUP_ZONE_MARGIN);
+  if (r <= 0) return null;
+  // Uniform disc sample around the zone centre.
+  const angle = Math.random() * Math.PI * 2;
+  const dist = Math.sqrt(Math.random()) * r;
+  return {
+    x: state.zone.cx + Math.cos(angle) * dist,
+    y: state.zone.cy + Math.sin(angle) * dist,
+  };
+}
+
+export function freshPickupCtx(): PickupTickContext {
+  return { nextSpawnAtMs: 0 };
 }

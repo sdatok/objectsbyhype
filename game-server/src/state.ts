@@ -36,6 +36,12 @@ export class Player extends Schema {
 
   /** True once they're connected to the room; flipped off on disconnect. */
   @type("boolean") connected = false;
+
+  /** Currently equipped weapon. Reverts to "pistol" when the buff expires. */
+  @type("string") weapon = "pistol";
+
+  /** UNIX ms when a non-pistol weapon reverts. 0 means default pistol. */
+  @type("number") weaponExpiresAtMs = 0;
 }
 
 export class Bullet extends Schema {
@@ -45,6 +51,18 @@ export class Bullet extends Schema {
   @type("number") vx = 0;
   @type("number") vy = 0;
   /** Server time when the bullet was spawned; used for TTL on the server. */
+  @type("number") spawnedAt = 0;
+  /** Per-bullet TTL in ms (weapons override the default). */
+  @type("number") ttlMs = 1500;
+  /** Weapon kind that spawned this bullet — drives client-side tint. */
+  @type("string") kind = "pistol";
+}
+
+export class Pickup extends Schema {
+  /** "health" | "shotgun" | "rapid" | "sniper" */
+  @type("string") kind = "";
+  @type("number") x = 0;
+  @type("number") y = 0;
   @type("number") spawnedAt = 0;
 }
 
@@ -72,5 +90,6 @@ export class SurvivorState extends Schema {
 
   @type({ map: Player }) players = new MapSchema<Player>();
   @type([Bullet]) bullets = new ArraySchema<Bullet>();
+  @type([Pickup]) pickups = new ArraySchema<Pickup>();
   @type(Zone) zone = new Zone();
 }

@@ -3,19 +3,22 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Room } from "colyseus.js";
 import { startInputLoop, type MutableInput } from "@/lib/survivor-client";
+import RetroOverlay from "./RetroOverlay";
 
 /**
- * The actual top-down 2D game. Reads room.state every animation frame and
- * draws a fresh world snapshot to the canvas. Inputs are captured imperatively
- * and pushed to the server at 30Hz from lib/survivor-client.ts.
+ * Top-down 2D Survivor game. The server simulates at 30Hz; this client
+ * interpolates between the last two server snapshots with a small delay so
+ * everyone's motion looks smooth even at the slow tick rate.
  *
- * v1 keeps it simple:
- *   - desktop only (WASD + mouse)
- *   - no client-side prediction or interpolation (server-authoritative,
- *     direct render)
- *   - circle players with display-name labels
- *   - shrinking safe-zone shown as a dashed ring
- *   - HUD: HP, kills, alive count, match phase + remaining time
+ * Render layers (bottom -> top):
+ *   1. background fill + dual grid floor
+ *   2. world boundary glow + danger-wash outside the safe zone
+ *   3. safe-zone dashed rings
+ *   4. pickups (rotating boxes)
+ *   5. bullets (additive glow trails)
+ *   6. players (squircles + barrels + name + hp bar + weapon timer arc)
+ *   7. HUD (DOM, on top of canvas)
+ *   8. RetroOverlay (CSS scanlines + vignette)
  */
 
 interface GameCanvasProps {
@@ -35,6 +38,8 @@ interface ServerPlayer {
   connected: boolean;
   deathAt: number;
   placement: number;
+  weapon: string;
+  weaponExpiresAtMs: number;
 }
 
 interface ServerBullet {
@@ -43,6 +48,15 @@ interface ServerBullet {
   y: number;
   vx: number;
   vy: number;
+  spawnedAt: number;
+  ttlMs: number;
+  kind: string;
+}
+
+interface ServerPickup {
+  kind: string;
+  x: number;
+  y: number;
   spawnedAt: number;
 }
 
@@ -61,15 +75,49 @@ interface ServerState {
   endedAtMs: number;
   countdownEndsAtMs: number;
   matchEndsAtMs: number;
-  players: Map<string, ServerPlayer> | { forEach: (cb: (p: ServerPlayer, k: string) => void) => void; size: number };
-  bullets: ServerBullet[] | { forEach: (cb: (b: ServerBullet) => void) => void; length: number };
+  players:
+    | Map<string, ServerPlayer>
+    | { forEach: (cb: (p: ServerPlayer, k: string) => void) => void; size: number };
+  bullets: ServerBullet[] | { forEach: (cb: (b: ServerBullet, idx: number) => void) => void; length: number };
+  pickups: ServerPickup[] | { forEach: (cb: (p: ServerPickup) => void) => void; length: number };
   zone: ServerZone;
 }
 
-// World units; should match game-server/src/constants.ts WORLD_SIZE.
-const WORLD = 1600;
+// Must match game-server/src/constants.ts.
+const WORLD = 2800;
 const PLAYER_R = 18;
 const BULLET_R = 4;
+const PICKUP_R = 14;
+
+// One-tick render delay so we always have a "next" snapshot to lerp to.
+const INTERP_DELAY_MS = 110;
+const WEAPON_BUFF_MS = 20_000;
+
+const WEAPON_COLORS: Record<string, { core: string; glow: string; label: string }> = {
+  pistol: { core: "#f5f5f5", glow: "rgba(245,245,245,0.55)", label: "PISTOL" },
+  shotgun: { core: "#fbbf24", glow: "rgba(251,191,36,0.55)", label: "SHOTGUN" },
+  rapid: { core: "#34d399", glow: "rgba(52,211,153,0.55)", label: "RAPID" },
+  sniper: { core: "#f87171", glow: "rgba(248,113,113,0.55)", label: "SNIPER" },
+  health: { core: "#4ade80", glow: "rgba(74,222,128,0.55)", label: "HEALTH" },
+};
+
+interface PlayerSnap {
+  t: number;
+  x: number;
+  y: number;
+  aim: number;
+}
+interface BulletSnap {
+  t: number;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  kind: string;
+}
+
+type PlayerBuffer = Map<string, { prev: PlayerSnap; curr: PlayerSnap }>;
+type BulletBuffer = Map<string, BulletSnap>;
 
 export default function GameCanvas({ room, onLeave }: GameCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -81,14 +129,36 @@ export default function GameCanvas({ room, onLeave }: GameCanvasProps) {
     shooting: false,
   });
 
-  // Keys currently pressed, drives input.moveX/moveY.
   const keysRef = useRef<Set<string>>(new Set());
-  // Last mouse client coords, used to recompute aim each frame.
   const mouseRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
-  // Track our session id once we have it.
   const sessionIdRef = useRef<string>(room.sessionId);
 
-  // Status sampled at React rate so the HUD/result modal re-render.
+  // Interpolation buffers. Each entry holds `prev` (older snapshot) and
+  // `curr` (newer); we render at `now - INTERP_DELAY_MS` and lerp between
+  // the bracketing pair.
+  const playerBufRef = useRef<PlayerBuffer>(new Map());
+  const bulletBufRef = useRef<BulletBuffer>(new Map());
+
+  // Camera + screen-shake state, lerped in the render loop for smooth pan.
+  const cameraRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const shakeRef = useRef<{ amount: number; until: number }>({
+    amount: 0,
+    until: 0,
+  });
+
+  // Used to detect HP drops between snapshots so we can fire shake/flash.
+  const lastSelfHpRef = useRef<number>(100);
+
+  // Transient UI events surfaced via room.send (kill feed + pickup toast).
+  const [killFeed, setKillFeed] = useState<
+    Array<{ id: number; killer: string; victim: string; expiresAt: number }>
+  >([]);
+  const [pickupToast, setPickupToast] = useState<{
+    kind: string;
+    expiresAt: number;
+  } | null>(null);
+
+  // HUD-relevant fields sampled from state at React rate.
   const [statusSnapshot, setStatusSnapshot] = useState<{
     status: ServerState["status"];
     aliveCount: number;
@@ -96,6 +166,8 @@ export default function GameCanvas({ room, onLeave }: GameCanvasProps) {
     selfHp: number;
     selfKills: number;
     selfPlacement: number;
+    selfWeapon: string;
+    selfWeaponExpiresAtMs: number;
     matchEndsAtMs: number;
     countdownEndsAtMs: number;
     startedAtMs: number;
@@ -105,10 +177,61 @@ export default function GameCanvas({ room, onLeave }: GameCanvasProps) {
     sessionIdRef.current = room.sessionId;
   }, [room]);
 
-  // Subscribe to broad state changes for the HUD only. The hot path (drawing)
-  // reads room.state directly inside rAF.
+  // Push fresh snapshots into the interpolation buffer on each state patch.
   useEffect(() => {
     const cb = () => {
+      const now = Date.now();
+      try {
+        const rs = room.state as unknown as ServerState | undefined;
+        if (!rs) return;
+
+        // Players: prev := old curr, curr := new.
+        const next: PlayerBuffer = new Map();
+        rs.players?.forEach?.((p: ServerPlayer, sessionId: string) => {
+          const existing = playerBufRef.current.get(sessionId);
+          const curr: PlayerSnap = {
+            t: now,
+            x: p.x ?? 0,
+            y: p.y ?? 0,
+            aim: p.aim ?? 0,
+          };
+          next.set(sessionId, {
+            prev: existing?.curr ?? curr,
+            curr,
+          });
+        });
+        playerBufRef.current = next;
+
+        // Bullets: re-snapshot fresh each tick. Render position is
+        // extrapolated from (x, y) along (vx, vy) for smooth sub-tick motion.
+        const nextBullets: BulletBuffer = new Map();
+        rs.bullets?.forEach?.((b: ServerBullet, idx: number) => {
+          const key = bulletKey(b, idx);
+          nextBullets.set(key, {
+            t: now,
+            x: b.x ?? 0,
+            y: b.y ?? 0,
+            vx: b.vx ?? 0,
+            vy: b.vy ?? 0,
+            kind: b.kind || "pistol",
+          });
+        });
+        bulletBufRef.current = nextBullets;
+
+        // Damage detection on self -> kick screen shake.
+        const self = lookupPlayer(rs, sessionIdRef.current);
+        if (self) {
+          const prevHp = lastSelfHpRef.current;
+          if (self.hp < prevHp - 0.5) {
+            const dmg = prevHp - self.hp;
+            const intensity = Math.min(14, Math.max(3, dmg / 6));
+            shakeRef.current = { amount: intensity, until: now + 220 };
+          }
+          lastSelfHpRef.current = self.hp;
+        }
+      } catch (e) {
+        console.warn("[survivor] state patch snapshot failed", e);
+      }
       setStatusSnapshot(snapshotStatus(room));
     };
     room.onStateChange(cb);
@@ -117,12 +240,53 @@ export default function GameCanvas({ room, onLeave }: GameCanvasProps) {
     };
   }, [room]);
 
+  // Transient room messages: kills (broadcast) + pickup (targeted).
+  useEffect(() => {
+    const onKills = (
+      payload: Array<{ killerName: string; victimName: string }>
+    ) => {
+      if (!Array.isArray(payload)) return;
+      const now = Date.now();
+      setKillFeed((prev) => {
+        const next = [
+          ...prev,
+          ...payload.map((p, i) => ({
+            id: now + i,
+            killer: p.killerName,
+            victim: p.victimName,
+            expiresAt: now + 5000,
+          })),
+        ].slice(-4);
+        return next;
+      });
+    };
+    const onPickup = (payload: { kind: string }) => {
+      if (!payload?.kind) return;
+      setPickupToast({ kind: payload.kind, expiresAt: Date.now() + 1500 });
+    };
+    room.onMessage("event:kills", onKills);
+    room.onMessage("event:pickup", onPickup);
+    return () => {
+      // colyseus.js cleans listeners on room.leave; nothing to undo here.
+    };
+  }, [room]);
+
+  // GC kill-feed + pickup toast entries that have aged out.
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      const now = Date.now();
+      setKillFeed((prev) => prev.filter((k) => k.expiresAt > now));
+      setPickupToast((p) => (p && p.expiresAt > now ? p : null));
+    }, 250);
+    return () => window.clearInterval(id);
+  }, []);
+
   // 30Hz input loop.
   useEffect(() => {
     return startInputLoop(room, inputRef, 1000 / 30);
   }, [room]);
 
-  // Resize canvas to its container while keeping a DPR-aware backing store.
+  // Canvas backing-store sizing.
   const resizeCanvas = useCallback(() => {
     const canvas = canvasRef.current;
     const container = containerRef.current;
@@ -142,7 +306,7 @@ export default function GameCanvas({ room, onLeave }: GameCanvasProps) {
     return () => window.removeEventListener("resize", resizeCanvas);
   }, [resizeCanvas]);
 
-  // Keyboard handlers: WASD + arrows.
+  // Keyboard: WASD + arrows.
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const k = e.key.toLowerCase();
@@ -165,9 +329,10 @@ export default function GameCanvas({ room, onLeave }: GameCanvasProps) {
     };
   }, []);
 
-  // Render loop + input derivation.
+  // rAF render + input derivation.
   useEffect(() => {
     let raf = 0;
+    let lastFrame = performance.now();
     const draw = () => {
       const canvas = canvasRef.current;
       const ctx = canvas?.getContext("2d");
@@ -175,8 +340,10 @@ export default function GameCanvas({ room, onLeave }: GameCanvasProps) {
         raf = window.requestAnimationFrame(draw);
         return;
       }
+      const nowPerf = performance.now();
+      const dt = Math.min(0.05, (nowPerf - lastFrame) / 1000);
+      lastFrame = nowPerf;
 
-      // Update input vector from keys for the next /input send.
       const k = keysRef.current;
       const moveX = (k.has("d") || k.has("arrowright") ? 1 : 0) +
         (k.has("a") || k.has("arrowleft") ? -1 : 0);
@@ -186,26 +353,43 @@ export default function GameCanvas({ room, onLeave }: GameCanvasProps) {
       inputRef.current.moveX = moveX / len;
       inputRef.current.moveY = moveY / len;
 
-      const rs = room.state as unknown as ServerState;
-      const self = lookupPlayer(rs, sessionIdRef.current);
+      const rs = room.state as unknown as ServerState | undefined;
+      if (!rs) {
+        raf = window.requestAnimationFrame(draw);
+        return;
+      }
 
-      // Aim: mouse position relative to self in world space.
-      if (self) {
-        const dpr = window.devicePixelRatio || 1;
+      // Lerp camera toward the (interpolated) self position.
+      const selfInterp = interpPlayer(
+        playerBufRef.current.get(sessionIdRef.current)
+      );
+      const targetX = selfInterp?.x ?? cameraRef.current.x;
+      const targetY = selfInterp?.y ?? cameraRef.current.y;
+      const cameraLerp = 1 - Math.exp(-dt * 8);
+      cameraRef.current.x += (targetX - cameraRef.current.x) * cameraLerp;
+      cameraRef.current.y += (targetY - cameraRef.current.y) * cameraLerp;
+
+      // Aim: mouse coords relative to canvas center, projected to world.
+      if (selfInterp) {
         const rect = canvas.getBoundingClientRect();
-        const camX = self.x;
-        const camY = self.y;
-        // Convert from CSS coords to world coords using same scale as render.
         const scale = computeWorldScale(rect.width, rect.height);
         const cx = rect.width / 2;
         const cy = rect.height / 2;
-        const wx = (mouseRef.current.x - rect.left - cx) / scale + camX;
-        const wy = (mouseRef.current.y - rect.top - cy) / scale + camY;
-        inputRef.current.aim = Math.atan2(wy - self.y, wx - self.x);
-        void dpr;
+        const wx =
+          (mouseRef.current.x - rect.left - cx) / scale + cameraRef.current.x;
+        const wy =
+          (mouseRef.current.y - rect.top - cy) / scale + cameraRef.current.y;
+        inputRef.current.aim = Math.atan2(
+          wy - selfInterp.y,
+          wx - selfInterp.x
+        );
       }
 
-      renderFrame(ctx, canvas, rs, sessionIdRef.current);
+      renderFrame(ctx, canvas, rs, sessionIdRef.current, cameraRef.current, {
+        playerBuf: playerBufRef.current,
+        bulletBuf: bulletBufRef.current,
+        shake: shakeRef.current,
+      });
 
       raf = window.requestAnimationFrame(draw);
     };
@@ -213,7 +397,6 @@ export default function GameCanvas({ room, onLeave }: GameCanvasProps) {
     return () => window.cancelAnimationFrame(raf);
   }, [room]);
 
-  // Mouse handlers on the canvas.
   const onMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     mouseRef.current = { x: e.clientX, y: e.clientY };
   }, []);
@@ -233,8 +416,8 @@ export default function GameCanvas({ room, onLeave }: GameCanvasProps) {
   return (
     <div
       ref={containerRef}
-      className="flex-1 relative overflow-hidden bg-neutral-950 select-none"
-      style={{ minHeight: "60vh" }}
+      className="flex-1 relative overflow-hidden select-none"
+      style={{ minHeight: "60vh", background: "#070710" }}
     >
       <canvas
         ref={canvasRef}
@@ -244,8 +427,13 @@ export default function GameCanvas({ room, onLeave }: GameCanvasProps) {
         onContextMenu={onContextMenu}
         className="block w-full h-full cursor-crosshair"
       />
-
-      <Hud snapshot={statusSnapshot} onLeave={onLeave} />
+      <RetroOverlay />
+      <Hud
+        snapshot={statusSnapshot}
+        killFeed={killFeed}
+        pickupToast={pickupToast}
+        onLeave={onLeave}
+      />
     </div>
   );
 }
@@ -254,53 +442,190 @@ export default function GameCanvas({ room, onLeave }: GameCanvasProps) {
 // HUD
 // ============================================================
 
+const MONO_FONT =
+  "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace";
+
 function Hud(props: {
   snapshot: ReturnType<typeof snapshotStatus>;
+  killFeed: Array<{ id: number; killer: string; victim: string; expiresAt: number }>;
+  pickupToast: { kind: string; expiresAt: number } | null;
   onLeave: () => void;
 }) {
-  const { snapshot, onLeave } = props;
-  const [tick, setTick] = useState(0);
+  const { snapshot, killFeed, pickupToast, onLeave } = props;
+  const [, forceTick] = useState(0);
   useEffect(() => {
-    const id = window.setInterval(() => setTick((t) => t + 1), 250);
+    const id = window.setInterval(() => forceTick((t) => t + 1), 200);
     return () => window.clearInterval(id);
   }, []);
-  void tick;
 
   let timerText = "";
-  if (snapshot.status === "COUNTDOWN" && snapshot.countdownEndsAtMs) {
-    const left = Math.max(0, snapshot.countdownEndsAtMs - Date.now());
-    timerText = `Starts in ${Math.ceil(left / 1000)}s`;
-  } else if (snapshot.status === "PLAYING" && snapshot.matchEndsAtMs) {
+  if (snapshot.status === "PLAYING" && snapshot.matchEndsAtMs) {
     const left = Math.max(0, snapshot.matchEndsAtMs - Date.now());
     const m = Math.floor(left / 60000);
     const s = Math.floor((left % 60000) / 1000);
     timerText = `${m}:${s.toString().padStart(2, "0")}`;
   }
 
+  const weapon = (snapshot.selfWeapon || "pistol").toLowerCase();
+  const weaponColor = WEAPON_COLORS[weapon] ?? WEAPON_COLORS.pistol;
+  const weaponRemainingMs = Math.max(
+    0,
+    snapshot.selfWeaponExpiresAtMs - Date.now()
+  );
+  const weaponDrainPct =
+    snapshot.selfWeaponExpiresAtMs > 0
+      ? Math.max(0, Math.min(1, weaponRemainingMs / WEAPON_BUFF_MS))
+      : 0;
+
   return (
     <>
-      <div className="absolute inset-x-0 top-0 px-4 py-3 flex items-center justify-between gap-3 pointer-events-none">
-        <div className="flex items-center gap-4 sm:gap-6 text-xs">
-          <Stat label="HP" value={snapshot.selfAlive ? Math.ceil(snapshot.selfHp).toString() : "DEAD"} />
-          <Stat label="KILLS" value={snapshot.selfKills.toString()} />
-          <Stat label="ALIVE" value={snapshot.aliveCount.toString()} />
-        </div>
-        <div className="text-right">
-          <p className="text-[9px] uppercase tracking-[0.25em] text-fuchsia-300">
-            {snapshot.status}
-          </p>
-          {timerText && (
-            <p className="text-xl font-bold tabular-nums mt-0.5">{timerText}</p>
-          )}
+      <div className="absolute top-3 left-3 sm:top-4 sm:left-4 pointer-events-none">
+        <div
+          className="border border-white/70 px-2 py-0.5 inline-flex items-center gap-1"
+          style={{ fontFamily: MONO_FONT }}
+        >
+          <span className="text-[9px] uppercase tracking-[0.35em] text-white/90">
+            OBJECTSBYHYPE
+          </span>
+          <span className="text-[9px] uppercase tracking-[0.35em] text-rose-400">
+            // SURVIVOR
+          </span>
         </div>
       </div>
+
+      <div className="absolute top-12 sm:top-14 left-3 sm:left-4 pointer-events-none">
+        <div className="flex flex-col gap-1.5">
+          <StatPill
+            label="HP"
+            value={
+              snapshot.selfAlive
+                ? Math.ceil(snapshot.selfHp).toString()
+                : "00"
+            }
+            tone={
+              snapshot.selfHp > 40
+                ? "ok"
+                : snapshot.selfHp > 15
+                ? "warn"
+                : "danger"
+            }
+          />
+          <StatPill label="K" value={snapshot.selfKills.toString()} tone="ok" />
+          <StatPill
+            label="LIVE"
+            value={snapshot.aliveCount.toString()}
+            tone="ok"
+          />
+        </div>
+      </div>
+
+      {snapshot.selfAlive && (
+        <div className="absolute top-12 sm:top-14 left-24 sm:left-28 pointer-events-none">
+          <div
+            className="border border-white/40 bg-black/55 px-2 py-1 min-w-[140px]"
+            style={{ fontFamily: MONO_FONT }}
+          >
+            <div className="flex items-baseline gap-2">
+              <span className="text-[9px] tracking-[0.35em] text-white/60">
+                WPN
+              </span>
+              <span
+                className="text-[11px] tracking-[0.2em] font-bold"
+                style={{ color: weaponColor.core }}
+              >
+                {weaponColor.label}
+              </span>
+              {snapshot.selfWeaponExpiresAtMs > 0 && (
+                <span className="text-[9px] text-white/50 ml-auto">
+                  {Math.ceil(weaponRemainingMs / 1000)}s
+                </span>
+              )}
+            </div>
+            {snapshot.selfWeaponExpiresAtMs > 0 && (
+              <div className="h-[3px] bg-white/15 mt-1 relative">
+                <div
+                  className="absolute inset-y-0 left-0"
+                  style={{
+                    width: `${weaponDrainPct * 100}%`,
+                    background: weaponColor.core,
+                    transition: "width 100ms linear",
+                  }}
+                />
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      <div className="absolute top-3 right-3 sm:top-4 sm:right-4 pointer-events-none flex flex-col items-end gap-2">
+        <div className="text-right">
+          <div className="text-[9px] tracking-[0.35em] uppercase bg-white text-black px-2 py-0.5 inline-block font-bold">
+            MATCH TIME
+          </div>
+          <p
+            className="text-2xl sm:text-3xl font-bold tabular-nums mt-0.5"
+            style={{ fontFamily: MONO_FONT }}
+          >
+            {timerText || "—"}
+          </p>
+        </div>
+        {killFeed.length > 0 && (
+          <div
+            className="flex flex-col items-end gap-1 mt-2"
+            style={{ fontFamily: MONO_FONT }}
+          >
+            {killFeed.map((k) => (
+              <div
+                key={k.id}
+                className="bg-black/60 border-l-2 border-rose-400 px-2 py-0.5"
+              >
+                <span className="text-[10px] text-white">{k.killer}</span>
+                <span className="text-[10px] text-rose-400 mx-1">▸</span>
+                <span className="text-[10px] text-white/60">{k.victim}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {pickupToast && (
+        <div className="absolute inset-x-0 bottom-16 flex justify-center pointer-events-none">
+          <div
+            className="border-2 px-4 py-2 bg-black/80 backdrop-blur-sm"
+            style={{
+              borderColor:
+                (WEAPON_COLORS[pickupToast.kind] ?? WEAPON_COLORS.pistol).core,
+              fontFamily: MONO_FONT,
+            }}
+          >
+            <p className="text-[9px] tracking-[0.35em] uppercase text-white/60">
+              ▸ Acquired
+            </p>
+            <p
+              className="text-base font-bold tracking-[0.2em] uppercase"
+              style={{
+                color:
+                  (WEAPON_COLORS[pickupToast.kind] ?? WEAPON_COLORS.pistol)
+                    .core,
+              }}
+            >
+              {(WEAPON_COLORS[pickupToast.kind] ?? WEAPON_COLORS.pistol).label}
+            </p>
+          </div>
+        </div>
+      )}
 
       {snapshot.status === "ENDED" && (
         <div className="absolute inset-0 bg-black/85 backdrop-blur-sm flex items-center justify-center p-6 pointer-events-auto">
           <div className="max-w-md text-center space-y-4">
-            <p className="text-xs uppercase tracking-[0.3em] text-fuchsia-400">
-              Match over
-            </p>
+            <div className="inline-block border-2 border-rose-400 px-3 py-1 mb-2">
+              <p
+                className="text-[10px] uppercase tracking-[0.35em] text-rose-400 font-bold"
+                style={{ fontFamily: MONO_FONT }}
+              >
+                Match over
+              </p>
+            </div>
             <h2 className="text-3xl font-bold">
               {snapshot.selfPlacement === 1
                 ? "You won."
@@ -324,7 +649,10 @@ function Hud(props: {
 
       {snapshot.status === "PLAYING" && !snapshot.selfAlive && (
         <div className="absolute inset-x-0 bottom-6 flex justify-center pointer-events-none">
-          <p className="text-xs uppercase tracking-[0.25em] text-rose-400 bg-black/60 px-4 py-2 border border-rose-400/30">
+          <p
+            className="text-xs uppercase tracking-[0.25em] text-rose-400 bg-black/60 px-4 py-2 border border-rose-400/30"
+            style={{ fontFamily: MONO_FONT }}
+          >
             Spectating
           </p>
         </div>
@@ -333,15 +661,31 @@ function Hud(props: {
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function StatPill({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone: "ok" | "warn" | "danger";
+}) {
+  const accent =
+    tone === "danger" ? "#f87171" : tone === "warn" ? "#fbbf24" : "#22d3ee";
   return (
-    <div>
-      <p className="text-[9px] uppercase tracking-[0.25em] text-fuchsia-300">
+    <div
+      className="inline-flex items-baseline gap-1.5 border border-white/30 bg-black/55 px-2 py-0.5"
+      style={{ fontFamily: MONO_FONT }}
+    >
+      <span className="text-[9px] tracking-[0.35em] text-white/55">
         {label}
-      </p>
-      <p className="text-lg font-bold tabular-nums leading-none mt-0.5">
+      </span>
+      <span
+        className="text-sm font-bold tabular-nums leading-none"
+        style={{ color: accent }}
+      >
         {value}
-      </p>
+      </span>
     </div>
   );
 }
@@ -358,11 +702,11 @@ function lookupPlayer(
     get?: (k: string) => ServerPlayer | undefined;
     forEach: (cb: (p: ServerPlayer, k: string) => void) => void;
   };
-  if (typeof players.get === "function") {
+  if (typeof players?.get === "function") {
     return players.get(sessionId) ?? null;
   }
   let found: ServerPlayer | null = null;
-  players.forEach((p, k) => {
+  players?.forEach?.((p, k) => {
     if (!found && k === sessionId) found = p;
   });
   return found;
@@ -376,6 +720,8 @@ function snapshotStatus(room: Room) {
     selfHp: 0,
     selfKills: 0,
     selfPlacement: 0,
+    selfWeapon: "pistol",
+    selfWeaponExpiresAtMs: 0,
     matchEndsAtMs: 0,
     countdownEndsAtMs: 0,
     startedAtMs: 0,
@@ -397,6 +743,8 @@ function snapshotStatus(room: Room) {
       selfHp: self?.hp ?? 0,
       selfKills: self?.kills ?? 0,
       selfPlacement: self?.placement ?? 0,
+      selfWeapon: self?.weapon ?? "pistol",
+      selfWeaponExpiresAtMs: self?.weaponExpiresAtMs ?? 0,
       matchEndsAtMs: rs.matchEndsAtMs ?? 0,
       countdownEndsAtMs: rs.countdownEndsAtMs ?? 0,
       startedAtMs: rs.startedAtMs ?? 0,
@@ -406,130 +754,123 @@ function snapshotStatus(room: Room) {
   }
 }
 
-/** Choose a uniform world->screen scale that fits the world inside the
- *  viewport's smaller axis with a margin so the camera can pan. */
+function bulletKey(b: ServerBullet, idx: number): string {
+  // Bullets have no inherent id in the schema; we synthesise one from
+  // (owner, spawn time, index) which is stable enough across a few ticks.
+  return `${b.ownerId}|${b.spawnedAt}|${idx}`;
+}
+
+function interpPlayer(
+  pair: { prev: PlayerSnap; curr: PlayerSnap } | undefined
+): { x: number; y: number; aim: number } | null {
+  if (!pair) return null;
+  const renderT = Date.now() - INTERP_DELAY_MS;
+  const { prev, curr } = pair;
+  if (curr.t <= prev.t) return { x: curr.x, y: curr.y, aim: curr.aim };
+  const span = curr.t - prev.t;
+  const t = (renderT - prev.t) / span;
+  const clamped = t < 0 ? 0 : t > 1 ? 1 : t;
+  return {
+    x: prev.x + (curr.x - prev.x) * clamped,
+    y: prev.y + (curr.y - prev.y) * clamped,
+    aim: shortestAngleLerp(prev.aim, curr.aim, clamped),
+  };
+}
+
+function shortestAngleLerp(a: number, b: number, t: number): number {
+  let diff = b - a;
+  while (diff < -Math.PI) diff += Math.PI * 2;
+  while (diff > Math.PI) diff -= Math.PI * 2;
+  return a + diff * t;
+}
+
 function computeWorldScale(cssW: number, cssH: number): number {
-  // We render the world centered on the player; show ~1100 units across the
-  // smaller axis for a comfortable visual radius.
-  const viewSpan = 1100;
+  const viewSpan = 1400;
   return Math.min(cssW, cssH) / viewSpan;
+}
+
+interface RenderCtx {
+  playerBuf: PlayerBuffer;
+  bulletBuf: BulletBuffer;
+  shake: { amount: number; until: number };
 }
 
 function renderFrame(
   ctx: CanvasRenderingContext2D,
   canvas: HTMLCanvasElement,
   rs: ServerState,
-  selfId: string
+  selfId: string,
+  cam: { x: number; y: number },
+  rctx: RenderCtx
 ) {
-  // Guard against pre-decoded state: schema may be present but inner
-  // collections undefined for a few frames after join.
-  if (!rs || !rs.players || typeof rs.players.forEach !== "function") {
-    return;
-  }
+  if (!rs || !rs.players || typeof rs.players.forEach !== "function") return;
+
   const dpr = window.devicePixelRatio || 1;
   const cssW = canvas.width / dpr;
   const cssH = canvas.height / dpr;
+  const now = Date.now();
+
+  // Screen-shake offset.
+  let shakeX = 0;
+  let shakeY = 0;
+  if (rctx.shake.until > now) {
+    const remaining = (rctx.shake.until - now) / 220;
+    const amt = rctx.shake.amount * remaining;
+    shakeX = (Math.random() - 0.5) * amt * 2;
+    shakeY = (Math.random() - 0.5) * amt * 2;
+  }
 
   ctx.save();
   ctx.scale(dpr, dpr);
-  ctx.fillStyle = "#0a0a0a";
+
+  ctx.fillStyle = "#070710";
   ctx.fillRect(0, 0, cssW, cssH);
 
-  const self = lookupPlayer(rs, selfId);
-  const camX = self?.x ?? 0;
-  const camY = self?.y ?? 0;
   const scale = computeWorldScale(cssW, cssH);
-  const cx = cssW / 2;
-  const cy = cssH / 2;
+  const screenCx = cssW / 2 + shakeX;
+  const screenCy = cssH / 2 + shakeY;
+  const camX = cam.x;
+  const camY = cam.y;
 
   const w2s = (x: number, y: number) => ({
-    sx: (x - camX) * scale + cx,
-    sy: (y - camY) * scale + cy,
+    sx: (x - camX) * scale + screenCx,
+    sy: (y - camY) * scale + screenCy,
   });
 
-  drawGrid(ctx, w2s, cssW, cssH, scale);
+  drawGrid(ctx, w2s, scale, cssW, cssH, camX, camY);
 
+  // World boundary, neon magenta with glow.
   const tl = w2s(-WORLD / 2, -WORLD / 2);
-  ctx.strokeStyle = "rgba(255,255,255,0.18)";
-  ctx.lineWidth = 2;
+  ctx.save();
+  ctx.shadowColor = "rgba(192,38,211,0.8)";
+  ctx.shadowBlur = 18;
+  ctx.strokeStyle = "rgba(192,38,211,0.85)";
+  ctx.lineWidth = 3;
   ctx.strokeRect(tl.sx, tl.sy, WORLD * scale, WORLD * scale);
+  ctx.restore();
 
-  // Safe zone — only draw if zone schema is populated.
-  if (rs.zone && typeof rs.zone.radius === "number") {
-    const zc = w2s(rs.zone.cx ?? 0, rs.zone.cy ?? 0);
-    ctx.strokeStyle = "rgba(192,38,211,0.65)";
-    ctx.lineWidth = 3;
-    ctx.setLineDash([10, 8]);
-    ctx.beginPath();
-    ctx.arc(zc.sx, zc.sy, rs.zone.radius * scale, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.setLineDash([]);
+  drawZoneWash(ctx, rs.zone, w2s, scale, cssW, cssH);
+  drawZoneRings(ctx, rs.zone, w2s, scale);
+
+  if (rs.pickups && typeof (rs.pickups as { forEach?: unknown }).forEach === "function") {
+    (rs.pickups as unknown as {
+      forEach: (cb: (p: ServerPickup) => void) => void;
+    }).forEach((pu) => {
+      drawPickup(ctx, pu, w2s, scale, now);
+    });
   }
 
-  if (rs.bullets && typeof (rs.bullets as { forEach?: unknown }).forEach === "function") {
-    ctx.fillStyle = "#fde047";
-    (rs.bullets as unknown as { forEach: (cb: (b: ServerBullet) => void) => void }).forEach(
-      (b) => {
-        const p = w2s(b.x, b.y);
-        ctx.beginPath();
-        ctx.arc(p.sx, p.sy, Math.max(2, BULLET_R * scale), 0, Math.PI * 2);
-        ctx.fill();
-      }
-    );
-  }
+  drawBullets(ctx, w2s, scale, now, rctx.bulletBuf);
 
   rs.players.forEach((p: ServerPlayer, sessionId: string) => {
-    const isSelf = sessionId === selfId;
-    const s = w2s(p.x, p.y);
-    const r = PLAYER_R * scale;
-
-    if (!p.alive) {
-      ctx.globalAlpha = 0.25;
-    }
-
-    // Body
-    ctx.fillStyle = isSelf ? "#22d3ee" : "#f0abfc";
-    ctx.beginPath();
-    ctx.arc(s.sx, s.sy, r, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = isSelf ? "#0e7490" : "#a21caf";
-    ctx.stroke();
-
-    // Gun barrel
-    if (p.alive) {
-      ctx.strokeStyle = isSelf ? "#0e7490" : "#7c3aed";
-      ctx.lineWidth = Math.max(2, 4 * scale);
-      ctx.beginPath();
-      ctx.moveTo(s.sx, s.sy);
-      ctx.lineTo(
-        s.sx + Math.cos(p.aim) * (r + 10),
-        s.sy + Math.sin(p.aim) * (r + 10)
-      );
-      ctx.stroke();
-    }
-
-    // HP bar above
-    if (p.alive) {
-      const barW = Math.max(28, r * 2.1);
-      const barH = 5;
-      const bx = s.sx - barW / 2;
-      const by = s.sy - r - 12;
-      ctx.fillStyle = "rgba(0,0,0,0.7)";
-      ctx.fillRect(bx, by, barW, barH);
-      ctx.fillStyle = p.hp > 40 ? "#34d399" : p.hp > 15 ? "#fbbf24" : "#f87171";
-      ctx.fillRect(bx, by, barW * Math.max(0, Math.min(1, p.hp / 100)), barH);
-    }
-
-    // Display name
-    ctx.globalAlpha = p.alive ? 0.85 : 0.35;
-    ctx.fillStyle = "#ffffff";
-    ctx.font = `${Math.max(10, 12 * Math.min(1.5, scale))}px sans-serif`;
-    ctx.textAlign = "center";
-    ctx.textBaseline = "bottom";
-    ctx.fillText(p.displayName, s.sx, s.sy - r - 18);
-
-    ctx.globalAlpha = 1;
+    const buf = rctx.playerBuf.get(sessionId);
+    const lerp =
+      interpPlayer(buf) ?? {
+        x: p.x ?? 0,
+        y: p.y ?? 0,
+        aim: p.aim ?? 0,
+      };
+    drawPlayer(ctx, p, sessionId === selfId, lerp, w2s, scale, now);
   });
 
   ctx.restore();
@@ -538,28 +879,350 @@ function renderFrame(
 function drawGrid(
   ctx: CanvasRenderingContext2D,
   w2s: (x: number, y: number) => { sx: number; sy: number },
+  scale: number,
   cssW: number,
   cssH: number,
-  scale: number
+  camX: number,
+  camY: number
 ) {
-  void cssW;
-  void cssH;
-  const step = 200; // world units between grid lines
-  ctx.strokeStyle = "rgba(255,255,255,0.05)";
+  const half = WORLD / 2;
+  const minorStep = 100;
+  const majorStep = 400;
+  const visibleSpan = Math.max(cssW, cssH) / scale + minorStep * 2;
+
+  const startX = Math.max(
+    -half,
+    Math.floor((camX - visibleSpan / 2) / minorStep) * minorStep
+  );
+  const endX = Math.min(
+    half,
+    Math.ceil((camX + visibleSpan / 2) / minorStep) * minorStep
+  );
+  const startY = Math.max(
+    -half,
+    Math.floor((camY - visibleSpan / 2) / minorStep) * minorStep
+  );
+  const endY = Math.min(
+    half,
+    Math.ceil((camY + visibleSpan / 2) / minorStep) * minorStep
+  );
+
+  // Minor lines (white).
+  ctx.strokeStyle = "rgba(255,255,255,0.04)";
   ctx.lineWidth = 1;
   ctx.beginPath();
-  for (let x = -WORLD / 2; x <= WORLD / 2; x += step) {
-    const a = w2s(x, -WORLD / 2);
-    const b = w2s(x, WORLD / 2);
+  for (let x = startX; x <= endX; x += minorStep) {
+    if (x % majorStep === 0) continue;
+    const a = w2s(x, startY);
+    const b = w2s(x, endY);
     ctx.moveTo(a.sx, a.sy);
     ctx.lineTo(b.sx, b.sy);
   }
-  for (let y = -WORLD / 2; y <= WORLD / 2; y += step) {
-    const a = w2s(-WORLD / 2, y);
-    const b = w2s(WORLD / 2, y);
+  for (let y = startY; y <= endY; y += minorStep) {
+    if (y % majorStep === 0) continue;
+    const a = w2s(startX, y);
+    const b = w2s(endX, y);
     ctx.moveTo(a.sx, a.sy);
     ctx.lineTo(b.sx, b.sy);
   }
   ctx.stroke();
-  void scale;
+
+  // Major lines (magenta tint).
+  ctx.strokeStyle = "rgba(192,38,211,0.12)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let x = startX; x <= endX; x += minorStep) {
+    if (x % majorStep !== 0) continue;
+    const a = w2s(x, startY);
+    const b = w2s(x, endY);
+    ctx.moveTo(a.sx, a.sy);
+    ctx.lineTo(b.sx, b.sy);
+  }
+  for (let y = startY; y <= endY; y += minorStep) {
+    if (y % majorStep !== 0) continue;
+    const a = w2s(startX, y);
+    const b = w2s(endX, y);
+    ctx.moveTo(a.sx, a.sy);
+    ctx.lineTo(b.sx, b.sy);
+  }
+  ctx.stroke();
+}
+
+function drawZoneWash(
+  ctx: CanvasRenderingContext2D,
+  zone: ServerZone,
+  w2s: (x: number, y: number) => { sx: number; sy: number },
+  scale: number,
+  cssW: number,
+  cssH: number
+) {
+  if (!zone || typeof zone.radius !== "number") return;
+  const zc = w2s(zone.cx ?? 0, zone.cy ?? 0);
+  const r = zone.radius * scale;
+  ctx.save();
+  ctx.globalCompositeOperation = "source-over";
+  ctx.fillStyle = "rgba(255,38,80,0.08)";
+  ctx.fillRect(0, 0, cssW, cssH);
+  ctx.globalCompositeOperation = "destination-out";
+  ctx.beginPath();
+  ctx.arc(zc.sx, zc.sy, r, 0, Math.PI * 2);
+  ctx.fillStyle = "#fff";
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawZoneRings(
+  ctx: CanvasRenderingContext2D,
+  zone: ServerZone,
+  w2s: (x: number, y: number) => { sx: number; sy: number },
+  scale: number
+) {
+  if (!zone || typeof zone.radius !== "number") return;
+  const zc = w2s(zone.cx ?? 0, zone.cy ?? 0);
+  const r = zone.radius * scale;
+  ctx.save();
+  ctx.shadowColor = "rgba(34,211,238,0.5)";
+  ctx.shadowBlur = 12;
+  ctx.strokeStyle = "rgba(34,211,238,0.85)";
+  ctx.lineWidth = 2;
+  ctx.setLineDash([12, 8]);
+  ctx.beginPath();
+  ctx.arc(zc.sx, zc.sy, r, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = "rgba(240,171,252,0.55)";
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([6, 10]);
+  ctx.lineDashOffset = 4;
+  ctx.beginPath();
+  ctx.arc(zc.sx, zc.sy, Math.max(0, r - 4), 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.setLineDash([]);
+  ctx.lineDashOffset = 0;
+  ctx.restore();
+}
+
+function drawBullets(
+  ctx: CanvasRenderingContext2D,
+  w2s: (x: number, y: number) => { sx: number; sy: number },
+  scale: number,
+  now: number,
+  buf: BulletBuffer
+) {
+  if (!buf || buf.size === 0) return;
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  buf.forEach((b) => {
+    const dt = (now - b.t) / 1000;
+    const x = b.x + b.vx * dt;
+    const y = b.y + b.vy * dt;
+    const pos = w2s(x, y);
+    const color = WEAPON_COLORS[b.kind] ?? WEAPON_COLORS.pistol;
+    const innerR = Math.max(2, BULLET_R * scale);
+    const outerR = innerR * 3;
+
+    ctx.fillStyle = color.glow;
+    ctx.beginPath();
+    ctx.arc(pos.sx, pos.sy, outerR, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = color.core;
+    ctx.beginPath();
+    ctx.arc(pos.sx, pos.sy, innerR, 0, Math.PI * 2);
+    ctx.fill();
+  });
+  ctx.restore();
+}
+
+function drawPickup(
+  ctx: CanvasRenderingContext2D,
+  pu: ServerPickup,
+  w2s: (x: number, y: number) => { sx: number; sy: number },
+  scale: number,
+  now: number
+) {
+  const pos = w2s(pu.x, pu.y);
+  const color = WEAPON_COLORS[pu.kind] ?? WEAPON_COLORS.pistol;
+  const bob = Math.sin(now / 350 + pu.x * 0.01) * 3;
+  const rot = ((now / 1200) % (Math.PI * 2)) + (pu.x + pu.y) * 0.001;
+  const size = Math.max(14, PICKUP_R * scale * 1.4);
+
+  ctx.save();
+  ctx.translate(pos.sx, pos.sy + bob);
+  ctx.rotate(rot);
+
+  ctx.shadowColor = color.glow;
+  ctx.shadowBlur = 12;
+  ctx.strokeStyle = color.core;
+  ctx.lineWidth = 2.5;
+  ctx.fillStyle = "rgba(0,0,0,0.5)";
+  ctx.beginPath();
+  ctx.rect(-size / 2, -size / 2, size, size);
+  ctx.fill();
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  ctx.rotate(-rot);
+  ctx.fillStyle = color.core;
+  ctx.font = `bold ${Math.max(10, size * 0.65)}px ${MONO_FONT}`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  const letter =
+    pu.kind === "health"
+      ? "H"
+      : pu.kind === "shotgun"
+      ? "S"
+      : pu.kind === "rapid"
+      ? "R"
+      : pu.kind === "sniper"
+      ? "X"
+      : "?";
+  ctx.fillText(letter, 0, 1);
+  ctx.restore();
+}
+
+function drawPlayer(
+  ctx: CanvasRenderingContext2D,
+  p: ServerPlayer,
+  isSelf: boolean,
+  pos: { x: number; y: number; aim: number },
+  w2s: (x: number, y: number) => { sx: number; sy: number },
+  scale: number,
+  now: number
+) {
+  const screen = w2s(pos.x, pos.y);
+  const r = PLAYER_R * scale;
+
+  ctx.save();
+  if (!p.alive) ctx.globalAlpha = 0.28;
+
+  // Drop shadow.
+  ctx.save();
+  ctx.fillStyle = "rgba(0,0,0,0.45)";
+  ctx.beginPath();
+  ctx.ellipse(
+    screen.sx,
+    screen.sy + r * 0.4,
+    r * 0.95,
+    r * 0.35,
+    0,
+    0,
+    Math.PI * 2
+  );
+  ctx.fill();
+  ctx.restore();
+
+  // Body (squircle).
+  const bodyColor = isSelf ? "#22d3ee" : "#f0abfc";
+  const strokeColor = isSelf ? "#0e7490" : "#a21caf";
+  ctx.fillStyle = bodyColor;
+  ctx.strokeStyle = strokeColor;
+  ctx.lineWidth = Math.max(2, 2.5 * scale);
+  const side = r * 1.8;
+  roundRect(
+    ctx,
+    screen.sx - side / 2,
+    screen.sy - side / 2,
+    side,
+    side,
+    r * 0.45
+  );
+  ctx.fill();
+  ctx.stroke();
+
+  // Gun barrel (weapon-tinted).
+  if (p.alive) {
+    const weapon = (p.weapon || "pistol").toLowerCase();
+    const wcolor = WEAPON_COLORS[weapon] ?? WEAPON_COLORS.pistol;
+    ctx.save();
+    ctx.strokeStyle = wcolor.core;
+    ctx.shadowColor = wcolor.glow;
+    ctx.shadowBlur = 8;
+    ctx.lineWidth = Math.max(2.5, 5 * scale);
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(screen.sx, screen.sy);
+    ctx.lineTo(
+      screen.sx + Math.cos(pos.aim) * (r + 14),
+      screen.sy + Math.sin(pos.aim) * (r + 14)
+    );
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // HP bar with bracket ticks.
+  if (p.alive) {
+    const barW = Math.max(30, r * 2.3);
+    const barH = 4;
+    const bx = screen.sx - barW / 2;
+    const by = screen.sy - r - 14;
+    ctx.fillStyle = "rgba(0,0,0,0.7)";
+    ctx.fillRect(bx, by, barW, barH);
+    const pct = Math.max(0, Math.min(1, p.hp / 100));
+    ctx.fillStyle = p.hp > 40 ? "#34d399" : p.hp > 15 ? "#fbbf24" : "#f87171";
+    ctx.fillRect(bx, by, barW * pct, barH);
+    ctx.strokeStyle = "rgba(255,255,255,0.55)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(bx - 2, by - 1);
+    ctx.lineTo(bx - 2, by + barH + 1);
+    ctx.moveTo(bx + barW + 2, by - 1);
+    ctx.lineTo(bx + barW + 2, by + barH + 1);
+    ctx.stroke();
+  }
+
+  // Weapon timer arc.
+  if (p.alive && p.weaponExpiresAtMs > 0) {
+    const remaining = Math.max(0, p.weaponExpiresAtMs - now);
+    const pct = Math.max(0, Math.min(1, remaining / WEAPON_BUFF_MS));
+    const ringR = r + 6;
+    ctx.save();
+    ctx.strokeStyle = "rgba(255,255,255,0.85)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(
+      screen.sx,
+      screen.sy,
+      ringR,
+      -Math.PI / 2,
+      -Math.PI / 2 + Math.PI * 2 * pct,
+      false
+    );
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // Display name.
+  ctx.globalAlpha = p.alive ? 0.92 : 0.35;
+  ctx.fillStyle = "#ffffff";
+  ctx.font = `bold ${Math.max(10, 11 * Math.min(1.6, scale))}px ${MONO_FONT}`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "bottom";
+  ctx.fillText(p.displayName.toUpperCase(), screen.sx, screen.sy - r - 20);
+
+  ctx.restore();
+}
+
+function roundRect(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  r: number
+) {
+  const rr = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + rr, y);
+  ctx.lineTo(x + w - rr, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + rr);
+  ctx.lineTo(x + w, y + h - rr);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
+  ctx.lineTo(x + rr, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - rr);
+  ctx.lineTo(x, y + rr);
+  ctx.quadraticCurveTo(x, y, x + rr, y);
+  ctx.closePath();
 }
