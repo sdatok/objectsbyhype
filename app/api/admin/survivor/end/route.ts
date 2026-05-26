@@ -2,7 +2,10 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getAdminSession } from "@/lib/auth";
 import { signAdminCommand } from "@/lib/survivor-hmac";
-import { getOrCreateSurvivorConfig } from "@/lib/survivor-config";
+import {
+  getOrCreateSurvivorConfig,
+  SURVIVOR_CONFIG_ID,
+} from "@/lib/survivor-config";
 
 export const dynamic = "force-dynamic";
 
@@ -68,6 +71,27 @@ export async function POST() {
         { status: 502 }
       );
     }
+
+    // Self-heal the DB. The game server normally posts a result webhook on
+    // match end, which would do this for us — but if the room had lost its
+    // state (e.g. after a Railway restart) /admin/end is a no-op there and
+    // no webhook will fire. Clearing here unblocks the admin "Open new match"
+    // path unconditionally. If a webhook does arrive afterwards, the result
+    // handler is idempotent against an already-ENDED match.
+    await prisma.$transaction(async (tx) => {
+      await tx.survivorMatch.update({
+        where: { id: match.id },
+        data: {
+          status: "ENDED",
+          endedAt: match.endedAt ?? new Date(),
+        },
+      });
+      await tx.survivorConfig.update({
+        where: { id: SURVIVOR_CONFIG_ID },
+        data: { currentMatchId: null },
+      });
+    });
+
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("[POST /api/admin/survivor/end]", err);
