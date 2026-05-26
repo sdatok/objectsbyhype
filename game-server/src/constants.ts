@@ -88,11 +88,11 @@ export const WEAPON_BUFF_MS = 20_000;
 // ---------- Pickups ----------
 export const PICKUP_RADIUS = 14;
 /** Average spawn interval in ms; jittered ±25% on each tick check. */
-export const PICKUP_SPAWN_INTERVAL_MS = 10_000;
+export const PICKUP_SPAWN_INTERVAL_MS = 5_000;
 /** A pickup vanishes if uncollected this long. */
 export const PICKUP_TTL_MS = 25_000;
 /** Hard cap on concurrent map pickups. */
-export const PICKUP_MAX_ACTIVE = 8;
+export const PICKUP_MAX_ACTIVE = 14;
 /** Inset from current zone radius so pickups don't spawn on the deadly edge. */
 export const PICKUP_ZONE_MARGIN = 120;
 /** Health pack restore amount, capped at PLAYER_MAX_HP. */
@@ -111,21 +111,44 @@ export const PICKUP_WEIGHTS: { kind: "health" | WeaponKind; weight: number }[] =
 
 // ---------- Obstacles ----------
 /**
- * Layout config. We scatter `OBSTACLE_COUNT` AABB crates/pallets across the
- * world on each match start. Player movement is clamped out of them, bullets
- * stop on hit, and pickups won't spawn inside them.
+ * Two-pass layout: first we lay down `WALL_CLUSTER_COUNT` wall clusters
+ * (chains of 2-4 thick "wall" segments, sometimes with an L-bend), then we
+ * scatter `STANDALONE_OBSTACLE_COUNT` crates/blocks/pallets in the gaps.
+ * The result is maze-like (corridors and corners to break sightlines) while
+ * still leaving plenty of open ground for movement.
+ *
+ * Players are clamped out, bullets stop on hit (swept collision), and
+ * pickups + spawns reject obstacle interiors.
  */
-export const OBSTACLE_COUNT = 14;
-/** Clear radius around world origin so spawn area stays open. */
-export const OBSTACLE_KEEP_OUT = 240;
-/** Minimum gap between any two obstacle centres. */
-export const OBSTACLE_MIN_SPACING = 220;
-/** How many random attempts per slot before we give up and place one less. */
-export const OBSTACLE_PLACEMENT_ATTEMPTS = 30;
+export const WALL_CLUSTER_COUNT = 9;
+export const STANDALONE_OBSTACLE_COUNT = 12;
+/** Each wall segment is roughly this long; thickness is fixed at 46. */
+export const WALL_SEGMENT_LEN = 110;
+export const WALL_SEGMENT_THICKNESS = 46;
+/** Min / max segments per wall cluster. */
+export const WALL_SEG_MIN = 2;
+export const WALL_SEG_MAX = 4;
+/** Probability the wall bends 90deg partway through. */
+export const WALL_BEND_PROB = 0.4;
+/** Very small clear circle around origin so spawns near 0,0 have room. */
+export const OBSTACLE_KEEP_OUT = 90;
+/** Minimum gap (centre-to-centre) between any two obstacles in different clusters. */
+export const OBSTACLE_MIN_SPACING = 140;
+/** Inset from world edge so obstacles never clip the boundary. */
+export const OBSTACLE_EDGE_INSET = 90;
+/** How many random attempts per cluster / standalone before giving up. */
+export const OBSTACLE_PLACEMENT_ATTEMPTS = 40;
 
-export type ObstacleKind = "crate" | "pallet" | "block";
+export type ObstacleKind = "wall" | "crate" | "pallet" | "block";
 
 export const OBSTACLE_SIZES: Record<ObstacleKind, Array<{ w: number; h: number }>> = {
+  // Wall segments — generated in code, not sampled from this table, but kept
+  // here so the type stays consistent. Client uses this kind to pick a
+  // concrete-wall visual instead of stencil crate.
+  wall: [
+    { w: WALL_SEGMENT_LEN, h: WALL_SEGMENT_THICKNESS },
+    { w: WALL_SEGMENT_THICKNESS, h: WALL_SEGMENT_LEN },
+  ],
   // ~square shipping crates
   crate: [
     { w: 80, h: 80 },

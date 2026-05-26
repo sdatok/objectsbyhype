@@ -98,8 +98,10 @@ const PLAYER_R = 18;
 const BULLET_R = 4;
 const PICKUP_R = 14;
 
-// One-tick render delay so we always have a "next" snapshot to lerp to.
-const INTERP_DELAY_MS = 110;
+// Render one or two patches behind so we always have a "next" snapshot to
+// lerp toward even under packet jitter. Server patches every ~33ms now, so
+// 130ms is ~4 patches of buffer — plenty of headroom without feeling laggy.
+const INTERP_DELAY_MS = 130;
 const WEAPON_BUFF_MS = 20_000;
 
 const WEAPON_COLORS: Record<string, { core: string; glow: string; label: string }> = {
@@ -1061,21 +1063,32 @@ function drawObstacle(
   w2s: (x: number, y: number) => { sx: number; sy: number },
   scale: number
 ) {
+  if (o.kind === "wall") {
+    drawWallSegment(ctx, o, w2s, scale);
+    return;
+  }
+  drawCrateObstacle(ctx, o, w2s, scale);
+}
+
+/** Streetwear-stencil shipping crate / pallet / block. */
+function drawCrateObstacle(
+  ctx: CanvasRenderingContext2D,
+  o: ServerObstacle,
+  w2s: (x: number, y: number) => { sx: number; sy: number },
+  scale: number
+) {
   const tl = w2s(o.x - o.w / 2, o.y - o.h / 2);
   const w = o.w * scale;
   const h = o.h * scale;
 
   ctx.save();
 
-  // Drop shadow under the crate for grounding.
   ctx.fillStyle = "rgba(0,0,0,0.55)";
   ctx.fillRect(tl.sx + 4, tl.sy + 6, w, h);
 
-  // Body: dark fill with cross-hatch stripes (streetwear tape pattern).
   ctx.fillStyle = "#0e0e16";
   ctx.fillRect(tl.sx, tl.sy, w, h);
 
-  // Diagonal hazard stripes.
   ctx.save();
   ctx.beginPath();
   ctx.rect(tl.sx, tl.sy, w, h);
@@ -1091,7 +1104,6 @@ function drawObstacle(
   ctx.stroke();
   ctx.restore();
 
-  // Stencil border (white) with magenta corner ticks.
   ctx.strokeStyle = "rgba(255,255,255,0.78)";
   ctx.lineWidth = Math.max(1.5, 1.5 * scale);
   ctx.strokeRect(tl.sx + 1, tl.sy + 1, w - 2, h - 2);
@@ -1100,25 +1112,20 @@ function drawObstacle(
   ctx.strokeStyle = "#c026d3";
   ctx.lineWidth = Math.max(2, 2 * scale);
   ctx.beginPath();
-  // Top-left
   ctx.moveTo(tl.sx, tl.sy + tickLen);
   ctx.lineTo(tl.sx, tl.sy);
   ctx.lineTo(tl.sx + tickLen, tl.sy);
-  // Top-right
   ctx.moveTo(tl.sx + w - tickLen, tl.sy);
   ctx.lineTo(tl.sx + w, tl.sy);
   ctx.lineTo(tl.sx + w, tl.sy + tickLen);
-  // Bottom-right
   ctx.moveTo(tl.sx + w, tl.sy + h - tickLen);
   ctx.lineTo(tl.sx + w, tl.sy + h);
   ctx.lineTo(tl.sx + w - tickLen, tl.sy + h);
-  // Bottom-left
   ctx.moveTo(tl.sx + tickLen, tl.sy + h);
   ctx.lineTo(tl.sx, tl.sy + h);
   ctx.lineTo(tl.sx, tl.sy + h - tickLen);
   ctx.stroke();
 
-  // Centered OBH label (only if the crate is big enough to read).
   if (Math.min(w, h) > 36) {
     const cx = tl.sx + w / 2;
     const cy = tl.sy + h / 2;
@@ -1129,6 +1136,77 @@ function drawObstacle(
     ctx.textBaseline = "middle";
     const label = o.kind === "pallet" ? "OBH/PLT" : o.kind === "block" ? "OBH" : "OBH/CR8";
     ctx.fillText(label, cx, cy);
+  }
+
+  ctx.restore();
+}
+
+/**
+ * Concrete/steel maze wall segment. Darker, no OBH label, with rivet dots
+ * along the long edges and a cyan accent stripe that reads as a barrier
+ * rather than a pickupable crate.
+ */
+function drawWallSegment(
+  ctx: CanvasRenderingContext2D,
+  o: ServerObstacle,
+  w2s: (x: number, y: number) => { sx: number; sy: number },
+  scale: number
+) {
+  const tl = w2s(o.x - o.w / 2, o.y - o.h / 2);
+  const w = o.w * scale;
+  const h = o.h * scale;
+  const horizontal = o.w >= o.h;
+
+  ctx.save();
+
+  // Cast shadow.
+  ctx.fillStyle = "rgba(0,0,0,0.6)";
+  ctx.fillRect(tl.sx + 3, tl.sy + 5, w, h);
+
+  // Body — slate concrete look.
+  const grad = ctx.createLinearGradient(
+    tl.sx,
+    tl.sy,
+    horizontal ? tl.sx : tl.sx + w,
+    horizontal ? tl.sy + h : tl.sy
+  );
+  grad.addColorStop(0, "#1c1c24");
+  grad.addColorStop(0.5, "#2a2a36");
+  grad.addColorStop(1, "#15151c");
+  ctx.fillStyle = grad;
+  ctx.fillRect(tl.sx, tl.sy, w, h);
+
+  // Outer border.
+  ctx.strokeStyle = "rgba(255,255,255,0.45)";
+  ctx.lineWidth = Math.max(1, 1 * scale);
+  ctx.strokeRect(tl.sx + 0.5, tl.sy + 0.5, w - 1, h - 1);
+
+  // Cyan accent stripe along the long axis (warning tape).
+  ctx.strokeStyle = "rgba(34,211,238,0.55)";
+  ctx.lineWidth = Math.max(1, 2 * scale);
+  ctx.beginPath();
+  if (horizontal) {
+    ctx.moveTo(tl.sx + 4, tl.sy + h * 0.5);
+    ctx.lineTo(tl.sx + w - 4, tl.sy + h * 0.5);
+  } else {
+    ctx.moveTo(tl.sx + w * 0.5, tl.sy + 4);
+    ctx.lineTo(tl.sx + w * 0.5, tl.sy + h - 4);
+  }
+  ctx.stroke();
+
+  // Rivet dots along the two long edges.
+  ctx.fillStyle = "rgba(255,255,255,0.4)";
+  const rivetGap = 18;
+  if (horizontal) {
+    for (let x = tl.sx + 6; x < tl.sx + w - 4; x += rivetGap) {
+      ctx.fillRect(x, tl.sy + 3, 2, 2);
+      ctx.fillRect(x, tl.sy + h - 5, 2, 2);
+    }
+  } else {
+    for (let y = tl.sy + 6; y < tl.sy + h - 4; y += rivetGap) {
+      ctx.fillRect(tl.sx + 3, y, 2, 2);
+      ctx.fillRect(tl.sx + w - 5, y, 2, 2);
+    }
   }
 
   ctx.restore();

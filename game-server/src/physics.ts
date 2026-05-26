@@ -17,11 +17,18 @@ import {
   PICKUP_ZONE_MARGIN,
   PICKUP_WEIGHTS,
   HEALTH_PACK_AMOUNT,
-  OBSTACLE_COUNT,
   OBSTACLE_KEEP_OUT,
   OBSTACLE_MIN_SPACING,
+  OBSTACLE_EDGE_INSET,
   OBSTACLE_PLACEMENT_ATTEMPTS,
   OBSTACLE_SIZES,
+  WALL_CLUSTER_COUNT,
+  STANDALONE_OBSTACLE_COUNT,
+  WALL_SEGMENT_LEN,
+  WALL_SEGMENT_THICKNESS,
+  WALL_SEG_MIN,
+  WALL_SEG_MAX,
+  WALL_BEND_PROB,
   type WeaponKind,
   type ObstacleKind,
 } from "./constants";
@@ -171,9 +178,60 @@ function pointInsideObstacle(x: number, y: number, o: Obstacle, pad = 0): boolea
   );
 }
 
-function bulletHitsObstacle(b: Bullet, o: Obstacle): boolean {
-  // Treat the bullet as a point (radius is tiny compared to obstacle).
-  return pointInsideObstacle(b.x, b.y, o, BULLET_RADIUS);
+/**
+ * Swept point-vs-AABB collision: returns true if the bullet's path from
+ * (prevX, prevY) to (curX, curY) crosses the obstacle's bounding box.
+ * Uses Liang-Barsky clipping so even fast bullets that would tunnel through
+ * thin walls in a single tick still register.
+ */
+function bulletPathHitsObstacle(
+  prevX: number,
+  prevY: number,
+  curX: number,
+  curY: number,
+  o: Obstacle
+): boolean {
+  const minX = o.x - o.w / 2 - BULLET_RADIUS;
+  const maxX = o.x + o.w / 2 + BULLET_RADIUS;
+  const minY = o.y - o.h / 2 - BULLET_RADIUS;
+  const maxY = o.y + o.h / 2 + BULLET_RADIUS;
+
+  const dx = curX - prevX;
+  const dy = curY - prevY;
+  let tMin = 0;
+  let tMax = 1;
+
+  if (dx === 0) {
+    if (prevX < minX || prevX > maxX) return false;
+  } else {
+    let t1 = (minX - prevX) / dx;
+    let t2 = (maxX - prevX) / dx;
+    if (t1 > t2) {
+      const tmp = t1;
+      t1 = t2;
+      t2 = tmp;
+    }
+    if (t1 > tMin) tMin = t1;
+    if (t2 < tMax) tMax = t2;
+    if (tMin > tMax) return false;
+  }
+
+  if (dy === 0) {
+    if (prevY < minY || prevY > maxY) return false;
+  } else {
+    let t1 = (minY - prevY) / dy;
+    let t2 = (maxY - prevY) / dy;
+    if (t1 > t2) {
+      const tmp = t1;
+      t1 = t2;
+      t2 = tmp;
+    }
+    if (t1 > tMin) tMin = t1;
+    if (t2 < tMax) tMax = t2;
+    if (tMin > tMax) return false;
+  }
+
+  return true;
 }
 
 function getWeaponSpec(weapon: string) {
@@ -242,6 +300,8 @@ export function tickBullets(
 ): void {
   for (let i = state.bullets.length - 1; i >= 0; i--) {
     const b = state.bullets[i] as Bullet;
+    const prevX = b.x;
+    const prevY = b.y;
     b.x += b.vx * dtSec;
     b.y += b.vy * dtSec;
 
@@ -260,11 +320,12 @@ export function tickBullets(
       continue;
     }
 
-    // Obstacle hit: absorb the bullet, no damage.
+    // Obstacle hit (swept segment vs AABB so fast bullets don't tunnel
+    // through thin walls in a single tick). Bullet is absorbed, no damage.
     let blocked = false;
     state.obstacles.forEach((o) => {
       if (blocked) return;
-      if (bulletHitsObstacle(b, o)) blocked = true;
+      if (bulletPathHitsObstacle(prevX, prevY, b.x, b.y, o)) blocked = true;
     });
     if (blocked) {
       state.bullets.splice(i, 1);
@@ -478,33 +539,124 @@ export function freshPickupCtx(): PickupTickContext {
 
 // ---------- Obstacle generation ----------
 
+interface ObstacleRect {
+  kind: ObstacleKind;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** AABB overlap test with an extra margin so obstacles don't kiss each other. */
+function rectOverlap(a: ObstacleRect, b: ObstacleRect, margin: number): boolean {
+  return (
+    Math.abs(a.x - b.x) < (a.w + b.w) / 2 + margin &&
+    Math.abs(a.y - b.y) < (a.h + b.h) / 2 + margin
+  );
+}
+
+function withinWorld(r: ObstacleRect): boolean {
+  return (
+    Math.abs(r.x) + r.w / 2 < WORLD_HALF - OBSTACLE_EDGE_INSET &&
+    Math.abs(r.y) + r.h / 2 < WORLD_HALF - OBSTACLE_EDGE_INSET
+  );
+}
+
+/**
+ * Try to lay down a single wall cluster: a chain of 2-4 axis-aligned
+ * segments, optionally with one 90° bend. Returns the segment list or null
+ * if no valid placement was found.
+ */
+function generateWallCluster(placed: ObstacleRect[]): ObstacleRect[] | null {
+  const xMax = WORLD_HALF - OBSTACLE_EDGE_INSET - WALL_SEGMENT_LEN;
+  const yMax = WORLD_HALF - OBSTACLE_EDGE_INSET - WALL_SEGMENT_LEN;
+
+  for (let attempt = 0; attempt < OBSTACLE_PLACEMENT_ATTEMPTS; attempt++) {
+    // Anchor + initial axis.
+    let cx = (Math.random() * 2 - 1) * xMax;
+    let cy = (Math.random() * 2 - 1) * yMax;
+    if (Math.hypot(cx, cy) < OBSTACLE_KEEP_OUT) continue;
+
+    let horizontal = Math.random() < 0.5;
+    const segCount =
+      WALL_SEG_MIN + Math.floor(Math.random() * (WALL_SEG_MAX - WALL_SEG_MIN + 1));
+    const bendAt =
+      segCount >= 3 && Math.random() < WALL_BEND_PROB
+        ? 1 + Math.floor(Math.random() * (segCount - 1))
+        : -1;
+
+    const segments: ObstacleRect[] = [];
+    let ok = true;
+    for (let s = 0; s < segCount; s++) {
+      if (s === bendAt) {
+        // Step off-axis by half a segment, then flip orientation so the
+        // chain continues perpendicular to where it was going.
+        if (horizontal) cy += (Math.random() < 0.5 ? 1 : -1) * WALL_SEGMENT_LEN / 2;
+        else cx += (Math.random() < 0.5 ? 1 : -1) * WALL_SEGMENT_LEN / 2;
+        horizontal = !horizontal;
+      }
+      const w = horizontal ? WALL_SEGMENT_LEN : WALL_SEGMENT_THICKNESS;
+      const h = horizontal ? WALL_SEGMENT_THICKNESS : WALL_SEGMENT_LEN;
+      const seg: ObstacleRect = { kind: "wall", x: cx, y: cy, w, h };
+
+      if (!withinWorld(seg)) {
+        ok = false;
+        break;
+      }
+      // Reject if too close to any already-placed (different-cluster) rect.
+      // Within-cluster segments are allowed to touch by design.
+      for (const p of placed) {
+        if (rectOverlap(seg, p, OBSTACLE_MIN_SPACING)) {
+          ok = false;
+          break;
+        }
+      }
+      if (!ok) break;
+      segments.push(seg);
+
+      // Advance to next segment centre along the current axis.
+      if (horizontal) cx += WALL_SEGMENT_LEN;
+      else cy += WALL_SEGMENT_LEN;
+    }
+    if (ok && segments.length >= WALL_SEG_MIN) return segments;
+  }
+  return null;
+}
+
 /**
  * Generate a fresh obstacle layout for a new match and write it into
- * `state.obstacles`. We mix three kinds — crates, pallets, blocks — and use
- * rejection sampling to keep them apart from each other, the spawn area,
- * and the world edge.
+ * `state.obstacles`.
+ *
+ * Two-pass: wall clusters first (form corridors / cover lines), then
+ * scattered standalone crates / pallets / blocks (fill in cover spots
+ * between the walls). Uses rejection sampling against the world edge,
+ * a tiny origin keep-out, and inter-cluster spacing.
  */
 export function generateObstacles(state: SurvivorState): void {
   state.obstacles.clear();
 
+  const placed: ObstacleRect[] = [];
+
+  // ---- Pass 1: wall clusters ----
+  for (let i = 0; i < WALL_CLUSTER_COUNT; i++) {
+    const cluster = generateWallCluster(placed);
+    if (!cluster) continue;
+    for (const seg of cluster) placed.push(seg);
+  }
+
+  // ---- Pass 2: standalone cover ----
   const kindWeights: Array<{ kind: ObstacleKind; weight: number }> = [
     { kind: "crate", weight: 45 },
-    { kind: "pallet", weight: 35 },
-    { kind: "block", weight: 20 },
+    { kind: "pallet", weight: 30 },
+    { kind: "block", weight: 25 },
   ];
   const totalWeight = kindWeights.reduce((s, k) => s + k.weight, 0);
 
-  const placed: Array<{ x: number; y: number }> = [];
-  // Reasonable boundary inset so obstacles don't clip the world edge.
-  const edgeInset = 80;
-  const xMax = WORLD_HALF - edgeInset;
-  const yMax = WORLD_HALF - edgeInset;
-
-  let attemptsRemaining = OBSTACLE_COUNT * OBSTACLE_PLACEMENT_ATTEMPTS;
-  while (state.obstacles.length < OBSTACLE_COUNT && attemptsRemaining > 0) {
+  let placedStandalone = 0;
+  let attemptsRemaining = STANDALONE_OBSTACLE_COUNT * OBSTACLE_PLACEMENT_ATTEMPTS;
+  while (placedStandalone < STANDALONE_OBSTACLE_COUNT && attemptsRemaining > 0) {
     attemptsRemaining--;
 
-    // Pick a kind via weighted roulette.
     let r = Math.random() * totalWeight;
     let kind: ObstacleKind = "crate";
     for (const entry of kindWeights) {
@@ -517,29 +669,34 @@ export function generateObstacles(state: SurvivorState): void {
     const sizeChoices = OBSTACLE_SIZES[kind];
     const size = sizeChoices[Math.floor(Math.random() * sizeChoices.length)];
 
-    const x = (Math.random() * 2 - 1) * xMax;
-    const y = (Math.random() * 2 - 1) * yMax;
-
-    // Reject if too close to centre (initial spawn area).
+    const x = (Math.random() * 2 - 1) * (WORLD_HALF - OBSTACLE_EDGE_INSET);
+    const y = (Math.random() * 2 - 1) * (WORLD_HALF - OBSTACLE_EDGE_INSET);
     if (Math.hypot(x, y) < OBSTACLE_KEEP_OUT) continue;
 
-    // Reject if too close to any existing obstacle.
-    let tooClose = false;
+    const candidate: ObstacleRect = { kind, x, y, w: size.w, h: size.h };
+    if (!withinWorld(candidate)) continue;
+
+    let blocked = false;
     for (const p of placed) {
-      if (Math.hypot(p.x - x, p.y - y) < OBSTACLE_MIN_SPACING) {
-        tooClose = true;
+      if (rectOverlap(candidate, p, OBSTACLE_MIN_SPACING)) {
+        blocked = true;
         break;
       }
     }
-    if (tooClose) continue;
+    if (blocked) continue;
 
+    placed.push(candidate);
+    placedStandalone++;
+  }
+
+  // ---- Flush into ArraySchema ----
+  for (const p of placed) {
     const o = new ObstacleCtor();
-    o.kind = kind;
-    o.x = x;
-    o.y = y;
-    o.w = size.w;
-    o.h = size.h;
+    o.kind = p.kind;
+    o.x = p.x;
+    o.y = p.y;
+    o.w = p.w;
+    o.h = p.h;
     state.obstacles.push(o);
-    placed.push({ x, y });
   }
 }

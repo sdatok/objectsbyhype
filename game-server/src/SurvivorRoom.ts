@@ -87,6 +87,10 @@ export class SurvivorRoom extends Room<SurvivorState> {
     });
 
     this.setSimulationInterval((dtMs) => this.tick(dtMs), TICK_MS);
+    // Send state patches every simulation tick instead of the default 50ms,
+    // so the client gets a fresh snapshot pair every ~33ms and interpolation
+    // looks smoother (especially noticeable on player movement).
+    this.setPatchRate(TICK_MS);
 
     console.log("[SurvivorRoom] created");
   }
