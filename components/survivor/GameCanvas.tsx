@@ -60,6 +60,14 @@ interface ServerPickup {
   spawnedAt: number;
 }
 
+interface ServerObstacle {
+  kind: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 interface ServerZone {
   cx: number;
   cy: number;
@@ -80,6 +88,7 @@ interface ServerState {
     | { forEach: (cb: (p: ServerPlayer, k: string) => void) => void; size: number };
   bullets: ServerBullet[] | { forEach: (cb: (b: ServerBullet, idx: number) => void) => void; length: number };
   pickups: ServerPickup[] | { forEach: (cb: (p: ServerPickup) => void) => void; length: number };
+  obstacles: ServerObstacle[] | { forEach: (cb: (o: ServerObstacle) => void) => void; length: number };
   zone: ServerZone;
 }
 
@@ -849,6 +858,16 @@ function renderFrame(
   ctx.strokeRect(tl.sx, tl.sy, WORLD * scale, WORLD * scale);
   ctx.restore();
 
+  // Obstacles render under the zone-wash so they sit "on the floor" and the
+  // danger tint reads on top of them.
+  if (rs.obstacles && typeof (rs.obstacles as { forEach?: unknown }).forEach === "function") {
+    (rs.obstacles as unknown as {
+      forEach: (cb: (o: ServerObstacle) => void) => void;
+    }).forEach((o) => {
+      drawObstacle(ctx, o, w2s, scale);
+    });
+  }
+
   drawZoneWash(ctx, rs.zone, w2s, scale, cssW, cssH);
   drawZoneRings(ctx, rs.zone, w2s, scale);
 
@@ -1033,6 +1052,85 @@ function drawBullets(
     ctx.arc(pos.sx, pos.sy, innerR, 0, Math.PI * 2);
     ctx.fill();
   });
+  ctx.restore();
+}
+
+function drawObstacle(
+  ctx: CanvasRenderingContext2D,
+  o: ServerObstacle,
+  w2s: (x: number, y: number) => { sx: number; sy: number },
+  scale: number
+) {
+  const tl = w2s(o.x - o.w / 2, o.y - o.h / 2);
+  const w = o.w * scale;
+  const h = o.h * scale;
+
+  ctx.save();
+
+  // Drop shadow under the crate for grounding.
+  ctx.fillStyle = "rgba(0,0,0,0.55)";
+  ctx.fillRect(tl.sx + 4, tl.sy + 6, w, h);
+
+  // Body: dark fill with cross-hatch stripes (streetwear tape pattern).
+  ctx.fillStyle = "#0e0e16";
+  ctx.fillRect(tl.sx, tl.sy, w, h);
+
+  // Diagonal hazard stripes.
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(tl.sx, tl.sy, w, h);
+  ctx.clip();
+  ctx.strokeStyle = "rgba(251,191,36,0.18)";
+  ctx.lineWidth = 6;
+  const stripeStep = 18;
+  ctx.beginPath();
+  for (let s = -h; s < w + h; s += stripeStep) {
+    ctx.moveTo(tl.sx + s, tl.sy);
+    ctx.lineTo(tl.sx + s + h, tl.sy + h);
+  }
+  ctx.stroke();
+  ctx.restore();
+
+  // Stencil border (white) with magenta corner ticks.
+  ctx.strokeStyle = "rgba(255,255,255,0.78)";
+  ctx.lineWidth = Math.max(1.5, 1.5 * scale);
+  ctx.strokeRect(tl.sx + 1, tl.sy + 1, w - 2, h - 2);
+
+  const tickLen = Math.min(w, h) * 0.22;
+  ctx.strokeStyle = "#c026d3";
+  ctx.lineWidth = Math.max(2, 2 * scale);
+  ctx.beginPath();
+  // Top-left
+  ctx.moveTo(tl.sx, tl.sy + tickLen);
+  ctx.lineTo(tl.sx, tl.sy);
+  ctx.lineTo(tl.sx + tickLen, tl.sy);
+  // Top-right
+  ctx.moveTo(tl.sx + w - tickLen, tl.sy);
+  ctx.lineTo(tl.sx + w, tl.sy);
+  ctx.lineTo(tl.sx + w, tl.sy + tickLen);
+  // Bottom-right
+  ctx.moveTo(tl.sx + w, tl.sy + h - tickLen);
+  ctx.lineTo(tl.sx + w, tl.sy + h);
+  ctx.lineTo(tl.sx + w - tickLen, tl.sy + h);
+  // Bottom-left
+  ctx.moveTo(tl.sx + tickLen, tl.sy + h);
+  ctx.lineTo(tl.sx, tl.sy + h);
+  ctx.lineTo(tl.sx, tl.sy + h - tickLen);
+  ctx.stroke();
+
+  // Centered OBH label (only if the crate is big enough to read).
+  if (Math.min(w, h) > 36) {
+    const cx = tl.sx + w / 2;
+    const cy = tl.sy + h / 2;
+    const fontSize = Math.max(8, Math.min(w, h) * 0.22);
+    ctx.fillStyle = "rgba(255,255,255,0.85)";
+    ctx.font = `bold ${fontSize}px ${MONO_FONT}`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    const label = o.kind === "pallet" ? "OBH/PLT" : o.kind === "block" ? "OBH" : "OBH/CR8";
+    ctx.fillText(label, cx, cy);
+  }
+
   ctx.restore();
 }
 

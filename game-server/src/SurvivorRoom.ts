@@ -17,6 +17,7 @@ import {
   tickZone,
   tickPickups,
   freshPickupCtx,
+  generateObstacles,
   sanitizeInput,
   emptyInput,
   emptyEvents,
@@ -225,6 +226,10 @@ export class SurvivorRoom extends Room<SurvivorState> {
     // Kick everyone from any previous match before swapping matchId.
     this.resetForNewMatch();
 
+    // Lay down a fresh procedural arena. Doing this BEFORE we accept new
+    // joiners in COUNTDOWN guarantees pickSpawn() sees the obstacles.
+    generateObstacles(this.state);
+
     const now = Date.now();
     this.state.matchId = matchId;
     this.state.prizeTitle = prizeTitle;
@@ -378,11 +383,33 @@ export class SurvivorRoom extends Room<SurvivorState> {
 
   /**
    * Place new spawns on a circle inside the starting zone, biased toward
-   * the perimeter so players don't pile on top of each other.
+   * the perimeter so players don't pile on top of each other. Retries a
+   * handful of times to avoid landing inside an obstacle.
    */
   private pickSpawn(): { x: number; y: number } {
+    for (let attempt = 0; attempt < 12; attempt++) {
+      const angle = Math.random() * Math.PI * 2;
+      const r = ZONE_START_RADIUS * (0.55 + Math.random() * 0.35);
+      const x = Math.cos(angle) * r;
+      const y = Math.sin(angle) * r;
+      let inside = false;
+      this.state.obstacles.forEach((o) => {
+        if (inside) return;
+        if (
+          x > o.x - o.w / 2 - 24 &&
+          x < o.x + o.w / 2 + 24 &&
+          y > o.y - o.h / 2 - 24 &&
+          y < o.y + o.h / 2 + 24
+        ) {
+          inside = true;
+        }
+      });
+      if (!inside) return { x, y };
+    }
+    // Fallback: original behaviour. Player will be auto-pushed out by the
+    // next tickPlayers() pass anyway.
     const angle = Math.random() * Math.PI * 2;
-    const r = ZONE_START_RADIUS * (0.55 + Math.random() * 0.35);
+    const r = ZONE_START_RADIUS * 0.6;
     return { x: Math.cos(angle) * r, y: Math.sin(angle) * r };
   }
 
@@ -424,6 +451,7 @@ export class SurvivorRoom extends Room<SurvivorState> {
     this.state.players.clear();
     this.state.bullets.clear();
     this.state.pickups.clear();
+    this.state.obstacles.clear();
     this.inputs.clear();
     this.inputCounters.clear();
     this.state.endedAtMs = 0;

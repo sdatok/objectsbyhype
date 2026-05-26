@@ -66,6 +66,21 @@ export class Pickup extends Schema {
   @type("number") spawnedAt = 0;
 }
 
+/**
+ * Axis-aligned bounding-box obstacle. Generated once at match start and never
+ * mutated thereafter. Players are pushed out, bullets stop on hit, and pickups
+ * refuse to spawn inside.
+ */
+export class Obstacle extends Schema {
+  /** "crate" | "pallet" | "block" — visual variant only. */
+  @type("string") kind = "crate";
+  /** World position of the AABB centre. */
+  @type("number") x = 0;
+  @type("number") y = 0;
+  @type("number") w = 80;
+  @type("number") h = 80;
+}
+
 export class Zone extends Schema {
   @type("number") cx = 0;
   @type("number") cy = 0;
@@ -91,5 +106,6 @@ export class SurvivorState extends Schema {
   @type({ map: Player }) players = new MapSchema<Player>();
   @type([Bullet]) bullets = new ArraySchema<Bullet>();
   @type([Pickup]) pickups = new ArraySchema<Pickup>();
+  @type([Obstacle]) obstacles = new ArraySchema<Obstacle>();
   @type(Zone) zone = new Zone();
 }

@@ -17,12 +17,25 @@ import {
   PICKUP_ZONE_MARGIN,
   PICKUP_WEIGHTS,
   HEALTH_PACK_AMOUNT,
+  OBSTACLE_COUNT,
+  OBSTACLE_KEEP_OUT,
+  OBSTACLE_MIN_SPACING,
+  OBSTACLE_PLACEMENT_ATTEMPTS,
+  OBSTACLE_SIZES,
   type WeaponKind,
+  type ObstacleKind,
 } from "./constants";
-import type { SurvivorState, Player, Bullet, Pickup } from "./state";
+import type {
+  SurvivorState,
+  Player,
+  Bullet,
+  Pickup,
+  Obstacle,
+} from "./state";
 import {
   Bullet as BulletCtor,
   Pickup as PickupCtor,
+  Obstacle as ObstacleCtor,
 } from "./state";
 
 /** Latest input held server-side per player. Stored in a plain Map (NOT
@@ -100,9 +113,67 @@ export function tickPlayers(
     p.aim = inp.aim;
     const dx = inp.moveX * PLAYER_SPEED * dtSec;
     const dy = inp.moveY * PLAYER_SPEED * dtSec;
-    p.x = clamp(p.x + dx, -WORLD_HALF + PLAYER_RADIUS, WORLD_HALF - PLAYER_RADIUS);
-    p.y = clamp(p.y + dy, -WORLD_HALF + PLAYER_RADIUS, WORLD_HALF - PLAYER_RADIUS);
+
+    // Apply movement on each axis separately so the player slides along
+    // obstacle walls rather than getting stuck against a corner.
+    p.x = clamp(
+      p.x + dx,
+      -WORLD_HALF + PLAYER_RADIUS,
+      WORLD_HALF - PLAYER_RADIUS
+    );
+    resolvePlayerAgainstObstacles(p, state.obstacles, "x");
+    p.y = clamp(
+      p.y + dy,
+      -WORLD_HALF + PLAYER_RADIUS,
+      WORLD_HALF - PLAYER_RADIUS
+    );
+    resolvePlayerAgainstObstacles(p, state.obstacles, "y");
   });
+}
+
+/**
+ * Push the player out of any overlapping obstacle along the specified axis.
+ * We resolve one axis at a time so input on the other axis keeps moving the
+ * player along the obstacle face (slide behaviour).
+ */
+function resolvePlayerAgainstObstacles(
+  p: Player,
+  obstacles: SurvivorState["obstacles"],
+  axis: "x" | "y"
+): void {
+  obstacles.forEach((o) => {
+    const left = o.x - o.w / 2 - PLAYER_RADIUS;
+    const right = o.x + o.w / 2 + PLAYER_RADIUS;
+    const top = o.y - o.h / 2 - PLAYER_RADIUS;
+    const bottom = o.y + o.h / 2 + PLAYER_RADIUS;
+    if (p.x <= left || p.x >= right || p.y <= top || p.y >= bottom) {
+      return;
+    }
+    if (axis === "x") {
+      // Push to the nearer horizontal edge.
+      const toLeft = p.x - left;
+      const toRight = right - p.x;
+      p.x = toLeft < toRight ? left : right;
+    } else {
+      const toTop = p.y - top;
+      const toBottom = bottom - p.y;
+      p.y = toTop < toBottom ? top : bottom;
+    }
+  });
+}
+
+function pointInsideObstacle(x: number, y: number, o: Obstacle, pad = 0): boolean {
+  return (
+    x > o.x - o.w / 2 - pad &&
+    x < o.x + o.w / 2 + pad &&
+    y > o.y - o.h / 2 - pad &&
+    y < o.y + o.h / 2 + pad
+  );
+}
+
+function bulletHitsObstacle(b: Bullet, o: Obstacle): boolean {
+  // Treat the bullet as a point (radius is tiny compared to obstacle).
+  return pointInsideObstacle(b.x, b.y, o, BULLET_RADIUS);
 }
 
 function getWeaponSpec(weapon: string) {
@@ -185,6 +256,17 @@ export function tickBullets(
       b.y < -WORLD_HALF ||
       b.y > WORLD_HALF
     ) {
+      state.bullets.splice(i, 1);
+      continue;
+    }
+
+    // Obstacle hit: absorb the bullet, no damage.
+    let blocked = false;
+    state.obstacles.forEach((o) => {
+      if (blocked) return;
+      if (bulletHitsObstacle(b, o)) blocked = true;
+    });
+    if (blocked) {
       state.bullets.splice(i, 1);
       continue;
     }
@@ -373,15 +455,91 @@ function randomPointInsideZone(
 ): { x: number; y: number } | null {
   const r = Math.max(40, state.zone.radius - PICKUP_ZONE_MARGIN);
   if (r <= 0) return null;
-  // Uniform disc sample around the zone centre.
-  const angle = Math.random() * Math.PI * 2;
-  const dist = Math.sqrt(Math.random()) * r;
-  return {
-    x: state.zone.cx + Math.cos(angle) * dist,
-    y: state.zone.cy + Math.sin(angle) * dist,
-  };
+  // Try a few samples; reject ones that land inside an obstacle so pickups
+  // are always reachable. Falls back to the last sampled point.
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const angle = Math.random() * Math.PI * 2;
+    const dist = Math.sqrt(Math.random()) * r;
+    const x = state.zone.cx + Math.cos(angle) * dist;
+    const y = state.zone.cy + Math.sin(angle) * dist;
+    let blocked = false;
+    state.obstacles.forEach((o) => {
+      if (blocked) return;
+      if (pointInsideObstacle(x, y, o, PICKUP_RADIUS + 8)) blocked = true;
+    });
+    if (!blocked) return { x, y };
+  }
+  return null;
 }
 
 export function freshPickupCtx(): PickupTickContext {
   return { nextSpawnAtMs: 0 };
+}
+
+// ---------- Obstacle generation ----------
+
+/**
+ * Generate a fresh obstacle layout for a new match and write it into
+ * `state.obstacles`. We mix three kinds — crates, pallets, blocks — and use
+ * rejection sampling to keep them apart from each other, the spawn area,
+ * and the world edge.
+ */
+export function generateObstacles(state: SurvivorState): void {
+  state.obstacles.clear();
+
+  const kindWeights: Array<{ kind: ObstacleKind; weight: number }> = [
+    { kind: "crate", weight: 45 },
+    { kind: "pallet", weight: 35 },
+    { kind: "block", weight: 20 },
+  ];
+  const totalWeight = kindWeights.reduce((s, k) => s + k.weight, 0);
+
+  const placed: Array<{ x: number; y: number }> = [];
+  // Reasonable boundary inset so obstacles don't clip the world edge.
+  const edgeInset = 80;
+  const xMax = WORLD_HALF - edgeInset;
+  const yMax = WORLD_HALF - edgeInset;
+
+  let attemptsRemaining = OBSTACLE_COUNT * OBSTACLE_PLACEMENT_ATTEMPTS;
+  while (state.obstacles.length < OBSTACLE_COUNT && attemptsRemaining > 0) {
+    attemptsRemaining--;
+
+    // Pick a kind via weighted roulette.
+    let r = Math.random() * totalWeight;
+    let kind: ObstacleKind = "crate";
+    for (const entry of kindWeights) {
+      r -= entry.weight;
+      if (r <= 0) {
+        kind = entry.kind;
+        break;
+      }
+    }
+    const sizeChoices = OBSTACLE_SIZES[kind];
+    const size = sizeChoices[Math.floor(Math.random() * sizeChoices.length)];
+
+    const x = (Math.random() * 2 - 1) * xMax;
+    const y = (Math.random() * 2 - 1) * yMax;
+
+    // Reject if too close to centre (initial spawn area).
+    if (Math.hypot(x, y) < OBSTACLE_KEEP_OUT) continue;
+
+    // Reject if too close to any existing obstacle.
+    let tooClose = false;
+    for (const p of placed) {
+      if (Math.hypot(p.x - x, p.y - y) < OBSTACLE_MIN_SPACING) {
+        tooClose = true;
+        break;
+      }
+    }
+    if (tooClose) continue;
+
+    const o = new ObstacleCtor();
+    o.kind = kind;
+    o.x = x;
+    o.y = y;
+    o.w = size.w;
+    o.h = size.h;
+    state.obstacles.push(o);
+    placed.push({ x, y });
+  }
 }

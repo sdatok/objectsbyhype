@@ -65,9 +65,9 @@ export const WEAPONS: Record<WeaponKind, WeaponSpec> = {
     ttlSec: 0.9,
   },
   rapid: {
-    cooldownMs: 90,
+    cooldownMs: 140,
     bulletSpeed: 900,
-    damage: 12,
+    damage: 10,
     pellets: 1,
     spreadRad: 0,
     ttlSec: 1.2,
@@ -108,6 +108,43 @@ export const PICKUP_WEIGHTS: { kind: "health" | WeaponKind; weight: number }[] =
   { kind: "rapid", weight: 25 },
   { kind: "sniper", weight: 20 },
 ];
+
+// ---------- Obstacles ----------
+/**
+ * Layout config. We scatter `OBSTACLE_COUNT` AABB crates/pallets across the
+ * world on each match start. Player movement is clamped out of them, bullets
+ * stop on hit, and pickups won't spawn inside them.
+ */
+export const OBSTACLE_COUNT = 14;
+/** Clear radius around world origin so spawn area stays open. */
+export const OBSTACLE_KEEP_OUT = 240;
+/** Minimum gap between any two obstacle centres. */
+export const OBSTACLE_MIN_SPACING = 220;
+/** How many random attempts per slot before we give up and place one less. */
+export const OBSTACLE_PLACEMENT_ATTEMPTS = 30;
+
+export type ObstacleKind = "crate" | "pallet" | "block";
+
+export const OBSTACLE_SIZES: Record<ObstacleKind, Array<{ w: number; h: number }>> = {
+  // ~square shipping crates
+  crate: [
+    { w: 80, h: 80 },
+    { w: 100, h: 100 },
+    { w: 70, h: 70 },
+  ],
+  // Long flat pallets (random orientation chosen at gen time)
+  pallet: [
+    { w: 180, h: 60 },
+    { w: 60, h: 180 },
+    { w: 220, h: 70 },
+    { w: 70, h: 220 },
+  ],
+  // Small low-profile blocks
+  block: [
+    { w: 55, h: 55 },
+    { w: 50, h: 50 },
+  ],
+};
 
 // ---------- Zone ----------
 export const ZONE_START_RADIUS = 1900;
