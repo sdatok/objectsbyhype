@@ -306,6 +306,7 @@ export class SurvivorRoom extends Room<SurvivorState> {
         placement: p.placement,
       })),
       alive: this.countAlive(),
+      obstacleCount: this.state.obstacles.length,
     };
   }
 

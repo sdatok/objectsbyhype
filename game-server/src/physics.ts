@@ -699,4 +699,6 @@ export function generateObstacles(state: SurvivorState): void {
     o.h = p.h;
     state.obstacles.push(o);
   }
+
+  console.log(`[survivor] generateObstacles placed ${state.obstacles.length} segments`);
 }
