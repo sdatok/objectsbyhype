@@ -22,8 +22,9 @@ import {
   OBSTACLE_EDGE_INSET,
   OBSTACLE_PLACEMENT_ATTEMPTS,
   OBSTACLE_SIZES,
-  WALL_CLUSTER_COUNT,
+  CLIFF_CLUSTER_COUNT,
   STANDALONE_OBSTACLE_COUNT,
+  ISLAND_RADIUS,
   WALL_SEGMENT_LEN,
   WALL_SEGMENT_THICKNESS,
   WALL_SEG_MIN,
@@ -562,6 +563,12 @@ function withinWorld(r: ObstacleRect): boolean {
   );
 }
 
+/** Obstacle centre + half-size must sit on the sand disc, not in the water. */
+function withinIsland(r: ObstacleRect, margin = 0): boolean {
+  const halfDiag = Math.hypot(r.w, r.h) / 2 + margin;
+  return Math.hypot(r.x, r.y) + halfDiag <= ISLAND_RADIUS - OBSTACLE_EDGE_INSET;
+}
+
 /**
  * Try to lay down a single wall cluster: a chain of 2-4 axis-aligned
  * segments, optionally with one 90° bend. Returns the segment list or null
@@ -597,9 +604,9 @@ function generateWallCluster(placed: ObstacleRect[]): ObstacleRect[] | null {
       }
       const w = horizontal ? WALL_SEGMENT_LEN : WALL_SEGMENT_THICKNESS;
       const h = horizontal ? WALL_SEGMENT_THICKNESS : WALL_SEGMENT_LEN;
-      const seg: ObstacleRect = { kind: "wall", x: cx, y: cy, w, h };
+      const seg: ObstacleRect = { kind: "cliff", x: cx, y: cy, w, h };
 
-      if (!withinWorld(seg)) {
+      if (!withinWorld(seg) || !withinIsland(seg, 8)) {
         ok = false;
         break;
       }
@@ -637,8 +644,8 @@ export function generateObstacles(state: SurvivorState): void {
 
   const placed: ObstacleRect[] = [];
 
-  // ---- Pass 1: wall clusters ----
-  for (let i = 0; i < WALL_CLUSTER_COUNT; i++) {
+  // ---- Pass 1: cliff / rock maze clusters ----
+  for (let i = 0; i < CLIFF_CLUSTER_COUNT; i++) {
     const cluster = generateWallCluster(placed);
     if (!cluster) continue;
     for (const seg of cluster) placed.push(seg);
@@ -646,9 +653,9 @@ export function generateObstacles(state: SurvivorState): void {
 
   // ---- Pass 2: standalone cover ----
   const kindWeights: Array<{ kind: ObstacleKind; weight: number }> = [
-    { kind: "crate", weight: 45 },
-    { kind: "pallet", weight: 30 },
-    { kind: "block", weight: 25 },
+    { kind: "palm", weight: 35 },
+    { kind: "rock", weight: 35 },
+    { kind: "wreck", weight: 30 },
   ];
   const totalWeight = kindWeights.reduce((s, k) => s + k.weight, 0);
 
@@ -658,7 +665,7 @@ export function generateObstacles(state: SurvivorState): void {
     attemptsRemaining--;
 
     let r = Math.random() * totalWeight;
-    let kind: ObstacleKind = "crate";
+    let kind: ObstacleKind = "rock";
     for (const entry of kindWeights) {
       r -= entry.weight;
       if (r <= 0) {
@@ -674,7 +681,7 @@ export function generateObstacles(state: SurvivorState): void {
     if (Math.hypot(x, y) < OBSTACLE_KEEP_OUT) continue;
 
     const candidate: ObstacleRect = { kind, x, y, w: size.w, h: size.h };
-    if (!withinWorld(candidate)) continue;
+    if (!withinWorld(candidate) || !withinIsland(candidate, 12)) continue;
 
     let blocked = false;
     for (const p of placed) {

@@ -72,8 +72,8 @@ export class Pickup extends Schema {
  * refuse to spawn inside.
  */
 export class Obstacle extends Schema {
-  /** "crate" | "pallet" | "block" — visual variant only. */
-  @type("string") kind = "crate";
+  /** "cliff" | "rock" | "palm" | "wreck" — island prop; blocks movement + bullets. */
+  @type("string") kind = "rock";
   /** World position of the AABB centre. */
   @type("number") x = 0;
   @type("number") y = 0;

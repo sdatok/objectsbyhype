@@ -415,9 +415,9 @@ function LobbyPanel(props: {
         </button>
 
         <p className="text-[10px] text-neutral-500 leading-relaxed">
-          Desktop only for v1. Movement: WASD. Aim: mouse. Fire: left click.
-          Stay inside the safe zone — it shrinks. Last alive wins. Ties broken
-          by kills, then HP.
+          Mobile: left stick to move, right stick to aim (auto-fire while
+          pushed). Desktop: WASD + mouse. Stay inside the safe zone — it
+          shrinks. Last alive wins.
         </p>
       </form>
     </div>
@@ -497,8 +497,8 @@ function StandbyPanel({
             {alive === 1 ? "" : "s"} in the arena
           </p>
           <p className="text-[10px] text-neutral-500 leading-relaxed">
-            WASD to move · mouse to aim · left click to fire. Stay in the
-            safe zone (it shrinks). Last alive wins.
+            Left stick: move · right stick: aim + fire. Desktop: WASD + mouse.
+            Stay in the safe zone (it shrinks). Last alive wins.
           </p>
         </div>
 

@@ -13,6 +13,36 @@ export default async function AdminSurvivorPage() {
   const config = await getOrCreateSurvivorConfig();
   const current = await getCurrentMatch(config);
 
+  let serverHealth: {
+    ok: boolean;
+    build?: string;
+    gitSha?: string;
+    error?: string;
+  } | null = null;
+  const gameServerUrl = process.env.SURVIVOR_GAME_SERVER_URL;
+  if (gameServerUrl) {
+    try {
+      const res = await fetch(`${gameServerUrl.replace(/\/$/, "")}/healthz`, {
+        cache: "no-store",
+        next: { revalidate: 0 },
+      });
+      const body = (await res.json().catch(() => ({}))) as {
+        build?: string;
+        gitSha?: string;
+      };
+      serverHealth = {
+        ok: res.ok && body.build === "island-v3",
+        build: body.build,
+        gitSha: body.gitSha,
+      };
+    } catch (err) {
+      serverHealth = {
+        ok: false,
+        error: err instanceof Error ? err.message : "unreachable",
+      };
+    }
+  }
+
   const recent = await prisma.survivorMatch.findMany({
     orderBy: { createdAt: "desc" },
     take: 8,
@@ -38,6 +68,32 @@ export default async function AdminSurvivorPage() {
           runs on Railway (Colyseus); this page just talks to it via signed
           admin commands.
         </p>
+        {serverHealth && (
+          <div
+            className={`mt-3 text-[11px] border rounded px-3 py-2 ${
+              serverHealth.ok
+                ? "border-emerald-300 bg-emerald-50 text-emerald-900"
+                : "border-amber-300 bg-amber-50 text-amber-950"
+            }`}
+          >
+            <strong>Game server (Railway):</strong>{" "}
+            {serverHealth.ok ? (
+              <>
+                island-v3 live · git{" "}
+                <code>{serverHealth.gitSha ?? "?"}</code>
+              </>
+            ) : serverHealth.error ? (
+              <>unreachable — {serverHealth.error}. Check Railway root dir is{" "}
+                <code>game-server</code> and redeploy.</>
+            ) : (
+              <>
+                outdated build (<code>{serverHealth.build ?? "unknown"}</code>
+                ). Railway must deploy latest <code>main</code> with root{" "}
+                <code>game-server</code>, then open a <strong>new</strong> match.
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.2fr] gap-8">

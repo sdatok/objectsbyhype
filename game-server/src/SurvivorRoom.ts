@@ -244,7 +244,7 @@ export class SurvivorRoom extends Room<SurvivorState> {
     this.matchPrize = prizeTitle;
 
     console.log(
-      `[SurvivorRoom] startMatch matchId=${matchId} lobby=${lobbySeconds}s match=${matchSeconds}s`
+      `[SurvivorRoom] startMatch matchId=${matchId} lobby=${lobbySeconds}s match=${matchSeconds}s obstacles=${this.state.obstacles.length}`
     );
 
     this.clock.setTimeout(() => {

@@ -109,63 +109,50 @@ export const PICKUP_WEIGHTS: { kind: "health" | WeaponKind; weight: number }[] =
   { kind: "sniper", weight: 20 },
 ];
 
-// ---------- Obstacles ----------
+// ---------- Island / obstacles ----------
+/** Circular playable sand area (world centre). Obstacles spawn inside this. */
+export const ISLAND_RADIUS = 1320;
+/** Beach ring width at the island edge (visual + spawn padding). */
+export const ISLAND_BEACH_WIDTH = 80;
+
 /**
- * Two-pass layout: first we lay down `WALL_CLUSTER_COUNT` wall clusters
- * (chains of 2-4 thick "wall" segments, sometimes with an L-bend), then we
- * scatter `STANDALONE_OBSTACLE_COUNT` crates/blocks/pallets in the gaps.
- * The result is maze-like (corridors and corners to break sightlines) while
- * still leaving plenty of open ground for movement.
- *
- * Players are clamped out, bullets stop on hit (swept collision), and
- * pickups + spawns reject obstacle interiors.
+ * Two-pass island layout: cliff/rock maze clusters + scattered palms,
+ * boulders, and wreckage. Everything spawns on the sand disc, not in the
+ * surrounding water.
  */
-export const WALL_CLUSTER_COUNT = 9;
-export const STANDALONE_OBSTACLE_COUNT = 12;
-/** Each wall segment is roughly this long; thickness is fixed at 46. */
+export const CLIFF_CLUSTER_COUNT = 11;
+export const STANDALONE_OBSTACLE_COUNT = 16;
 export const WALL_SEGMENT_LEN = 110;
 export const WALL_SEGMENT_THICKNESS = 46;
-/** Min / max segments per wall cluster. */
 export const WALL_SEG_MIN = 2;
 export const WALL_SEG_MAX = 4;
-/** Probability the wall bends 90deg partway through. */
-export const WALL_BEND_PROB = 0.4;
-/** Very small clear circle around origin so spawns near 0,0 have room. */
-export const OBSTACLE_KEEP_OUT = 90;
-/** Minimum gap (centre-to-centre) between any two obstacles in different clusters. */
-export const OBSTACLE_MIN_SPACING = 140;
-/** Inset from world edge so obstacles never clip the boundary. */
-export const OBSTACLE_EDGE_INSET = 90;
-/** How many random attempts per cluster / standalone before giving up. */
-export const OBSTACLE_PLACEMENT_ATTEMPTS = 40;
+export const WALL_BEND_PROB = 0.45;
+export const OBSTACLE_KEEP_OUT = 80;
+export const OBSTACLE_MIN_SPACING = 120;
+export const OBSTACLE_EDGE_INSET = 60;
+export const OBSTACLE_PLACEMENT_ATTEMPTS = 50;
 
-export type ObstacleKind = "wall" | "crate" | "pallet" | "block";
+export type ObstacleKind = "cliff" | "rock" | "palm" | "wreck";
 
 export const OBSTACLE_SIZES: Record<ObstacleKind, Array<{ w: number; h: number }>> = {
-  // Wall segments — generated in code, not sampled from this table, but kept
-  // here so the type stays consistent. Client uses this kind to pick a
-  // concrete-wall visual instead of stencil crate.
-  wall: [
+  cliff: [
     { w: WALL_SEGMENT_LEN, h: WALL_SEGMENT_THICKNESS },
     { w: WALL_SEGMENT_THICKNESS, h: WALL_SEGMENT_LEN },
   ],
-  // ~square shipping crates
-  crate: [
-    { w: 80, h: 80 },
-    { w: 100, h: 100 },
-    { w: 70, h: 70 },
+  rock: [
+    { w: 70, h: 58 },
+    { w: 55, h: 55 },
+    { w: 90, h: 72 },
   ],
-  // Long flat pallets (random orientation chosen at gen time)
-  pallet: [
+  palm: [
+    { w: 44, h: 44 },
+    { w: 52, h: 52 },
+  ],
+  wreck: [
     { w: 180, h: 60 },
     { w: 60, h: 180 },
-    { w: 220, h: 70 },
-    { w: 70, h: 220 },
-  ],
-  // Small low-profile blocks
-  block: [
-    { w: 55, h: 55 },
-    { w: 50, h: 50 },
+    { w: 200, h: 70 },
+    { w: 70, h: 200 },
   ],
 };
 

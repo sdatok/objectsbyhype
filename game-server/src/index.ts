@@ -64,14 +64,21 @@ gameServer.define(ROOM_NAME, SurvivorRoom);
 // ---------- Liveness ----------
 
 app.get("/healthz", (_req, res) => {
-  // Expose the deployed git sha so we can confirm Railway picked up the
-  // latest push without needing admin credentials. Railway sets
-  // RAILWAY_GIT_COMMIT_SHA automatically on GitHub deploys.
   res.json({
     ok: true,
     ts: Date.now(),
+    service: "objectsbyhype-survivor",
     gitSha: process.env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 7) ?? "unknown",
-    features: ["obstacles", "maze-walls", "pickups-v2"],
+    build: "island-v3",
+    features: ["obstacles", "island-maze", "pickups-v2", "mobile-sticks"],
+  });
+});
+
+app.get("/version", (_req, res) => {
+  res.json({
+    ok: true,
+    build: "island-v3",
+    gitSha: process.env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 7) ?? "unknown",
   });
 });
 

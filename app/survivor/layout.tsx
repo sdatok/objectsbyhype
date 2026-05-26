@@ -16,7 +16,7 @@ export default function SurvivorLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="min-h-[100dvh] bg-black text-white antialiased">
+    <div className="min-h-[100dvh] bg-black text-white antialiased overscroll-none">
       {children}
     </div>
   );

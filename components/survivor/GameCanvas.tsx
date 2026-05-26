@@ -3,6 +3,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Room } from "colyseus.js";
 import { startInputLoop, type MutableInput } from "@/lib/survivor-client";
+import MobileControls, {
+  aimStickFiring,
+  emptyStick,
+  useMobileControls,
+  type VirtualStickState,
+} from "./MobileControls";
 import RetroOverlay from "./RetroOverlay";
 
 /**
@@ -94,6 +100,7 @@ interface ServerState {
 
 // Must match game-server/src/constants.ts.
 const WORLD = 2800;
+const ISLAND_RADIUS = 1320;
 const PLAYER_R = 18;
 const BULLET_R = 4;
 const PICKUP_R = 14;
@@ -142,6 +149,10 @@ export default function GameCanvas({ room, onLeave }: GameCanvasProps) {
 
   const keysRef = useRef<Set<string>>(new Set());
   const mouseRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const mouseShootingRef = useRef(false);
+  const moveStickRef = useRef<VirtualStickState>(emptyStick());
+  const aimStickRef = useRef<VirtualStickState>(emptyStick());
+  const mobileControls = useMobileControls();
   const sessionIdRef = useRef<string>(room.sessionId);
 
   // Interpolation buffers. Each entry holds `prev` (older snapshot) and
@@ -317,7 +328,7 @@ export default function GameCanvas({ room, onLeave }: GameCanvasProps) {
     return () => window.removeEventListener("resize", resizeCanvas);
   }, [resizeCanvas]);
 
-  // Keyboard: WASD + arrows.
+  // Keyboard: WASD + arrows. Mouse button held anywhere on window.
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const k = e.key.toLowerCase();
@@ -329,13 +340,26 @@ export default function GameCanvas({ room, onLeave }: GameCanvasProps) {
     const onKeyUp = (e: KeyboardEvent) => {
       keysRef.current.delete(e.key.toLowerCase());
     };
-    const onBlur = () => keysRef.current.clear();
+    const onMouseDown = (e: MouseEvent) => {
+      if (e.button === 0) mouseShootingRef.current = true;
+    };
+    const onMouseUp = (e: MouseEvent) => {
+      if (e.button === 0) mouseShootingRef.current = false;
+    };
+    const onBlur = () => {
+      keysRef.current.clear();
+      mouseShootingRef.current = false;
+    };
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("mousedown", onMouseDown);
+    window.addEventListener("mouseup", onMouseUp);
     window.addEventListener("blur", onBlur);
     return () => {
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("mousedown", onMouseDown);
+      window.removeEventListener("mouseup", onMouseUp);
       window.removeEventListener("blur", onBlur);
     };
   }, []);
@@ -355,14 +379,22 @@ export default function GameCanvas({ room, onLeave }: GameCanvasProps) {
       const dt = Math.min(0.05, (nowPerf - lastFrame) / 1000);
       lastFrame = nowPerf;
 
-      const k = keysRef.current;
-      const moveX = (k.has("d") || k.has("arrowright") ? 1 : 0) +
-        (k.has("a") || k.has("arrowleft") ? -1 : 0);
-      const moveY = (k.has("s") || k.has("arrowdown") ? 1 : 0) +
-        (k.has("w") || k.has("arrowup") ? -1 : 0);
-      const len = Math.hypot(moveX, moveY) || 1;
-      inputRef.current.moveX = moveX / len;
-      inputRef.current.moveY = moveY / len;
+      const moveStick = moveStickRef.current;
+      if (moveStick.active) {
+        inputRef.current.moveX = moveStick.moveX;
+        inputRef.current.moveY = moveStick.moveY;
+      } else {
+        const k = keysRef.current;
+        const moveX =
+          (k.has("d") || k.has("arrowright") ? 1 : 0) +
+          (k.has("a") || k.has("arrowleft") ? -1 : 0);
+        const moveY =
+          (k.has("s") || k.has("arrowdown") ? 1 : 0) +
+          (k.has("w") || k.has("arrowup") ? -1 : 0);
+        const len = Math.hypot(moveX, moveY) || 1;
+        inputRef.current.moveX = moveX / len;
+        inputRef.current.moveY = moveY / len;
+      }
 
       const rs = room.state as unknown as ServerState | undefined;
       if (!rs) {
@@ -380,20 +412,31 @@ export default function GameCanvas({ room, onLeave }: GameCanvasProps) {
       cameraRef.current.x += (targetX - cameraRef.current.x) * cameraLerp;
       cameraRef.current.y += (targetY - cameraRef.current.y) * cameraLerp;
 
-      // Aim: mouse coords relative to canvas center, projected to world.
+      // Aim: right stick on mobile, mouse on desktop.
       if (selfInterp) {
-        const rect = canvas.getBoundingClientRect();
-        const scale = computeWorldScale(rect.width, rect.height);
-        const cx = rect.width / 2;
-        const cy = rect.height / 2;
-        const wx =
-          (mouseRef.current.x - rect.left - cx) / scale + cameraRef.current.x;
-        const wy =
-          (mouseRef.current.y - rect.top - cy) / scale + cameraRef.current.y;
-        inputRef.current.aim = Math.atan2(
-          wy - selfInterp.y,
-          wx - selfInterp.x
-        );
+        const aimStick = aimStickRef.current;
+        if (aimStick.active) {
+          const ax = aimStick.moveX;
+          const ay = aimStick.moveY;
+          if (Math.hypot(ax, ay) > 0.05) {
+            inputRef.current.aim = Math.atan2(ay, ax);
+          }
+          inputRef.current.shooting = aimStickFiring(aimStick);
+        } else {
+          const rect = canvas.getBoundingClientRect();
+          const scale = computeWorldScale(rect.width, rect.height);
+          const cx = rect.width / 2;
+          const cy = rect.height / 2;
+          const wx =
+            (mouseRef.current.x - rect.left - cx) / scale + cameraRef.current.x;
+          const wy =
+            (mouseRef.current.y - rect.top - cy) / scale + cameraRef.current.y;
+          inputRef.current.aim = Math.atan2(
+            wy - selfInterp.y,
+            wx - selfInterp.x
+          );
+          inputRef.current.shooting = mouseShootingRef.current;
+        }
       }
 
       renderFrame(ctx, canvas, rs, sessionIdRef.current, cameraRef.current, {
@@ -412,10 +455,10 @@ export default function GameCanvas({ room, onLeave }: GameCanvasProps) {
     mouseRef.current = { x: e.clientX, y: e.clientY };
   }, []);
   const onMouseDown = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (e.button === 0) inputRef.current.shooting = true;
+    if (e.button === 0) mouseShootingRef.current = true;
   }, []);
   const onMouseUp = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (e.button === 0) inputRef.current.shooting = false;
+    if (e.button === 0) mouseShootingRef.current = false;
   }, []);
   const onContextMenu = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -427,8 +470,8 @@ export default function GameCanvas({ room, onLeave }: GameCanvasProps) {
   return (
     <div
       ref={containerRef}
-      className="flex-1 relative overflow-hidden select-none"
-      style={{ minHeight: "60vh", background: "#070710" }}
+      className="flex-1 relative overflow-hidden select-none touch-none overscroll-none"
+      style={{ minHeight: "60vh", background: "#061525" }}
     >
       <canvas
         ref={canvasRef}
@@ -436,14 +479,26 @@ export default function GameCanvas({ room, onLeave }: GameCanvasProps) {
         onMouseDown={onMouseDown}
         onMouseUp={onMouseUp}
         onContextMenu={onContextMenu}
-        className="block w-full h-full cursor-crosshair"
+        className={`block w-full h-full ${
+          mobileControls ? "cursor-default" : "cursor-crosshair"
+        }`}
       />
       <RetroOverlay />
+      <MobileControls
+        moveStickRef={moveStickRef}
+        aimStickRef={aimStickRef}
+        enabled={
+          mobileControls &&
+          statusSnapshot.status === "PLAYING" &&
+          statusSnapshot.selfAlive
+        }
+      />
       <Hud
         snapshot={statusSnapshot}
         killFeed={killFeed}
         pickupToast={pickupToast}
         onLeave={onLeave}
+        compact={mobileControls}
       />
     </div>
   );
@@ -461,8 +516,9 @@ function Hud(props: {
   killFeed: Array<{ id: number; killer: string; victim: string; expiresAt: number }>;
   pickupToast: { kind: string; expiresAt: number } | null;
   onLeave: () => void;
+  compact?: boolean;
 }) {
-  const { snapshot, killFeed, pickupToast, onLeave } = props;
+  const { snapshot, killFeed, pickupToast, onLeave, compact } = props;
   const [, forceTick] = useState(0);
   useEffect(() => {
     const id = window.setInterval(() => forceTick((t) => t + 1), 200);
@@ -504,8 +560,14 @@ function Hud(props: {
         </div>
       </div>
 
-      <div className="absolute top-12 sm:top-14 left-3 sm:left-4 pointer-events-none">
-        <div className="flex flex-col gap-1.5">
+      <div
+        className={`absolute pointer-events-none ${
+          compact
+            ? "top-2 left-1/2 -translate-x-1/2"
+            : "top-12 sm:top-14 left-3 sm:left-4"
+        }`}
+      >
+        <div className={`flex gap-1.5 ${compact ? "flex-row" : "flex-col"}`}>
           <StatPill
             label="HP"
             value={
@@ -531,7 +593,13 @@ function Hud(props: {
       </div>
 
       {snapshot.selfAlive && (
-        <div className="absolute top-12 sm:top-14 left-24 sm:left-28 pointer-events-none">
+        <div
+          className={`absolute pointer-events-none ${
+            compact
+              ? "top-11 left-1/2 -translate-x-1/2"
+              : "top-12 sm:top-14 left-24 sm:left-28"
+          }`}
+        >
           <div
             className="border border-white/40 bg-black/55 px-2 py-1 min-w-[140px]"
             style={{ fontFamily: MONO_FONT }}
@@ -600,7 +668,11 @@ function Hud(props: {
       </div>
 
       {pickupToast && (
-        <div className="absolute inset-x-0 bottom-16 flex justify-center pointer-events-none">
+        <div
+          className={`absolute inset-x-0 flex justify-center pointer-events-none ${
+            compact ? "bottom-44" : "bottom-16"
+          }`}
+        >
           <div
             className="border-2 px-4 py-2 bg-black/80 backdrop-blur-sm"
             style={{
@@ -834,7 +906,11 @@ function renderFrame(
   ctx.save();
   ctx.scale(dpr, dpr);
 
-  ctx.fillStyle = "#070710";
+  // Deep ocean fills the viewport; sand island is drawn in world space.
+  const ocean = ctx.createLinearGradient(0, 0, 0, cssH);
+  ocean.addColorStop(0, "#0a2a4a");
+  ocean.addColorStop(1, "#061525");
+  ctx.fillStyle = ocean;
   ctx.fillRect(0, 0, cssW, cssH);
 
   const scale = computeWorldScale(cssW, cssH);
@@ -848,17 +924,8 @@ function renderFrame(
     sy: (y - camY) * scale + screenCy,
   });
 
+  drawIslandTerrain(ctx, w2s, scale, cssW, cssH);
   drawGrid(ctx, w2s, scale, cssW, cssH, camX, camY);
-
-  // World boundary, neon magenta with glow.
-  const tl = w2s(-WORLD / 2, -WORLD / 2);
-  ctx.save();
-  ctx.shadowColor = "rgba(192,38,211,0.8)";
-  ctx.shadowBlur = 18;
-  ctx.strokeStyle = "rgba(192,38,211,0.85)";
-  ctx.lineWidth = 3;
-  ctx.strokeRect(tl.sx, tl.sy, WORLD * scale, WORLD * scale);
-  ctx.restore();
 
   // Obstacles render under the zone-wash so they sit "on the floor" and the
   // danger tint reads on top of them.
@@ -897,6 +964,58 @@ function renderFrame(
   ctx.restore();
 }
 
+function drawIslandTerrain(
+  ctx: CanvasRenderingContext2D,
+  w2s: (x: number, y: number) => { sx: number; sy: number },
+  scale: number,
+  cssW: number,
+  cssH: number
+) {
+  const centre = w2s(0, 0);
+  const r = ISLAND_RADIUS * scale;
+
+  // Sand disc.
+  const sand = ctx.createRadialGradient(
+    centre.sx,
+    centre.sy,
+    r * 0.15,
+    centre.sx,
+    centre.sy,
+    r
+  );
+  sand.addColorStop(0, "#e8c992");
+  sand.addColorStop(0.55, "#d4a96a");
+  sand.addColorStop(0.88, "#c49558");
+  sand.addColorStop(1, "#b8844a");
+  ctx.fillStyle = sand;
+  ctx.beginPath();
+  ctx.arc(centre.sx, centre.sy, r, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Beach foam ring.
+  ctx.strokeStyle = "rgba(255,255,255,0.35)";
+  ctx.lineWidth = Math.max(2, 3 * scale);
+  ctx.beginPath();
+  ctx.arc(centre.sx, centre.sy, r - 4 * scale, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Subtle shore shadow on water side.
+  ctx.strokeStyle = "rgba(6,21,37,0.35)";
+  ctx.lineWidth = Math.max(4, 8 * scale);
+  ctx.beginPath();
+  ctx.arc(centre.sx, centre.sy, r + 6 * scale, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Water shimmer bands (screen space, cheap).
+  ctx.save();
+  ctx.globalAlpha = 0.08;
+  for (let y = 0; y < cssH; y += 28) {
+    ctx.fillStyle = y % 56 === 0 ? "#ffffff" : "#7dd3fc";
+    ctx.fillRect(0, y, cssW, 2);
+  }
+  ctx.restore();
+}
+
 function drawGrid(
   ctx: CanvasRenderingContext2D,
   w2s: (x: number, y: number) => { sx: number; sy: number },
@@ -928,8 +1047,8 @@ function drawGrid(
     Math.ceil((camY + visibleSpan / 2) / minorStep) * minorStep
   );
 
-  // Minor lines (white).
-  ctx.strokeStyle = "rgba(255,255,255,0.04)";
+  // Minor sand grain lines.
+  ctx.strokeStyle = "rgba(139,94,60,0.12)";
   ctx.lineWidth = 1;
   ctx.beginPath();
   for (let x = startX; x <= endX; x += minorStep) {
@@ -948,8 +1067,8 @@ function drawGrid(
   }
   ctx.stroke();
 
-  // Major lines (magenta tint).
-  ctx.strokeStyle = "rgba(192,38,211,0.12)";
+  // Major paths (darker sand tracks).
+  ctx.strokeStyle = "rgba(120,78,45,0.22)";
   ctx.lineWidth = 1;
   ctx.beginPath();
   for (let x = startX; x <= endX; x += minorStep) {
@@ -982,7 +1101,7 @@ function drawZoneWash(
   const r = zone.radius * scale;
   ctx.save();
   ctx.globalCompositeOperation = "source-over";
-  ctx.fillStyle = "rgba(255,38,80,0.08)";
+  ctx.fillStyle = "rgba(220,38,38,0.12)";
   ctx.fillRect(0, 0, cssW, cssH);
   ctx.globalCompositeOperation = "destination-out";
   ctx.beginPath();
@@ -1002,20 +1121,20 @@ function drawZoneRings(
   const zc = w2s(zone.cx ?? 0, zone.cy ?? 0);
   const r = zone.radius * scale;
   ctx.save();
-  ctx.shadowColor = "rgba(34,211,238,0.5)";
-  ctx.shadowBlur = 12;
-  ctx.strokeStyle = "rgba(34,211,238,0.85)";
+  ctx.shadowColor = "rgba(45,212,191,0.45)";
+  ctx.shadowBlur = 10;
+  ctx.strokeStyle = "rgba(45,212,191,0.9)";
   ctx.lineWidth = 2;
-  ctx.setLineDash([12, 8]);
+  ctx.setLineDash([10, 6]);
   ctx.beginPath();
   ctx.arc(zc.sx, zc.sy, r, 0, Math.PI * 2);
   ctx.stroke();
 
   ctx.shadowBlur = 0;
-  ctx.strokeStyle = "rgba(240,171,252,0.55)";
+  ctx.strokeStyle = "rgba(251,191,36,0.5)";
   ctx.lineWidth = 1.5;
-  ctx.setLineDash([6, 10]);
-  ctx.lineDashOffset = 4;
+  ctx.setLineDash([4, 8]);
+  ctx.lineDashOffset = 2;
   ctx.beginPath();
   ctx.arc(zc.sx, zc.sy, Math.max(0, r - 4), 0, Math.PI * 2);
   ctx.stroke();
@@ -1063,90 +1182,20 @@ function drawObstacle(
   w2s: (x: number, y: number) => { sx: number; sy: number },
   scale: number
 ) {
-  if (o.kind === "wall") {
-    drawWallSegment(ctx, o, w2s, scale);
-    return;
+  const kind = o.kind;
+  if (kind === "cliff" || kind === "wall") {
+    drawCliff(ctx, o, w2s, scale);
+  } else if (kind === "palm" || kind === "crate") {
+    drawPalm(ctx, o, w2s, scale);
+  } else if (kind === "wreck" || kind === "pallet") {
+    drawWreck(ctx, o, w2s, scale);
+  } else {
+    drawRock(ctx, o, w2s, scale);
   }
-  drawCrateObstacle(ctx, o, w2s, scale);
 }
 
-/** Streetwear-stencil shipping crate / pallet / block. */
-function drawCrateObstacle(
-  ctx: CanvasRenderingContext2D,
-  o: ServerObstacle,
-  w2s: (x: number, y: number) => { sx: number; sy: number },
-  scale: number
-) {
-  const tl = w2s(o.x - o.w / 2, o.y - o.h / 2);
-  const w = o.w * scale;
-  const h = o.h * scale;
-
-  ctx.save();
-
-  ctx.fillStyle = "rgba(0,0,0,0.55)";
-  ctx.fillRect(tl.sx + 4, tl.sy + 6, w, h);
-
-  ctx.fillStyle = "#0e0e16";
-  ctx.fillRect(tl.sx, tl.sy, w, h);
-
-  ctx.save();
-  ctx.beginPath();
-  ctx.rect(tl.sx, tl.sy, w, h);
-  ctx.clip();
-  ctx.strokeStyle = "rgba(251,191,36,0.18)";
-  ctx.lineWidth = 6;
-  const stripeStep = 18;
-  ctx.beginPath();
-  for (let s = -h; s < w + h; s += stripeStep) {
-    ctx.moveTo(tl.sx + s, tl.sy);
-    ctx.lineTo(tl.sx + s + h, tl.sy + h);
-  }
-  ctx.stroke();
-  ctx.restore();
-
-  ctx.strokeStyle = "rgba(255,255,255,0.78)";
-  ctx.lineWidth = Math.max(1.5, 1.5 * scale);
-  ctx.strokeRect(tl.sx + 1, tl.sy + 1, w - 2, h - 2);
-
-  const tickLen = Math.min(w, h) * 0.22;
-  ctx.strokeStyle = "#c026d3";
-  ctx.lineWidth = Math.max(2, 2 * scale);
-  ctx.beginPath();
-  ctx.moveTo(tl.sx, tl.sy + tickLen);
-  ctx.lineTo(tl.sx, tl.sy);
-  ctx.lineTo(tl.sx + tickLen, tl.sy);
-  ctx.moveTo(tl.sx + w - tickLen, tl.sy);
-  ctx.lineTo(tl.sx + w, tl.sy);
-  ctx.lineTo(tl.sx + w, tl.sy + tickLen);
-  ctx.moveTo(tl.sx + w, tl.sy + h - tickLen);
-  ctx.lineTo(tl.sx + w, tl.sy + h);
-  ctx.lineTo(tl.sx + w - tickLen, tl.sy + h);
-  ctx.moveTo(tl.sx + tickLen, tl.sy + h);
-  ctx.lineTo(tl.sx, tl.sy + h);
-  ctx.lineTo(tl.sx, tl.sy + h - tickLen);
-  ctx.stroke();
-
-  if (Math.min(w, h) > 36) {
-    const cx = tl.sx + w / 2;
-    const cy = tl.sy + h / 2;
-    const fontSize = Math.max(8, Math.min(w, h) * 0.22);
-    ctx.fillStyle = "rgba(255,255,255,0.85)";
-    ctx.font = `bold ${fontSize}px ${MONO_FONT}`;
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    const label = o.kind === "pallet" ? "OBH/PLT" : o.kind === "block" ? "OBH" : "OBH/CR8";
-    ctx.fillText(label, cx, cy);
-  }
-
-  ctx.restore();
-}
-
-/**
- * Concrete/steel maze wall segment. Darker, no OBH label, with rivet dots
- * along the long edges and a cyan accent stripe that reads as a barrier
- * rather than a pickupable crate.
- */
-function drawWallSegment(
+/** Rocky cliff segment — maze walls on the island. */
+function drawCliff(
   ctx: CanvasRenderingContext2D,
   o: ServerObstacle,
   w2s: (x: number, y: number) => { sx: number; sy: number },
@@ -1158,56 +1207,144 @@ function drawWallSegment(
   const horizontal = o.w >= o.h;
 
   ctx.save();
-
-  // Cast shadow.
-  ctx.fillStyle = "rgba(0,0,0,0.6)";
+  ctx.fillStyle = "rgba(0,0,0,0.25)";
   ctx.fillRect(tl.sx + 3, tl.sy + 5, w, h);
 
-  // Body — slate concrete look.
   const grad = ctx.createLinearGradient(
     tl.sx,
     tl.sy,
-    horizontal ? tl.sx : tl.sx + w,
-    horizontal ? tl.sy + h : tl.sy
+    horizontal ? tl.sx + w : tl.sx,
+    horizontal ? tl.sy : tl.sy + h
   );
-  grad.addColorStop(0, "#1c1c24");
-  grad.addColorStop(0.5, "#2a2a36");
-  grad.addColorStop(1, "#15151c");
+  grad.addColorStop(0, "#6b7280");
+  grad.addColorStop(0.5, "#4b5563");
+  grad.addColorStop(1, "#374151");
   ctx.fillStyle = grad;
   ctx.fillRect(tl.sx, tl.sy, w, h);
 
-  // Outer border.
-  ctx.strokeStyle = "rgba(255,255,255,0.45)";
-  ctx.lineWidth = Math.max(1, 1 * scale);
-  ctx.strokeRect(tl.sx + 0.5, tl.sy + 0.5, w - 1, h - 1);
+  ctx.strokeStyle = "rgba(255,255,255,0.25)";
+  ctx.lineWidth = Math.max(1, 1.2 * scale);
+  ctx.strokeRect(tl.sx, tl.sy, w, h);
 
-  // Cyan accent stripe along the long axis (warning tape).
-  ctx.strokeStyle = "rgba(34,211,238,0.55)";
-  ctx.lineWidth = Math.max(1, 2 * scale);
+  // Moss highlight on top edge.
+  ctx.fillStyle = "rgba(74,222,128,0.25)";
+  ctx.fillRect(tl.sx, tl.sy, w, Math.max(3, h * 0.15));
+
+  ctx.restore();
+}
+
+/** Small boulder. */
+function drawRock(
+  ctx: CanvasRenderingContext2D,
+  o: ServerObstacle,
+  w2s: (x: number, y: number) => { sx: number; sy: number },
+  scale: number
+) {
+  const centre = w2s(o.x, o.y);
+  const rx = (o.w / 2) * scale;
+  const ry = (o.h / 2) * scale;
+
+  ctx.save();
+  ctx.fillStyle = "rgba(0,0,0,0.2)";
   ctx.beginPath();
-  if (horizontal) {
-    ctx.moveTo(tl.sx + 4, tl.sy + h * 0.5);
-    ctx.lineTo(tl.sx + w - 4, tl.sy + h * 0.5);
-  } else {
-    ctx.moveTo(tl.sx + w * 0.5, tl.sy + 4);
-    ctx.lineTo(tl.sx + w * 0.5, tl.sy + h - 4);
-  }
-  ctx.stroke();
+  ctx.ellipse(centre.sx + 3, centre.sy + 5, rx, ry, 0, 0, Math.PI * 2);
+  ctx.fill();
 
-  // Rivet dots along the two long edges.
-  ctx.fillStyle = "rgba(255,255,255,0.4)";
-  const rivetGap = 18;
-  if (horizontal) {
-    for (let x = tl.sx + 6; x < tl.sx + w - 4; x += rivetGap) {
-      ctx.fillRect(x, tl.sy + 3, 2, 2);
-      ctx.fillRect(x, tl.sy + h - 5, 2, 2);
-    }
-  } else {
-    for (let y = tl.sy + 6; y < tl.sy + h - 4; y += rivetGap) {
-      ctx.fillRect(tl.sx + 3, y, 2, 2);
-      ctx.fillRect(tl.sx + w - 5, y, 2, 2);
-    }
+  const grad = ctx.createRadialGradient(
+    centre.sx - rx * 0.3,
+    centre.sy - ry * 0.3,
+    2,
+    centre.sx,
+    centre.sy,
+    Math.max(rx, ry)
+  );
+  grad.addColorStop(0, "#9ca3af");
+  grad.addColorStop(1, "#4b5563");
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.ellipse(centre.sx, centre.sy, rx, ry, 0.2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "rgba(255,255,255,0.2)";
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.restore();
+}
+
+/** Palm tree — trunk collision box with fronds drawn above. */
+function drawPalm(
+  ctx: CanvasRenderingContext2D,
+  o: ServerObstacle,
+  w2s: (x: number, y: number) => { sx: number; sy: number },
+  scale: number
+) {
+  const base = w2s(o.x, o.y + o.h * 0.15);
+  const trunkW = Math.max(6, o.w * scale * 0.35);
+  const trunkH = Math.max(16, o.h * scale * 0.55);
+
+  ctx.save();
+  ctx.fillStyle = "rgba(0,0,0,0.2)";
+  ctx.fillRect(base.sx - trunkW / 2 + 2, base.sy - trunkH / 2 + 4, trunkW, trunkH);
+
+  ctx.fillStyle = "#8B5A2B";
+  ctx.fillRect(base.sx - trunkW / 2, base.sy - trunkH / 2, trunkW, trunkH);
+
+  const frondLen = Math.max(20, o.w * scale * 1.1);
+  ctx.strokeStyle = "#15803d";
+  ctx.lineWidth = Math.max(2, 3 * scale);
+  ctx.lineCap = "round";
+  for (let i = 0; i < 6; i++) {
+    const ang = (i / 6) * Math.PI * 2 - Math.PI / 2;
+    ctx.beginPath();
+    ctx.moveTo(base.sx, base.sy - trunkH * 0.35);
+    ctx.quadraticCurveTo(
+      base.sx + Math.cos(ang) * frondLen * 0.5,
+      base.sy - trunkH * 0.35 + Math.sin(ang) * frondLen * 0.5,
+      base.sx + Math.cos(ang) * frondLen,
+      base.sy - trunkH * 0.35 + Math.sin(ang) * frondLen * 0.35
+    );
+    ctx.stroke();
   }
+
+  ctx.fillStyle = "#166534";
+  ctx.beginPath();
+  ctx.arc(base.sx, base.sy - trunkH * 0.4, trunkW * 0.9, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+/** Driftwood / wreckage barricade. */
+function drawWreck(
+  ctx: CanvasRenderingContext2D,
+  o: ServerObstacle,
+  w2s: (x: number, y: number) => { sx: number; sy: number },
+  scale: number
+) {
+  const tl = w2s(o.x - o.w / 2, o.y - o.h / 2);
+  const w = o.w * scale;
+  const h = o.h * scale;
+
+  ctx.save();
+  ctx.fillStyle = "rgba(0,0,0,0.22)";
+  ctx.fillRect(tl.sx + 3, tl.sy + 5, w, h);
+
+  const grad = ctx.createLinearGradient(tl.sx, tl.sy, tl.sx + w, tl.sy + h);
+  grad.addColorStop(0, "#92400e");
+  grad.addColorStop(0.5, "#78350f");
+  grad.addColorStop(1, "#451a03");
+  ctx.fillStyle = grad;
+  ctx.fillRect(tl.sx, tl.sy, w, h);
+
+  ctx.strokeStyle = "rgba(254,243,199,0.35)";
+  ctx.lineWidth = Math.max(1, 1.5 * scale);
+  ctx.strokeRect(tl.sx + 1, tl.sy + 1, w - 2, h - 2);
+
+  ctx.strokeStyle = "rgba(0,0,0,0.25)";
+  ctx.beginPath();
+  ctx.moveTo(tl.sx + w * 0.2, tl.sy);
+  ctx.lineTo(tl.sx + w * 0.8, tl.sy + h);
+  ctx.moveTo(tl.sx + w * 0.7, tl.sy);
+  ctx.lineTo(tl.sx + w * 0.1, tl.sy + h);
+  ctx.stroke();
 
   ctx.restore();
 }
