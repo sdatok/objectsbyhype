@@ -209,11 +209,8 @@ export default function HomeGame({ initialState }: HomeGameProps) {
   }, []);
 
   useEffect(() => {
-    // Server passed a snapshot — skip the mount fetch. Refresh when the
-    // player opens the game (fresh leaderboard) or when we have nothing.
-    if (initialState !== undefined) return;
     loadState();
-  }, [loadState, initialState]);
+  }, [loadState]);
 
   useEffect(() => {
     if (!expanded) return;
