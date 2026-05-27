@@ -3,6 +3,7 @@ import { getOrCreateGameConfig, computeWindowEndsAt } from "@/lib/game-config";
 import { prisma } from "@/lib/db";
 import GameConfigForm from "@/components/admin/GameConfigForm";
 import AdminDeleteScoreButton from "@/components/admin/AdminDeleteScoreButton";
+import AdminAddScoreForm from "@/components/admin/AdminAddScoreForm";
 
 export const dynamic = "force-dynamic";
 
@@ -100,6 +101,7 @@ export default async function AdminGamePage() {
                       Started {b.windowStartedAt.toLocaleString()}
                     </p>
                   </div>
+                  {isCurrent && <AdminAddScoreForm />}
                   {b.scores.length === 0 ? (
                     <p className="text-[11px] text-neutral-400 italic">
                       No scores in this window.

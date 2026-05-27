@@ -8,6 +8,7 @@ import {
   joinSurvivorRoom,
   reconnectSurvivorRoom,
 } from "@/lib/survivor-client";
+import LobbyScene, { LobbyCard, LobbyPrimaryButton } from "./LobbyScene";
 
 // Canvas needs the browser only.
 const GameCanvas = dynamic(() => import("./GameCanvas"), { ssr: false });
@@ -367,7 +368,7 @@ export default function SurvivorClient({ initialState }: SurvivorClientProps) {
 
 function Header({ serverState }: { serverState: PublicSurvivorState }) {
   return (
-    <header className="w-full border-b border-white/10 px-6 py-4 flex items-baseline justify-between flex-wrap gap-3">
+    <header className="relative z-20 w-full border-b border-fuchsia-500/25 bg-black/55 backdrop-blur-md px-6 py-4 flex items-baseline justify-between flex-wrap gap-3">
       <div>
         <p className="text-[10px] uppercase tracking-[0.3em] text-fuchsia-400">
           OBH Survivor
@@ -394,24 +395,24 @@ function NoMatchPanel({
   last: PublicSurvivorState["lastWinner"];
 }) {
   return (
-    <div className="flex-1 flex items-center justify-center px-6">
-      <div className="max-w-md text-center space-y-4">
+    <LobbyScene>
+      <LobbyCard className="text-center space-y-4">
         <p className="text-xs uppercase tracking-[0.3em] text-fuchsia-400">
           Standby
         </p>
         <h2 className="text-2xl font-bold">No match open right now.</h2>
-        <p className="text-sm text-neutral-400">
+        <p className="text-sm text-neutral-300">
           Matches are admin-started. Follow OBH on Instagram for drops, or
           keep this tab open — the lobby opens here when one starts.
         </p>
         {last && (
-          <p className="text-xs text-neutral-500 mt-6">
+          <p className="text-xs text-neutral-400 mt-4 pt-4 border-t border-white/10">
             Last winner:{" "}
             <span className="text-white">{last.displayName}</span>
           </p>
         )}
-      </div>
-    </div>
+      </LobbyCard>
+    </LobbyScene>
   );
 }
 
@@ -431,85 +432,78 @@ function LobbyPanel(props: {
   const participantCount = serverState.currentMatch?.participantCount ?? 0;
 
   return (
-    <div className="flex-1 flex items-center justify-center px-6 py-8">
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (!busy) onJoin();
-        }}
-        className="w-full max-w-md space-y-5 border border-white/10 bg-white/[0.02] backdrop-blur-md p-6 sm:p-8 rounded"
-      >
-        <div>
-          <p className="text-[10px] uppercase tracking-[0.3em] text-fuchsia-400">
-            Lobby {status ? `· ${status.toLowerCase()}` : ""}
-          </p>
-          <h2 className="text-xl font-bold mt-2">Join the arena</h2>
-          <p className="text-xs text-neutral-400 mt-1">
-            {participantCount} {participantCount === 1 ? "player" : "players"}{" "}
-            queued. Match begins when the host starts it.
-          </p>
-        </div>
-
-        <div>
-          <label className="block text-[10px] uppercase tracking-widest text-neutral-400 mb-2">
-            Display name
-          </label>
-          <input
-            type="text"
-            value={displayName}
-            onChange={(e) => onName(e.target.value)}
-            placeholder="GAMERTAG"
-            maxLength={24}
-            required
-            className="w-full bg-black border border-white/15 px-3 py-3 text-base text-white placeholder-neutral-600 focus:outline-none focus:border-fuchsia-500 transition-colors"
-          />
-        </div>
-
-        <div>
-          <label className="block text-[10px] uppercase tracking-widest text-neutral-400 mb-2">
-            Email (for prize delivery)
-          </label>
-          <input
-            type="email"
-            inputMode="email"
-            autoCapitalize="off"
-            autoCorrect="off"
-            value={email}
-            onChange={(e) => onEmail(e.target.value)}
-            placeholder="you@email.com"
-            required
-            className="w-full bg-black border border-white/15 px-3 py-3 text-base text-white placeholder-neutral-600 focus:outline-none focus:border-fuchsia-500 transition-colors"
-          />
-        </div>
-
-        {error && (
-          <p className="text-xs text-rose-400 break-words">{error}</p>
-        )}
-
-        <button
-          type="submit"
-          disabled={busy}
-          className="w-full font-bold text-sm tracking-widest uppercase px-5 py-3 text-white border-2 border-white disabled:opacity-50"
-          style={{
-            background:
-              "linear-gradient(135deg, #c026d3 0%, #7c3aed 100%)",
-            boxShadow: "4px 4px 0 #fff",
+    <LobbyScene>
+      <LobbyCard>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!busy) onJoin();
           }}
+          className="space-y-5"
         >
-          {phase === "joining"
-            ? "Joining…"
-            : phase === "connecting"
-            ? "Connecting…"
-            : "Enter lobby"}
-        </button>
+          <div>
+            <p className="text-[10px] uppercase tracking-[0.3em] text-fuchsia-400">
+              Lobby {status ? `· ${status.toLowerCase()}` : ""}
+            </p>
+            <h2 className="text-xl font-bold mt-2">Join the arena</h2>
+            <p className="text-xs text-neutral-400 mt-1">
+              {participantCount} {participantCount === 1 ? "player" : "players"}{" "}
+              queued. Match begins when the host starts it.
+            </p>
+          </div>
 
-        <p className="text-[10px] text-neutral-500 leading-relaxed">
-          Mobile: left stick to move, right stick to aim (auto-fire while
-          pushed). Desktop: WASD + mouse. Stay inside the safe zone — it
-          shrinks. Last alive wins.
-        </p>
-      </form>
-    </div>
+          <div>
+            <label className="block text-[10px] uppercase tracking-widest text-neutral-400 mb-2">
+              Display name
+            </label>
+            <input
+              type="text"
+              value={displayName}
+              onChange={(e) => onName(e.target.value)}
+              placeholder="GAMERTAG"
+              maxLength={24}
+              required
+              className="w-full bg-black/70 border border-white/15 px-3 py-3 text-base text-white placeholder-neutral-600 focus:outline-none focus:border-fuchsia-500 transition-colors"
+            />
+          </div>
+
+          <div>
+            <label className="block text-[10px] uppercase tracking-widest text-neutral-400 mb-2">
+              Email (for prize delivery)
+            </label>
+            <input
+              type="email"
+              inputMode="email"
+              autoCapitalize="off"
+              autoCorrect="off"
+              value={email}
+              onChange={(e) => onEmail(e.target.value)}
+              placeholder="you@email.com"
+              required
+              className="w-full bg-black/70 border border-white/15 px-3 py-3 text-base text-white placeholder-neutral-600 focus:outline-none focus:border-fuchsia-500 transition-colors"
+            />
+          </div>
+
+          {error && (
+            <p className="text-xs text-rose-400 break-words">{error}</p>
+          )}
+
+          <LobbyPrimaryButton type="submit" disabled={busy}>
+            {phase === "joining"
+              ? "Joining…"
+              : phase === "connecting"
+              ? "Connecting…"
+              : "Enter lobby"}
+          </LobbyPrimaryButton>
+
+          <p className="text-[10px] text-neutral-500 leading-relaxed">
+            Mobile: left stick to move, right stick to aim (auto-fire while
+            pushed). Desktop: WASD + mouse. Stay inside the safe zone — it
+            shrinks. Last alive wins.
+          </p>
+        </form>
+      </LobbyCard>
+    </LobbyScene>
   );
 }
 
@@ -543,8 +537,8 @@ function StandbyPanel({
   const counting = status === "COUNTDOWN" && countdownEndsAtMs > 0;
 
   return (
-    <div className="flex-1 flex items-center justify-center px-6 py-12">
-      <div className="w-full max-w-lg text-center space-y-6 border border-white/10 bg-white/[0.02] backdrop-blur-md p-8 rounded">
+    <LobbyScene>
+      <LobbyCard className="text-center space-y-6">
         <div>
           <p className="text-[10px] uppercase tracking-[0.3em] text-fuchsia-400">
             {counting ? "Match starting" : "In lobby"}
@@ -598,54 +592,50 @@ function StandbyPanel({
         >
           Leave lobby
         </button>
-      </div>
-    </div>
+      </LobbyCard>
+    </LobbyScene>
   );
 }
 
 function DisconnectedPanel({ onRetry }: { onRetry: () => void }) {
   return (
-    <div className="flex-1 flex items-center justify-center px-6">
-      <div className="max-w-md text-center space-y-4">
+    <LobbyScene>
+      <LobbyCard className="text-center space-y-4">
         <p className="text-xs uppercase tracking-[0.3em] text-fuchsia-400">
           Disconnected
         </p>
         <h2 className="text-2xl font-bold">Everyone got dropped.</h2>
-        <p className="text-sm text-neutral-400">
+        <p className="text-sm text-neutral-300">
           When every player disconnects at once, the game server usually
           restarted mid-match (Railway redeploy). Tap below to rejoin if the
           round is still open — the server will sync automatically.
         </p>
-        <button
-          type="button"
-          onClick={onRetry}
-          className="text-xs tracking-widest uppercase px-5 py-3 border border-white hover:bg-white hover:text-black transition-colors"
-        >
+        <LobbyPrimaryButton type="button" onClick={onRetry}>
           Back to lobby & rejoin
-        </button>
-      </div>
-    </div>
+        </LobbyPrimaryButton>
+      </LobbyCard>
+    </LobbyScene>
   );
 }
 
 function ReconnectingPanel() {
   return (
-    <div className="flex-1 flex items-center justify-center px-6">
-      <div className="max-w-md text-center space-y-4">
+    <LobbyScene>
+      <LobbyCard className="text-center space-y-4">
         <p className="text-xs uppercase tracking-[0.3em] text-fuchsia-400">
           Reconnecting
         </p>
         <h2 className="text-2xl font-bold">Hold on — getting you back in.</h2>
-        <p className="text-sm text-neutral-400">
+        <p className="text-sm text-neutral-300">
           Connection blipped. We&apos;re rejoining your seat automatically.
         </p>
         <div className="flex items-center justify-center gap-2 pt-2">
           <span className="inline-block w-2.5 h-2.5 rounded-full bg-fuchsia-400 animate-pulse" />
-          <span className="text-[10px] uppercase tracking-widest text-neutral-500">
+          <span className="text-[10px] uppercase tracking-widest text-neutral-400">
             Trying to reconnect…
           </span>
         </div>
-      </div>
-    </div>
+      </LobbyCard>
+    </LobbyScene>
   );
 }

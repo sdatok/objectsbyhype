@@ -1034,8 +1034,9 @@ function renderFrame(
 
   // Deep ocean fills the viewport; sand island is drawn in world space.
   const ocean = ctx.createLinearGradient(0, 0, 0, cssH);
-  ocean.addColorStop(0, "#0a2a4a");
-  ocean.addColorStop(1, "#061525");
+  ocean.addColorStop(0, "#7dd3fc");
+  ocean.addColorStop(0.55, "#38bdf8");
+  ocean.addColorStop(1, "#0284c7");
   ctx.fillStyle = ocean;
   ctx.fillRect(0, 0, cssW, cssH);
 
@@ -1105,9 +1106,10 @@ function renderFrame(
 
 function drawOcean(ctx: CanvasRenderingContext2D, cssW: number, cssH: number) {
   const ocean = ctx.createLinearGradient(0, 0, 0, cssH);
-  ocean.addColorStop(0, "#0c4a6e");
-  ocean.addColorStop(0.5, "#0e7490");
-  ocean.addColorStop(1, "#082f49");
+  ocean.addColorStop(0, "#7dd3fc");
+  ocean.addColorStop(0.45, "#38bdf8");
+  ocean.addColorStop(0.75, "#0ea5e9");
+  ocean.addColorStop(1, "#0369a1");
   ctx.fillStyle = ocean;
   ctx.fillRect(0, 0, cssW, cssH);
 }
@@ -1132,10 +1134,10 @@ function drawBeach(
     centre.sy,
     r
   );
-  sand.addColorStop(0, "#f5e6c8");
-  sand.addColorStop(0.45, "#e8c992");
-  sand.addColorStop(0.75, "#d4a96a");
-  sand.addColorStop(1, "#c49558");
+  sand.addColorStop(0, "#fff4d6");
+  sand.addColorStop(0.4, "#f5dc9a");
+  sand.addColorStop(0.72, "#e8c068");
+  sand.addColorStop(1, "#d4a44a");
   ctx.fillStyle = sand;
   ctx.beginPath();
   ctx.arc(centre.sx, centre.sy, r, 0, Math.PI * 2);
@@ -1170,8 +1172,8 @@ function drawCreepingWater(
   ctx.arc(centre.sx, centre.sy, r, 0, Math.PI * 2, true);
   ctx.closePath();
   const water = ctx.createLinearGradient(0, 0, 0, cssH);
-  water.addColorStop(0, "rgba(14,116,144,0.55)");
-  water.addColorStop(1, "rgba(7,89,133,0.7)");
+  water.addColorStop(0, "rgba(56,189,248,0.45)");
+  water.addColorStop(1, "rgba(2,132,199,0.62)");
   ctx.fillStyle = water;
   ctx.fill("evenodd");
   ctx.restore();
@@ -1302,8 +1304,10 @@ function drawZoneRings(
   const waveAmp = Math.max(3, 6 * scale);
 
   ctx.save();
-  ctx.strokeStyle = "rgba(251,191,36,0.65)";
+  ctx.strokeStyle = "rgba(192,38,211,0.7)";
   ctx.lineWidth = 1.5;
+  ctx.shadowColor = "rgba(124,58,237,0.45)";
+  ctx.shadowBlur = 6;
   ctx.setLineDash([6, 8]);
   ctx.beginPath();
   const innerSegs = 48;
