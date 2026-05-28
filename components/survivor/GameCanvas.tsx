@@ -387,7 +387,10 @@ export default function GameCanvas({ room, onLeave }: GameCanvasProps) {
     };
     room.onStateChange(cb);
     return () => {
-      room.onStateChange.remove(cb);
+      const registry = room.onStateChange as unknown as {
+        remove?: (fn: typeof cb) => void;
+      };
+      registry.remove?.(cb);
     };
   }, [room]);
 
@@ -980,6 +983,17 @@ function StatPill({
 // Helpers
 // ============================================================
 
+function forEachPlayer(
+  rs: ServerState,
+  cb: (p: ServerPlayer, sessionId: string) => void
+): void {
+  const players = rs.players as unknown as {
+    forEach?: (fn: (p: ServerPlayer, k: string) => void) => void;
+  };
+  if (typeof players?.forEach !== "function") return;
+  players.forEach(cb);
+}
+
 function lookupPlayer(
   state: ServerState,
   sessionId: string
@@ -1245,7 +1259,7 @@ function renderFrame(
   drawBullets(ctx, w2s, scale, now, rctx.bulletBuf);
   drawExplosions(ctx, w2s, scale, now, rctx.explosions);
 
-  rs.players.forEach((p: ServerPlayer, sessionId: string) => {
+  forEachPlayer(rs, (p, sessionId) => {
     const buf = rctx.playerBuf.get(sessionId);
     const lerp =
       interpPlayer(buf) ?? {

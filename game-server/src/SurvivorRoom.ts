@@ -64,6 +64,8 @@ export class SurvivorRoom extends Room<SurvivorState> {
   private startedAtServerMs = 0;
   /** True once we've kicked off the webhook so we don't double-post. */
   private resultPosted = false;
+  /** Active fighters when PLAYING began — used to avoid solo instant win. */
+  private playersAtMatchStart = 0;
   /** Mutable context for pickup spawn cadence (not part of the schema). */
   private pickupCtx = freshPickupCtx();
 
@@ -372,6 +374,7 @@ export class SurvivorRoom extends Room<SurvivorState> {
       this.pickupCtx = {
         nextSpawnAtMs: now + Math.floor(PICKUP_SPAWN_INTERVAL_MS * 0.6),
       };
+      this.playersAtMatchStart = this.countAlive();
       // Snap zone to the correct point on the shrink curve immediately.
       tickZone(this.state, 0, now, emptyEvents());
       console.log(
@@ -496,10 +499,14 @@ export class SurvivorRoom extends Room<SurvivorState> {
       this.broadcast("event:explosions", events.explosions);
     }
 
-    // End conditions: last alive OR timer expired.
+    // End conditions: everyone dead, or last standing after a multi-player start.
     const aliveCount = this.countAlive();
-    if (aliveCount <= 1) {
-      this.endMatch(aliveCount === 1 ? "lastAlive" : "lastAlive");
+    if (aliveCount < 1) {
+      this.endMatch("lastAlive");
+      return;
+    }
+    if (aliveCount === 1 && this.playersAtMatchStart > 1) {
+      this.endMatch("lastAlive");
       return;
     }
     if (now >= this.state.matchEndsAtMs) {
@@ -518,6 +525,7 @@ export class SurvivorRoom extends Room<SurvivorState> {
     this.state.zone.targetRadius = ZONE_START_RADIUS;
     // matchEndsAtMs was set in startMatch; just nudge to a clean value.
     this.state.countdownEndsAtMs = 0;
+    this.playersAtMatchStart = this.countAlive();
     // Skip the very first beat so pickups appear shortly after combat begins
     // instead of dropping on top of fresh spawns.
     this.pickupCtx = { nextSpawnAtMs: now + Math.floor(PICKUP_SPAWN_INTERVAL_MS * 0.6) };
@@ -629,6 +637,7 @@ export class SurvivorRoom extends Room<SurvivorState> {
     this.state.activeBonusKind = "";
     this.state.towerCycleEndsAtMs = 0;
     this.state.towerCycleIndex = 0;
+    this.playersAtMatchStart = 0;
     this.state.zone.radius = ZONE_START_RADIUS;
     this.state.zone.targetRadius = ZONE_START_RADIUS;
     this.resultPosted = false;

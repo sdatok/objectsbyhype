@@ -1013,7 +1013,7 @@ function startTowerCycle(
   nowMs: number,
   events: TickEvents
 ): void {
-  const idx = state.towerCycleIndex;
+  const idx = Number.isFinite(state.towerCycleIndex) ? state.towerCycleIndex : 0;
   const towerKind = pickNextTowerKind(idx);
   const bonusKind = pickNextTowerWeapon(idx);
 

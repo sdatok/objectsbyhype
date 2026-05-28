@@ -154,6 +154,7 @@ export function drawSlime(
   ctx.lineTo(cx + Math.cos(aim) * (r + 8), cy + Math.sin(aim) * (r + 8));
   ctx.stroke();
   ctx.restore();
+  ctx.restore();
 }
 
 function shadeColor(hex: string, amount: number): string {

@@ -43,11 +43,6 @@ export class Player extends Schema {
   /** UNIX ms when a temporary weapon reverts to default pistol. 0 = base loadout. */
   @type("number") weaponExpiresAtMs = 0;
 
-  /** Slime body colour (hex). Chosen in lobby. */
-  @type("string") slimeColor = "#22d3ee";
-  /** Eye expression preset 0..3. */
-  @type("number") slimeFace = 0;
-
   /** Collision radius multiplier (1 = default PLAYER_RADIUS). */
   @type("number") radiusScale = 1;
   /** Move speed multiplier (1 = default PLAYER_SPEED). */
@@ -64,6 +59,11 @@ export class Player extends Schema {
   @type("number") towerBuffExpiresAtMs = 0;
   /** @deprecated — kept for schema compat */
   @type("string") towerBuffKind = "";
+
+  /** Slime body colour (hex). Chosen in lobby. Appended last for schema compat. */
+  @type("string") slimeColor = "#22d3ee";
+  /** Eye expression preset 0..3. */
+  @type("number") slimeFace = 0;
 }
 
 export class Bullet extends Schema {
@@ -133,12 +133,13 @@ export class SurvivorState extends Schema {
   @type("string") activeBonusKind = "";
   /** UNIX ms when the current tower bonus cycle ends. */
   @type("number") towerCycleEndsAtMs = 0;
-  /** Monotonic counter — drives sequential tower + weapon rotation. */
-  @type("number") towerCycleIndex = 0;
 
   @type({ map: Player }) players = new MapSchema<Player>();
   @type([Bullet]) bullets = new ArraySchema<Bullet>();
   @type([Pickup]) pickups = new ArraySchema<Pickup>();
   @type([Obstacle]) obstacles = new ArraySchema<Obstacle>();
   @type(Zone) zone = new Zone();
+
+  /** Monotonic counter — drives sequential tower + weapon rotation. Appended last for schema compat. */
+  @type("number") towerCycleIndex = 0;
 }
