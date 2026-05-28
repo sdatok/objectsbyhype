@@ -168,9 +168,35 @@ const OBSTACLE_SPRITE_URLS: Record<string, string> = {
 const SPRITE_BLACK_KEY_THRESHOLD = 16;
 const obstacleSpriteCache = new Map<string, HTMLCanvasElement>();
 
+function isSpriteBackgroundPixel(
+  r: number,
+  g: number,
+  b: number,
+  kind: string
+): boolean {
+  if (
+    r <= SPRITE_BLACK_KEY_THRESHOLD &&
+    g <= SPRITE_BLACK_KEY_THRESHOLD &&
+    b <= SPRITE_BLACK_KEY_THRESHOLD
+  ) {
+    return true;
+  }
+  // Vendor tower exports often use a grey/white checkerboard instead of black.
+  if (kind.startsWith("tower_")) {
+    const neutral =
+      Math.abs(r - g) <= 12 &&
+      Math.abs(g - b) <= 12 &&
+      Math.abs(r - b) <= 12;
+    if (neutral && r >= 168 && g >= 168 && b >= 168) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function processObstacleSprite(
   img: HTMLImageElement,
-  skipBlackKey = false
+  kind: string
 ): HTMLCanvasElement {
   const canvas = document.createElement("canvas");
   canvas.width = img.naturalWidth;
@@ -178,23 +204,17 @@ function processObstacleSprite(
   const ctx = canvas.getContext("2d");
   if (!ctx) return canvas;
   ctx.drawImage(img, 0, 0);
-  if (!skipBlackKey) {
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const d = imageData.data;
-    for (let i = 0; i < d.length; i += 4) {
-      const r = d[i];
-      const g = d[i + 1];
-      const b = d[i + 2];
-      if (
-        r <= SPRITE_BLACK_KEY_THRESHOLD &&
-        g <= SPRITE_BLACK_KEY_THRESHOLD &&
-        b <= SPRITE_BLACK_KEY_THRESHOLD
-      ) {
-        d[i + 3] = 0;
-      }
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const d = imageData.data;
+  for (let i = 0; i < d.length; i += 4) {
+    const r = d[i];
+    const g = d[i + 1];
+    const b = d[i + 2];
+    if (isSpriteBackgroundPixel(r, g, b, kind)) {
+      d[i + 3] = 0;
     }
-    ctx.putImageData(imageData, 0, 0);
   }
+  ctx.putImageData(imageData, 0, 0);
   return canvas;
 }
 
@@ -203,9 +223,8 @@ function preloadObstacleSprites(): void {
     if (obstacleSpriteCache.has(kind)) continue;
     const img = new Image();
     img.src = src;
-    const skipBlackKey = kind.startsWith("tower_");
     img.onload = () => {
-      obstacleSpriteCache.set(kind, processObstacleSprite(img, skipBlackKey));
+      obstacleSpriteCache.set(kind, processObstacleSprite(img, kind));
     };
   }
 }
