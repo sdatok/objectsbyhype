@@ -69,15 +69,15 @@ app.get("/healthz", (_req, res) => {
     ts: Date.now(),
     service: "objectsbyhype-survivor",
     gitSha: process.env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 7) ?? "unknown",
-    build: "island-v8",
-    features: ["obstacles", "island-maze", "zone-shrink", "mobile-sticks", "gorilla-flower", "reconnect", "sprite-key", "vendor-towers", "melee-default", "fire-sword", "ice-bow"],
+    build: "island-v9",
+    features: ["obstacles", "island-maze", "zone-shrink", "mobile-sticks", "gorilla-flower", "reconnect", "sprite-key", "vendor-towers", "slime-avatars", "rocket-aoe", "flamethrower", "ice-bow"],
   });
 });
 
 app.get("/version", (_req, res) => {
   res.json({
     ok: true,
-    build: "island-v8",
+    build: "island-v9",
     gitSha: process.env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 7) ?? "unknown",
   });
 });

@@ -9,6 +9,17 @@ import {
   reconnectSurvivorRoom,
 } from "@/lib/survivor-client";
 import LobbyScene, { LobbyCard, LobbyPrimaryButton } from "./LobbyScene";
+import SlimeAvatar from "./SlimeAvatar";
+import {
+  DEFAULT_SLIME_COLOR,
+  parseSlimeColor,
+  parseSlimeFace,
+  SLIME_COLOR_KEY,
+  SLIME_COLORS,
+  SLIME_FACE_COUNT,
+  SLIME_FACE_KEY,
+  type SlimeColor,
+} from "@/lib/survivor-slime";
 
 // Canvas needs the browser only.
 const GameCanvas = dynamic(() => import("./GameCanvas"), { ssr: false });
@@ -44,6 +55,8 @@ export default function SurvivorClient({ initialState }: SurvivorClientProps) {
   );
   const [displayName, setDisplayName] = useState("");
   const [email, setEmail] = useState("");
+  const [slimeColor, setSlimeColor] = useState<SlimeColor>(DEFAULT_SLIME_COLOR);
+  const [slimeFace, setSlimeFace] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [roomReady, setRoomReady] = useState(false);
   const [roomStatus, setRoomStatus] = useState<RoomPhase>("WAITING");
@@ -60,6 +73,8 @@ export default function SurvivorClient({ initialState }: SurvivorClientProps) {
     try {
       setDisplayName(localStorage.getItem(NAME_KEY) ?? "");
       setEmail(localStorage.getItem(EMAIL_KEY) ?? "");
+      setSlimeColor(parseSlimeColor(localStorage.getItem(SLIME_COLOR_KEY)));
+      setSlimeFace(parseSlimeFace(localStorage.getItem(SLIME_FACE_KEY)));
     } catch {
       // ignore localStorage failures (private mode etc.)
     }
@@ -211,9 +226,11 @@ export default function SurvivorClient({ initialState }: SurvivorClientProps) {
         displayName: json.displayName,
         matchToken: json.matchToken,
         issuedAtMs: json.issuedAtMs,
+        slimeColor,
+        slimeFace,
       });
     },
-    []
+    [slimeColor, slimeFace]
   );
 
   fullRejoinRef.current = async () => {
@@ -243,6 +260,8 @@ export default function SurvivorClient({ initialState }: SurvivorClientProps) {
     try {
       localStorage.setItem(NAME_KEY, trimmedName);
       localStorage.setItem(EMAIL_KEY, trimmedEmail);
+      localStorage.setItem(SLIME_COLOR_KEY, slimeColor);
+      localStorage.setItem(SLIME_FACE_KEY, String(slimeFace));
     } catch {
       /* ignore */
     }
@@ -284,7 +303,7 @@ export default function SurvivorClient({ initialState }: SurvivorClientProps) {
       setError(message);
       setPhase("lobby");
     }
-  }, [displayName, email, attemptJoin, attachRoom]);
+  }, [displayName, email, slimeColor, slimeFace, attemptJoin, attachRoom]);
 
   const leaveAndReset = useCallback(() => {
     reconnectingRef.current = false;
@@ -328,8 +347,12 @@ export default function SurvivorClient({ initialState }: SurvivorClientProps) {
           serverState={serverState}
           displayName={displayName}
           email={email}
+          slimeColor={slimeColor}
+          slimeFace={slimeFace}
           onName={setDisplayName}
           onEmail={setEmail}
+          onSlimeColor={setSlimeColor}
+          onSlimeFace={setSlimeFace}
           onJoin={join}
           phase={phase}
           error={error}
@@ -348,6 +371,8 @@ export default function SurvivorClient({ initialState }: SurvivorClientProps) {
           countdownEndsAtMs={countdownEndsAtMs}
           alive={aliveInRoom}
           displayName={displayName}
+          slimeColor={slimeColor}
+          slimeFace={slimeFace}
           onLeave={leaveAndReset}
         />
       )}
@@ -420,13 +445,30 @@ function LobbyPanel(props: {
   serverState: PublicSurvivorState;
   displayName: string;
   email: string;
+  slimeColor: SlimeColor;
+  slimeFace: number;
   onName: (v: string) => void;
   onEmail: (v: string) => void;
+  onSlimeColor: (v: SlimeColor) => void;
+  onSlimeFace: (v: number) => void;
   onJoin: () => void;
   phase: Phase;
   error: string | null;
 }) {
-  const { serverState, displayName, email, onName, onEmail, onJoin, phase, error } = props;
+  const {
+    serverState,
+    displayName,
+    email,
+    slimeColor,
+    slimeFace,
+    onName,
+    onEmail,
+    onSlimeColor,
+    onSlimeFace,
+    onJoin,
+    phase,
+    error,
+  } = props;
   const busy = phase === "joining" || phase === "connecting";
   const status = serverState.currentMatch?.status;
   const participantCount = serverState.currentMatch?.participantCount ?? 0;
@@ -484,6 +526,64 @@ function LobbyPanel(props: {
             />
           </div>
 
+          <div className="border border-white/10 bg-black/40 p-4 space-y-4">
+            <div className="flex items-center gap-4">
+              <SlimeAvatar color={slimeColor} face={slimeFace} size={88} />
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.25em] text-fuchsia-300">
+                  Your slime
+                </p>
+                <p className="text-xs text-neutral-400 mt-1">
+                  Pick a colour and face before you drop in.
+                </p>
+              </div>
+            </div>
+
+            <div>
+              <p className="text-[10px] uppercase tracking-widest text-neutral-400 mb-2">
+                Colour
+              </p>
+              <div className="grid grid-cols-6 gap-2">
+                {SLIME_COLORS.map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    aria-label={`Slime colour ${c}`}
+                    onClick={() => onSlimeColor(c)}
+                    className={`h-8 w-full border-2 transition-transform ${
+                      slimeColor === c
+                        ? "border-white scale-105"
+                        : "border-white/20 hover:border-white/50"
+                    }`}
+                    style={{ backgroundColor: c }}
+                  />
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <p className="text-[10px] uppercase tracking-widest text-neutral-400 mb-2">
+                Face
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {Array.from({ length: SLIME_FACE_COUNT }, (_, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => onSlimeFace(i)}
+                    className={`px-3 py-1.5 text-[10px] uppercase tracking-widest border ${
+                      slimeFace === i
+                        ? "border-fuchsia-400 text-white bg-fuchsia-500/20"
+                        : "border-white/15 text-neutral-400 hover:border-white/40"
+                    }`}
+                  >
+                    {["Classic", "Shiny", "Tough", "Sleepy"][i]}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
           {error && (
             <p className="text-xs text-rose-400 break-words">{error}</p>
           )}
@@ -518,12 +618,16 @@ function StandbyPanel({
   countdownEndsAtMs,
   alive,
   displayName,
+  slimeColor,
+  slimeFace,
   onLeave,
 }: {
   status: RoomPhase;
   countdownEndsAtMs: number;
   alive: number;
   displayName: string;
+  slimeColor: SlimeColor;
+  slimeFace: number;
   onLeave: () => void;
 }) {
   const [now, setNow] = useState(() => Date.now());
@@ -539,19 +643,22 @@ function StandbyPanel({
   return (
     <LobbyScene>
       <LobbyCard className="text-center space-y-6">
-        <div>
-          <p className="text-[10px] uppercase tracking-[0.3em] text-fuchsia-400">
-            {counting ? "Match starting" : "In lobby"}
-          </p>
-          <h2 className="text-2xl font-bold mt-2">
+        <div className="flex flex-col items-center gap-3">
+          <SlimeAvatar color={slimeColor} face={slimeFace} size={112} />
+          <h2 className="text-2xl font-bold mt-1">
             {displayName ? `Welcome, ${displayName}.` : "You're in."}
           </h2>
-          <p className="text-xs text-neutral-400 mt-2">
-            {counting
-              ? "Match begins automatically when the timer hits zero."
-              : "Waiting for host to start. The page will switch you in automatically."}
-          </p>
         </div>
+
+        <p className="text-[10px] uppercase tracking-[0.3em] text-fuchsia-400">
+          {counting ? "Match starting" : "In lobby"}
+        </p>
+
+        <p className="text-xs text-neutral-400">
+          {counting
+            ? "Match begins automatically when the timer hits zero."
+            : "Waiting for host to start. The page will switch you in automatically."}
+        </p>
 
         {counting ? (
           <div>

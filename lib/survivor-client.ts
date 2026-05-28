@@ -18,6 +18,8 @@ export interface JoinParams {
   displayName: string;
   matchToken: string;
   issuedAtMs: number;
+  slimeColor?: string;
+  slimeFace?: number;
 }
 
 const ROOM_NAME = "survivor";
@@ -52,6 +54,8 @@ export async function joinSurvivorRoom(
       matchId: params.matchId,
       matchToken: params.matchToken,
       issuedAtMs: params.issuedAtMs,
+      slimeColor: params.slimeColor ?? "",
+      slimeFace: params.slimeFace ?? 0,
     });
     if (typeof window !== "undefined") {
       console.info("[survivor] joined room", {

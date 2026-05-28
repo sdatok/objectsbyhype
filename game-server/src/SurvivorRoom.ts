@@ -8,6 +8,10 @@ import {
   ZONE_START_RADIUS,
   MAX_INPUTS_PER_SEC,
   PICKUP_SPAWN_INTERVAL_MS,
+  DEFAULT_WEAPON,
+  DEFAULT_SLIME_COLOR,
+  parseSlimeColor,
+  parseSlimeFace,
 } from "./constants";
 import { verifyMatchToken } from "./hmac";
 import {
@@ -106,6 +110,8 @@ export class SurvivorRoom extends Room<SurvivorState> {
     displayName: string;
     matchId: string;
     isSpectator: boolean;
+    slimeColor: string;
+    slimeFace: number;
   }> {
     const email = String(options.email ?? "").trim().toLowerCase();
     const displayName = String(options.displayName ?? "").trim().slice(0, 32);
@@ -169,7 +175,9 @@ export class SurvivorRoom extends Room<SurvivorState> {
       throw new Error("Match is full (25 players).");
     }
     const isSpectator = !canJoinActive;
-    return { email, displayName, matchId, isSpectator };
+    const slimeColor = parseSlimeColor(options.slimeColor);
+    const slimeFace = parseSlimeFace(options.slimeFace);
+    return { email, displayName, matchId, isSpectator, slimeColor, slimeFace };
   }
 
   override onJoin(
@@ -180,11 +188,15 @@ export class SurvivorRoom extends Room<SurvivorState> {
       displayName: string;
       matchId: string;
       isSpectator: boolean;
+      slimeColor: string;
+      slimeFace: number;
     }
   ): void {
     const p = new Player();
     p.email = auth.email;
     p.displayName = auth.displayName;
+    p.slimeColor = auth.slimeColor || DEFAULT_SLIME_COLOR;
+    p.slimeFace = auth.slimeFace ?? 0;
     p.connected = true;
 
     if (auth.isSpectator) {
@@ -199,7 +211,7 @@ export class SurvivorRoom extends Room<SurvivorState> {
       p.y = spawn.y;
       p.hp = PLAYER_MAX_HP;
       p.maxHp = PLAYER_MAX_HP;
-      p.weapon = "sword";
+      p.weapon = DEFAULT_WEAPON;
       p.weaponExpiresAtMs = 0;
       p.radiusScale = 1;
       p.speedScale = 1;
@@ -480,6 +492,9 @@ export class SurvivorRoom extends Room<SurvivorState> {
     if (events.towerBonus) {
       this.broadcast("event:tower-bonus", events.towerBonus);
     }
+    if (events.explosions.length > 0) {
+      this.broadcast("event:explosions", events.explosions);
+    }
 
     // End conditions: last alive OR timer expired.
     const aliveCount = this.countAlive();
@@ -613,6 +628,7 @@ export class SurvivorRoom extends Room<SurvivorState> {
     this.state.activeTowerKind = "";
     this.state.activeBonusKind = "";
     this.state.towerCycleEndsAtMs = 0;
+    this.state.towerCycleIndex = 0;
     this.state.zone.radius = ZONE_START_RADIUS;
     this.state.zone.targetRadius = ZONE_START_RADIUS;
     this.resultPosted = false;

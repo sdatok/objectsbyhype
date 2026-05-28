@@ -10,6 +10,8 @@ import MobileControls, {
   type VirtualStickState,
 } from "./MobileControls";
 import RetroOverlay from "./RetroOverlay";
+import { drawSlime } from "./SlimeAvatar";
+import { DEFAULT_SLIME_COLOR } from "@/lib/survivor-slime";
 
 /**
  * Top-down 2D Survivor game. The server simulates at 30Hz; this client
@@ -52,6 +54,8 @@ interface ServerPlayer {
   maxHp: number;
   burnUntilMs: number;
   frozenUntilMs: number;
+  slimeColor: string;
+  slimeFace: number;
   towerBuffExpiresAtMs: number;
   towerBuffKind: string;
 }
@@ -124,22 +128,26 @@ const PICKUP_R = 14;
 // 130ms is ~4 patches of buffer — plenty of headroom without feeling laggy.
 const INTERP_DELAY_MS = 130;
 const WEAPON_BUFF_MS = 20_000;
-const TOWER_BUFF_RADIUS = 140;
+const TOWER_BUFF_RADIUS = 250;
 
 const TOWER_BONUS_LABELS: Record<string, string> = {
-  guns: "weapon drop",
-  health: "health bonus",
-  speed: "speed boost",
-  titan: "titan health",
-  sword: "sword pickup",
+  pistol: "pistol",
+  shotgun: "shotgun",
+  rapid: "rapid fire",
+  sniper: "sniper",
+  ice_bow: "ice bow",
+  flamethrower: "flamethrower",
+  rocket: "rocket launcher",
 };
 
 const TOWER_BONUS_RING_COLORS: Record<string, string> = {
-  guns: "rgba(251,191,36,0.8)",
-  health: "rgba(74,222,128,0.75)",
-  speed: "rgba(34,211,238,0.75)",
-  titan: "rgba(251,191,36,0.8)",
-  sword: "rgba(192,38,211,0.8)",
+  pistol: "rgba(245,245,245,0.75)",
+  shotgun: "rgba(251,191,36,0.8)",
+  rapid: "rgba(52,211,153,0.75)",
+  sniper: "rgba(248,113,113,0.75)",
+  ice_bow: "rgba(103,232,249,0.8)",
+  flamethrower: "rgba(251,146,60,0.85)",
+  rocket: "rgba(239,68,68,0.85)",
 };
 
 const OBSTACLE_SPRITE_URLS: Record<string, string> = {
@@ -160,28 +168,33 @@ const OBSTACLE_SPRITE_URLS: Record<string, string> = {
 const SPRITE_BLACK_KEY_THRESHOLD = 16;
 const obstacleSpriteCache = new Map<string, HTMLCanvasElement>();
 
-function processObstacleSprite(img: HTMLImageElement): HTMLCanvasElement {
+function processObstacleSprite(
+  img: HTMLImageElement,
+  skipBlackKey = false
+): HTMLCanvasElement {
   const canvas = document.createElement("canvas");
   canvas.width = img.naturalWidth;
   canvas.height = img.naturalHeight;
   const ctx = canvas.getContext("2d");
   if (!ctx) return canvas;
   ctx.drawImage(img, 0, 0);
-  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  const d = imageData.data;
-  for (let i = 0; i < d.length; i += 4) {
-    const r = d[i];
-    const g = d[i + 1];
-    const b = d[i + 2];
-    if (
-      r <= SPRITE_BLACK_KEY_THRESHOLD &&
-      g <= SPRITE_BLACK_KEY_THRESHOLD &&
-      b <= SPRITE_BLACK_KEY_THRESHOLD
-    ) {
-      d[i + 3] = 0;
+  if (!skipBlackKey) {
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const d = imageData.data;
+    for (let i = 0; i < d.length; i += 4) {
+      const r = d[i];
+      const g = d[i + 1];
+      const b = d[i + 2];
+      if (
+        r <= SPRITE_BLACK_KEY_THRESHOLD &&
+        g <= SPRITE_BLACK_KEY_THRESHOLD &&
+        b <= SPRITE_BLACK_KEY_THRESHOLD
+      ) {
+        d[i + 3] = 0;
+      }
     }
+    ctx.putImageData(imageData, 0, 0);
   }
-  ctx.putImageData(imageData, 0, 0);
   return canvas;
 }
 
@@ -190,26 +203,23 @@ function preloadObstacleSprites(): void {
     if (obstacleSpriteCache.has(kind)) continue;
     const img = new Image();
     img.src = src;
+    const skipBlackKey = kind.startsWith("tower_");
     img.onload = () => {
-      obstacleSpriteCache.set(kind, processObstacleSprite(img));
+      obstacleSpriteCache.set(kind, processObstacleSprite(img, skipBlackKey));
     };
   }
 }
 
 const WEAPON_COLORS: Record<string, { core: string; glow: string; label: string }> = {
-  sword: { core: "#e879f9", glow: "rgba(232,121,249,0.55)", label: "SWORD" },
-  fire_sword: { core: "#fb923c", glow: "rgba(251,146,60,0.65)", label: "FIRE SWORD" },
   pistol: { core: "#f5f5f5", glow: "rgba(245,245,245,0.55)", label: "PISTOL" },
   shotgun: { core: "#fbbf24", glow: "rgba(251,191,36,0.55)", label: "SHOTGUN" },
   rapid: { core: "#34d399", glow: "rgba(52,211,153,0.55)", label: "RAPID" },
   sniper: { core: "#f87171", glow: "rgba(248,113,113,0.55)", label: "SNIPER" },
   ice_bow: { core: "#67e8f9", glow: "rgba(103,232,249,0.65)", label: "ICE BOW" },
+  flamethrower: { core: "#fb923c", glow: "rgba(251,146,60,0.65)", label: "FLAMETHROWER" },
+  rocket: { core: "#ef4444", glow: "rgba(239,68,68,0.65)", label: "ROCKET" },
   health: { core: "#4ade80", glow: "rgba(74,222,128,0.55)", label: "HEALTH" },
 };
-
-function isMeleeWeapon(kind: string): boolean {
-  return kind === "sword" || kind === "fire_sword";
-}
 
 interface PlayerSnap {
   t: number;
@@ -265,6 +275,9 @@ export default function GameCanvas({ room, onLeave }: GameCanvasProps) {
     amount: 0,
     until: 0,
   });
+  const explosionsRef = useRef<
+    Array<{ x: number; y: number; radius: number; kind: string; expiresAt: number }>
+  >([]);
 
   // Used to detect HP drops between snapshots so we can fire shake/flash.
   const lastSelfHpRef = useRef<number>(100);
@@ -410,12 +423,23 @@ export default function GameCanvas({ room, onLeave }: GameCanvasProps) {
       setTowerAnnouncement({
         vendorName: payload.vendorName,
         bonusKind: payload.bonusKind,
-        expiresAt: Date.now() + 5000,
+        expiresAt: Date.now() + 6000,
       });
+    };
+    const onExplosions = (
+      payload: Array<{ x: number; y: number; radius: number; kind: string }>
+    ) => {
+      if (!Array.isArray(payload) || payload.length === 0) return;
+      const now = Date.now();
+      explosionsRef.current = [
+        ...explosionsRef.current,
+        ...payload.map((e) => ({ ...e, expiresAt: now + 450 })),
+      ].slice(-12);
     };
     room.onMessage("event:kills", onKills);
     room.onMessage("event:pickup", onPickup);
     room.onMessage("event:tower-bonus", onTowerBonus);
+    room.onMessage("event:explosions", onExplosions);
     return () => {
       // colyseus.js cleans listeners on room.leave; nothing to undo here.
     };
@@ -428,6 +452,7 @@ export default function GameCanvas({ room, onLeave }: GameCanvasProps) {
       setKillFeed((prev) => prev.filter((k) => k.expiresAt > now));
       setPickupToast((p) => (p && p.expiresAt > now ? p : null));
       setTowerAnnouncement((a) => (a && a.expiresAt > now ? a : null));
+      explosionsRef.current = explosionsRef.current.filter((e) => e.expiresAt > now);
     }, 250);
     return () => window.clearInterval(id);
   }, []);
@@ -576,6 +601,7 @@ export default function GameCanvas({ room, onLeave }: GameCanvasProps) {
         matchClock: matchClockRef.current,
         activeTowerKind: (rs as ServerState).activeTowerKind ?? "",
         activeBonusKind: (rs as ServerState).activeBonusKind ?? "",
+        explosions: explosionsRef.current,
       });
 
       raf = window.requestAnimationFrame(draw);
@@ -673,8 +699,8 @@ function Hud(props: {
     timerText = `${m}:${s.toString().padStart(2, "0")}`;
   }
 
-  const weapon = (snapshot.selfWeapon || "sword").toLowerCase();
-  const weaponColor = WEAPON_COLORS[weapon] ?? WEAPON_COLORS.sword;
+  const weapon = (snapshot.selfWeapon || "pistol").toLowerCase();
+  const weaponColor = WEAPON_COLORS[weapon] ?? WEAPON_COLORS.pistol;
   const weaponRemainingMs = Math.max(
     0,
     snapshot.selfWeaponExpiresAtMs - Date.now()
@@ -698,18 +724,10 @@ function Hud(props: {
               Vendor bonus active
             </p>
             <p className="text-sm sm:text-base font-bold text-white mt-1">
-              {towerAnnouncement.bonusKind === "guns" ? (
-                <>
-                  Visit {towerAnnouncement.vendorName} for a random gun!
-                </>
-              ) : (
-                <>
-                  {towerAnnouncement.vendorName} tower is having a{" "}
-                  {TOWER_BONUS_LABELS[towerAnnouncement.bonusKind] ??
-                    towerAnnouncement.bonusKind}
-                  !
-                </>
-              )}
+              Visit {towerAnnouncement.vendorName} for{" "}
+              {TOWER_BONUS_LABELS[towerAnnouncement.bonusKind] ??
+                towerAnnouncement.bonusKind.replace(/_/g, " ")}
+              !
             </p>
           </div>
         </div>
@@ -988,7 +1006,7 @@ function snapshotStatus(room: Room) {
     selfHp: 0,
     selfKills: 0,
     selfPlacement: 0,
-    selfWeapon: "sword",
+    selfWeapon: "pistol",
     selfWeaponExpiresAtMs: 0,
     selfMaxHp: 100,
     selfTowerBuffKind: "",
@@ -1014,7 +1032,7 @@ function snapshotStatus(room: Room) {
       selfHp: self?.hp ?? 0,
       selfKills: self?.kills ?? 0,
       selfPlacement: self?.placement ?? 0,
-      selfWeapon: self?.weapon ?? "sword",
+      selfWeapon: self?.weapon ?? "pistol",
       selfWeaponExpiresAtMs: self?.weaponExpiresAtMs ?? 0,
       selfMaxHp:
         self && typeof self.maxHp === "number" && self.maxHp > 0
@@ -1081,6 +1099,13 @@ interface RenderCtx {
   };
   activeTowerKind: string;
   activeBonusKind: string;
+  explosions: Array<{
+    x: number;
+    y: number;
+    radius: number;
+    kind: string;
+    expiresAt: number;
+  }>;
 }
 
 /** Beach radius from synced zoneShrink01 (primary) or match clock fallback. */
@@ -1218,6 +1243,7 @@ function renderFrame(
   }
 
   drawBullets(ctx, w2s, scale, now, rctx.bulletBuf);
+  drawExplosions(ctx, w2s, scale, now, rctx.explosions);
 
   rs.players.forEach((p: ServerPlayer, sessionId: string) => {
     const buf = rctx.playerBuf.get(sessionId);
@@ -1231,6 +1257,38 @@ function renderFrame(
   });
 
   ctx.restore();
+}
+
+function drawExplosions(
+  ctx: CanvasRenderingContext2D,
+  w2s: (x: number, y: number) => { sx: number; sy: number },
+  scale: number,
+  now: number,
+  explosions: RenderCtx["explosions"]
+) {
+  for (const ex of explosions) {
+    const age = 1 - (ex.expiresAt - now) / 450;
+    if (age < 0 || age > 1) continue;
+    const screen = w2s(ex.x, ex.y);
+    const r = ex.radius * scale * (0.4 + age * 0.9);
+    ctx.save();
+    ctx.globalAlpha = 1 - age * 0.85;
+    const grad = ctx.createRadialGradient(screen.sx, screen.sy, 0, screen.sx, screen.sy, r);
+    grad.addColorStop(0, "rgba(254,240,138,0.95)");
+    grad.addColorStop(0.35, "rgba(251,146,60,0.75)");
+    grad.addColorStop(0.7, "rgba(239,68,68,0.35)");
+    grad.addColorStop(1, "rgba(239,68,68,0)");
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(screen.sx, screen.sy, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(255,255,255,0.6)";
+    ctx.lineWidth = Math.max(2, 3 * scale);
+    ctx.beginPath();
+    ctx.arc(screen.sx, screen.sy, r * 0.65, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
 }
 
 function drawOcean(ctx: CanvasRenderingContext2D, cssW: number, cssH: number) {
@@ -1500,21 +1558,20 @@ function drawTowerGlowRing(
   bonusKind: string,
   now: number
 ) {
-  const centre = w2s(o.x, o.y + o.h * 0.22);
-  const rx = (TOWER_BUFF_RADIUS + o.w * 0.15) * scale;
-  const ry = TOWER_BUFF_RADIUS * scale * 0.72;
-  const pulse = 0.85 + Math.sin(now * 0.004) * 0.15;
+  const centre = w2s(o.x, o.y + o.h * 0.15);
+  const ringR = TOWER_BUFF_RADIUS * scale;
+  const pulse = 0.88 + Math.sin(now * 0.004) * 0.12;
   const color =
-    TOWER_BONUS_RING_COLORS[bonusKind] ?? "rgba(192,38,211,0.7)";
+    TOWER_BONUS_RING_COLORS[bonusKind] ?? "rgba(251,191,36,0.8)";
 
   ctx.save();
   ctx.strokeStyle = color;
-  ctx.lineWidth = Math.max(2, 3 * scale);
+  ctx.lineWidth = Math.max(3, 4 * scale);
   ctx.shadowColor = color;
-  ctx.shadowBlur = 14 * pulse;
-  ctx.globalAlpha = 0.55 + Math.sin(now * 0.005) * 0.2;
+  ctx.shadowBlur = 18 * pulse;
+  ctx.globalAlpha = 0.5 + Math.sin(now * 0.005) * 0.15;
   ctx.beginPath();
-  ctx.ellipse(centre.sx, centre.sy, rx * pulse, ry * pulse, 0, 0, Math.PI * 2);
+  ctx.arc(centre.sx, centre.sy, ringR * pulse, 0, Math.PI * 2);
   ctx.stroke();
   ctx.restore();
 }
@@ -1536,7 +1593,7 @@ function drawObstacle(
   }
 
   if (kind === "gorilla" || kind === "flower" || isTowerObstacle(kind)) {
-    drawSpriteObstacle(ctx, o, w2s, scale, kind, isTowerObstacle(kind) && !isActiveTower);
+    drawSpriteObstacle(ctx, o, w2s, scale, kind);
   } else if (kind === "cliff" || kind === "wall") {
     drawCliff(ctx, o, w2s, scale);
   } else if (kind === "palm" || kind === "crate") {
@@ -1553,8 +1610,7 @@ function drawSpriteObstacle(
   o: ServerObstacle,
   w2s: (x: number, y: number) => { sx: number; sy: number },
   scale: number,
-  kind: string,
-  dimmed = false
+  kind: string
 ) {
   const tl = w2s(o.x - o.w / 2, o.y - o.h / 2);
   const w = o.w * scale;
@@ -1563,10 +1619,6 @@ function drawSpriteObstacle(
 
   ctx.save();
   ctx.imageSmoothingEnabled = false;
-  if (dimmed) {
-    ctx.globalAlpha = 0.45;
-    ctx.filter = "brightness(0.65) saturate(0.7)";
-  }
   if (img && img.width > 0 && img.height > 0) {
     ctx.drawImage(img, tl.sx, tl.sy, w, h);
   } else {
@@ -1792,12 +1844,12 @@ function drawPickup(
       ? "R"
       : pu.kind === "sniper"
       ? "X"
-      : pu.kind === "sword"
-      ? "W"
-      : pu.kind === "fire_sword"
-      ? "F"
       : pu.kind === "ice_bow"
       ? "I"
+      : pu.kind === "flamethrower"
+      ? "T"
+      : pu.kind === "rocket"
+      ? "R"
       : "?";
   ctx.fillText(letter, 0, 1);
   ctx.restore();
@@ -1817,110 +1869,53 @@ function drawPlayer(
     typeof p.radiusScale === "number" && p.radiusScale > 0 ? p.radiusScale : 1;
   const r = PLAYER_R * scale * radiusScale;
   const maxHp = p.maxHp > 0 ? p.maxHp : 100;
-  const weapon = (p.weapon || "sword").toLowerCase();
-  const swingAge = now - (p.lastShotAt ?? 0);
-  const swinging =
-    isMeleeWeapon(weapon) && swingAge >= 0 && swingAge < 220;
+  const weapon = (p.weapon || "pistol").toLowerCase();
   const frozen = (p.frozenUntilMs ?? 0) > now;
   const burning = (p.burnUntilMs ?? 0) > now;
+  const slimeColor = p.slimeColor || DEFAULT_SLIME_COLOR;
+  const slimeFace =
+    typeof p.slimeFace === "number" ? Math.max(0, Math.min(3, p.slimeFace)) : 0;
 
   ctx.save();
   if (!p.alive) ctx.globalAlpha = 0.28;
 
-  // Drop shadow.
-  ctx.save();
-  ctx.fillStyle = "rgba(0,0,0,0.45)";
-  ctx.beginPath();
-  ctx.ellipse(
-    screen.sx,
-    screen.sy + r * 0.4,
-    r * 0.95,
-    r * 0.35,
-    0,
-    0,
-    Math.PI * 2
-  );
-  ctx.fill();
-  ctx.restore();
-
-  // Body (squircle) — blue tint when frozen.
-  let bodyColor = isSelf ? "#22d3ee" : "#f0abfc";
-  let strokeColor = isSelf ? "#0e7490" : "#a21caf";
-  if (frozen) {
-    bodyColor = isSelf ? "#7dd3fc" : "#bae6fd";
-    strokeColor = "#0284c7";
-  }
-  ctx.fillStyle = bodyColor;
-  ctx.strokeStyle = strokeColor;
-  ctx.lineWidth = Math.max(2, 2.5 * scale);
-  const side = r * 1.8;
-  roundRect(
+  drawSlime(
     ctx,
-    screen.sx - side / 2,
-    screen.sy - side / 2,
-    side,
-    side,
-    r * 0.45
+    screen.sx,
+    screen.sy,
+    r,
+    slimeColor,
+    slimeFace,
+    pos.aim,
+    frozen,
+    burning,
+    now
   );
-  ctx.fill();
-  ctx.stroke();
 
-  if (frozen) {
-    ctx.save();
-    ctx.strokeStyle = "rgba(186,230,253,0.85)";
-    ctx.lineWidth = Math.max(1.5, 2 * scale);
-    ctx.beginPath();
-    ctx.arc(screen.sx, screen.sy, side * 0.62, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.restore();
-  }
-
-  if (burning) {
-    ctx.save();
-    ctx.strokeStyle = "rgba(251,146,60,0.7)";
-    ctx.lineWidth = Math.max(2, 3 * scale);
-    ctx.shadowColor = "rgba(249,115,22,0.8)";
-    ctx.shadowBlur = 10;
-    ctx.beginPath();
-    ctx.arc(screen.sx, screen.sy, side * 0.55, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.restore();
-  }
-
-  // Gun barrel or melee swipe.
   if (p.alive) {
-    const wcolor = WEAPON_COLORS[weapon] ?? WEAPON_COLORS.sword;
-    if (isMeleeWeapon(weapon)) {
-      ctx.save();
-      const sweep =
-        swinging ? Math.sin((swingAge / 220) * Math.PI) * 0.55 - 0.25 : 0;
-      const arcStart = pos.aim - 0.95 + sweep;
-      const arcEnd = pos.aim + 0.95 + sweep;
-      const reach = r + 52 * scale;
-      ctx.strokeStyle = wcolor.core;
-      ctx.shadowColor = wcolor.glow;
-      ctx.shadowBlur = swinging ? 16 : 4;
-      ctx.lineWidth = Math.max(3, 5 * scale);
-      ctx.lineCap = "round";
-      ctx.globalAlpha = swinging ? 0.95 : 0.35;
-      ctx.beginPath();
-      ctx.arc(screen.sx, screen.sy, reach, arcStart, arcEnd);
-      ctx.stroke();
-      ctx.restore();
-    } else if (weapon === "ice_bow") {
-      ctx.save();
-      ctx.strokeStyle = wcolor.core;
-      ctx.shadowColor = wcolor.glow;
-      ctx.shadowBlur = 10;
-      ctx.lineWidth = Math.max(2, 4 * scale);
-      ctx.lineCap = "round";
-      ctx.beginPath();
-      ctx.moveTo(screen.sx, screen.sy);
-      ctx.lineTo(
-        screen.sx + Math.cos(pos.aim) * (r + 22),
-        screen.sy + Math.sin(pos.aim) * (r + 22)
-      );
-      ctx.stroke();
+    const wcolor = WEAPON_COLORS[weapon] ?? WEAPON_COLORS.pistol;
+    const barrelLen =
+      weapon === "rocket"
+        ? r + 24
+        : weapon === "flamethrower"
+        ? r + 18
+        : weapon === "ice_bow"
+        ? r + 22
+        : r + 14;
+    ctx.save();
+    ctx.strokeStyle = wcolor.core;
+    ctx.shadowColor = wcolor.glow;
+    ctx.shadowBlur = weapon === "flamethrower" ? 12 : 8;
+    ctx.lineWidth = Math.max(2.5, 5 * scale);
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(screen.sx, screen.sy);
+    ctx.lineTo(
+      screen.sx + Math.cos(pos.aim) * barrelLen,
+      screen.sy + Math.sin(pos.aim) * barrelLen
+    );
+    ctx.stroke();
+    if (weapon === "ice_bow") {
       ctx.beginPath();
       ctx.moveTo(
         screen.sx + Math.cos(pos.aim) * (r + 10),
@@ -1931,23 +1926,31 @@ function drawPlayer(
         screen.sy + Math.sin(pos.aim + 0.35) * (r + 18)
       );
       ctx.stroke();
-      ctx.restore();
-    } else {
-      ctx.save();
-      ctx.strokeStyle = wcolor.core;
-      ctx.shadowColor = wcolor.glow;
-      ctx.shadowBlur = 8;
-      ctx.lineWidth = Math.max(2.5, 5 * scale);
-      ctx.lineCap = "round";
-      ctx.beginPath();
-      ctx.moveTo(screen.sx, screen.sy);
-      ctx.lineTo(
-        screen.sx + Math.cos(pos.aim) * (r + 14),
-        screen.sy + Math.sin(pos.aim) * (r + 14)
-      );
-      ctx.stroke();
-      ctx.restore();
     }
+    if (weapon === "rocket") {
+      ctx.fillStyle = wcolor.core;
+      ctx.beginPath();
+      ctx.arc(
+        screen.sx + Math.cos(pos.aim) * (barrelLen - 4),
+        screen.sy + Math.sin(pos.aim) * (barrelLen - 4),
+        Math.max(3, 4 * scale),
+        0,
+        Math.PI * 2
+      );
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  if (isSelf && p.alive) {
+    ctx.save();
+    ctx.strokeStyle = "rgba(255,255,255,0.35)";
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.arc(screen.sx, screen.sy, r * 1.35, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
   }
 
   // HP bar with bracket ticks.

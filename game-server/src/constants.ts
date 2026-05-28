@@ -36,26 +36,25 @@ export const BULLET_TTL_SEC = 1.5;
  * - ttlSec: bullet lifetime (overrides BULLET_TTL_SEC when set).
  */
 export type WeaponKind =
-  | "sword"
-  | "fire_sword"
   | "pistol"
   | "shotgun"
   | "rapid"
   | "sniper"
-  | "ice_bow";
+  | "ice_bow"
+  | "flamethrower"
+  | "rocket";
 
-/** Everyone spawns with melee; guns come from towers / pickups. */
-export const DEFAULT_WEAPON: WeaponKind = "sword";
+/** Everyone spawns with a pistol; towers and pickups grant temporary upgrades. */
+export const DEFAULT_WEAPON: WeaponKind = "pistol";
 
-export const MELEE_WEAPONS: WeaponKind[] = ["sword", "fire_sword"];
-
-/** Random gun rolled when visiting the active vendor tower during a cycle. */
-export const GUN_WEAPONS: WeaponKind[] = [
+export const ALL_WEAPONS: WeaponKind[] = [
   "pistol",
   "shotgun",
   "rapid",
   "sniper",
   "ice_bow",
+  "flamethrower",
+  "rocket",
 ];
 
 export interface WeaponSpec {
@@ -66,33 +65,13 @@ export interface WeaponSpec {
   /** Total cone width in radians; pellets distributed across it. */
   spreadRad: number;
   ttlSec: number;
-  /** Melee-only: reach from player centre. */
-  meleeRange?: number;
-  /** Melee-only: half-angle of forward arc (radians). */
-  meleeArcRad?: number;
+  /** Rocket-only: splash radius on impact. */
+  explodeRadius?: number;
+  /** Rocket-only: splash damage at centre (falls off with distance). */
+  splashDamage?: number;
 }
 
 export const WEAPONS: Record<WeaponKind, WeaponSpec> = {
-  sword: {
-    cooldownMs: 550,
-    bulletSpeed: 0,
-    damage: 45,
-    pellets: 0,
-    spreadRad: 0,
-    ttlSec: 0,
-    meleeRange: 70,
-    meleeArcRad: (75 * Math.PI) / 180,
-  },
-  fire_sword: {
-    cooldownMs: 620,
-    bulletSpeed: 0,
-    damage: 38,
-    pellets: 0,
-    spreadRad: 0,
-    ttlSec: 0,
-    meleeRange: 72,
-    meleeArcRad: (80 * Math.PI) / 180,
-  },
   pistol: {
     cooldownMs: 400,
     bulletSpeed: 800,
@@ -133,14 +112,32 @@ export const WEAPONS: Record<WeaponKind, WeaponSpec> = {
     spreadRad: (8 * Math.PI) / 180,
     ttlSec: 1.8,
   },
+  flamethrower: {
+    cooldownMs: 70,
+    bulletSpeed: 420,
+    damage: 5,
+    pellets: 4,
+    spreadRad: (24 * Math.PI) / 180,
+    ttlSec: 0.32,
+  },
+  rocket: {
+    cooldownMs: 950,
+    bulletSpeed: 480,
+    damage: 42,
+    pellets: 1,
+    spreadRad: 0,
+    ttlSec: 2.4,
+    explodeRadius: 130,
+    splashDamage: 34,
+  },
 };
 
-/** Temporary gun from a tower lasts this long before reverting to melee. */
+/** Temporary weapon from a tower lasts this long before reverting to pistol. */
 export const WEAPON_BUFF_MS = 20_000;
 
-/** Burn DoT from fire sword hits. */
-export const BURN_DURATION_MS = 3_500;
-export const BURN_DPS = 9;
+/** Burn DoT from flamethrower hits. */
+export const BURN_DURATION_MS = 3_200;
+export const BURN_DPS = 10;
 
 /** Freeze slow from ice bow hits. */
 export const FREEZE_DURATION_MS = 2_800;
@@ -164,18 +161,51 @@ export const HEALTH_PACK_AMOUNT = 50;
  * it's the most powerful.
  */
 export const PICKUP_WEIGHTS: { kind: "health" | WeaponKind; weight: number }[] = [
-  { kind: "health", weight: 32 },
-  { kind: "fire_sword", weight: 18 },
+  { kind: "health", weight: 30 },
   { kind: "pistol", weight: 12 },
   { kind: "shotgun", weight: 12 },
   { kind: "rapid", weight: 10 },
   { kind: "sniper", weight: 8 },
   { kind: "ice_bow", weight: 8 },
+  { kind: "flamethrower", weight: 10 },
+  { kind: "rocket", weight: 8 },
 ];
 
+// ---------- Slime avatars ----------
+export const SLIME_COLORS = [
+  "#22d3ee",
+  "#a3e635",
+  "#f472b6",
+  "#fb923c",
+  "#c084fc",
+  "#facc15",
+  "#38bdf8",
+  "#4ade80",
+  "#f87171",
+  "#e879f9",
+  "#2dd4bf",
+  "#818cf8",
+] as const;
+
+export const DEFAULT_SLIME_COLOR = "#22d3ee";
+export const SLIME_FACE_COUNT = 4;
+
+export function parseSlimeColor(raw: unknown): string {
+  const v = String(raw ?? "").trim().toLowerCase();
+  return (SLIME_COLORS as readonly string[]).includes(v)
+    ? v
+    : DEFAULT_SLIME_COLOR;
+}
+
+export function parseSlimeFace(raw: unknown): number {
+  const n = Math.floor(Number(raw));
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(SLIME_FACE_COUNT - 1, n));
+}
+
 // ---------- Vendor towers ----------
-/** Active tower cycles grant a random gun to players who enter the glow ring. */
-export type TowerBonusKind = "guns";
+/** Weapon granted when standing in the active tower glow ring during a cycle. */
+export type TowerBonusKind = WeaponKind;
 
 export type TowerKind =
   | "tower_kt_corp"
@@ -229,10 +259,19 @@ export const TOWER_PLACEMENTS: Array<{ kind: TowerKind; x: number; y: number }> 
   { kind: "tower_gus_supply", x: -200, y: -420 },
 ];
 
-export const TOWER_CYCLE_MS = 75_000;
-export const TOWER_BUFF_RADIUS = 140;
+export const TOWER_CYCLE_MS = 60_000;
+export const TOWER_BUFF_RADIUS = 250;
 
-export const TOWER_BONUS_KINDS: TowerBonusKind[] = ["guns"];
+/** Rotates in lockstep with vendor towers — one featured weapon per cycle. */
+export const TOWER_WEAPON_CYCLE: WeaponKind[] = [
+  "pistol",
+  "shotgun",
+  "rapid",
+  "sniper",
+  "ice_bow",
+  "flamethrower",
+  "rocket",
+];
 
 // ---------- Island / obstacles ----------
 /** Circular playable sand area (world centre). Obstacles spawn inside this. */

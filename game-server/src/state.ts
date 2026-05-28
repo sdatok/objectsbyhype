@@ -37,11 +37,16 @@ export class Player extends Schema {
   /** True once they're connected to the room; flipped off on disconnect. */
   @type("boolean") connected = false;
 
-  /** Currently equipped weapon. Defaults to sword; guns expire back to melee. */
-  @type("string") weapon = "sword";
+  /** Currently equipped weapon. Defaults to pistol; tower/pickup buffs expire. */
+  @type("string") weapon = "pistol";
 
-  /** UNIX ms when a temporary gun reverts to default melee. 0 = base loadout. */
+  /** UNIX ms when a temporary weapon reverts to default pistol. 0 = base loadout. */
   @type("number") weaponExpiresAtMs = 0;
+
+  /** Slime body colour (hex). Chosen in lobby. */
+  @type("string") slimeColor = "#22d3ee";
+  /** Eye expression preset 0..3. */
+  @type("number") slimeFace = 0;
 
   /** Collision radius multiplier (1 = default PLAYER_RADIUS). */
   @type("number") radiusScale = 1;
@@ -49,7 +54,7 @@ export class Player extends Schema {
   @type("number") speedScale = 1;
   /** Current HP cap (default PLAYER_MAX_HP). */
   @type("number") maxHp = 100;
-  /** UNIX ms burn DoT ends (fire sword). */
+  /** UNIX ms burn DoT ends (flamethrower). */
   @type("number") burnUntilMs = 0;
   /** UNIX ms freeze slow ends (ice bow). */
   @type("number") frozenUntilMs = 0;
@@ -76,7 +81,7 @@ export class Bullet extends Schema {
 }
 
 export class Pickup extends Schema {
-  /** "health" | "shotgun" | "rapid" | "sniper" | "sword" */
+  /** "health" | weapon kind */
   @type("string") kind = "";
   @type("number") x = 0;
   @type("number") y = 0;
@@ -122,12 +127,14 @@ export class SurvivorState extends Schema {
   /** 0..1 how far the safe zone has shrunk (synced each tick for reliable client render). */
   @type("number") zoneShrink01 = 0;
 
-  /** Vendor tower lit for the current gun-drop cycle (tower_* kind or empty). */
+  /** Vendor tower lit for the current weapon cycle (tower_* kind or empty). */
   @type("string") activeTowerKind = "";
-  /** Always "guns" while a tower cycle is active. */
+  /** Weapon granted at the active tower this cycle (pistol, rocket, etc.). */
   @type("string") activeBonusKind = "";
   /** UNIX ms when the current tower bonus cycle ends. */
   @type("number") towerCycleEndsAtMs = 0;
+  /** Monotonic counter — drives sequential tower + weapon rotation. */
+  @type("number") towerCycleIndex = 0;
 
   @type({ map: Player }) players = new MapSchema<Player>();
   @type([Bullet]) bullets = new ArraySchema<Bullet>();
