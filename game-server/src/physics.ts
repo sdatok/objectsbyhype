@@ -17,6 +17,13 @@ import {
   PICKUP_ZONE_MARGIN,
   PICKUP_WEIGHTS,
   HEALTH_PACK_AMOUNT,
+  DEFAULT_WEAPON,
+  MELEE_WEAPONS,
+  GUN_WEAPONS,
+  BURN_DURATION_MS,
+  BURN_DPS,
+  FREEZE_DURATION_MS,
+  FREEZE_SLOW_SCALE,
   OBSTACLE_KEEP_OUT,
   OBSTACLE_MIN_SPACING,
   OBSTACLE_EDGE_INSET,
@@ -31,8 +38,16 @@ import {
   WALL_SEG_MIN,
   WALL_SEG_MAX,
   WALL_BEND_PROB,
+  TOWER_PLACEMENTS,
+  TOWER_KINDS,
+  TOWER_DISPLAY_NAMES,
+  TOWER_CYCLE_MS,
+  TOWER_BUFF_RADIUS,
+  TOWER_BONUS_KINDS,
   type WeaponKind,
   type ObstacleKind,
+  type TowerKind,
+  type TowerBonusKind,
 } from "./constants";
 import type {
   SurvivorState,
@@ -102,17 +117,100 @@ export interface TickEvents {
     sessionId: string;
     kind: string;
   }>;
+  towerBonus: {
+    vendorName: string;
+    bonusKind: string;
+    towerKind: string;
+    endsAtMs: number;
+  } | null;
 }
 
 export function emptyEvents(): TickEvents {
-  return { kills: [], pickupsCollected: [] };
+  return { kills: [], pickupsCollected: [], towerBonus: null };
+}
+
+function playerRadius(p: Player): number {
+  const scale = typeof p.radiusScale === "number" && p.radiusScale > 0 ? p.radiusScale : 1;
+  return PLAYER_RADIUS * scale;
+}
+
+function playerSpeed(p: Player, nowMs: number): number {
+  let scale = typeof p.speedScale === "number" && p.speedScale > 0 ? p.speedScale : 1;
+  if (p.frozenUntilMs > nowMs) scale *= FREEZE_SLOW_SCALE;
+  return PLAYER_SPEED * scale;
+}
+
+function isMeleeWeapon(kind: string): boolean {
+  return (MELEE_WEAPONS as readonly string[]).includes(kind);
+}
+
+function isGunWeapon(kind: string): boolean {
+  return (GUN_WEAPONS as readonly string[]).includes(kind);
+}
+
+function resetToDefaultLoadout(p: Player): void {
+  p.weapon = DEFAULT_WEAPON;
+  p.weaponExpiresAtMs = 0;
+}
+
+function resetTowerBuff(p: Player): void {
+  p.radiusScale = 1;
+  p.speedScale = 1;
+  p.maxHp = PLAYER_MAX_HP;
+  p.hp = Math.min(p.hp, p.maxHp);
+  p.towerBuffExpiresAtMs = 0;
+  p.towerBuffKind = "";
+}
+
+function expirePlayerBuffs(p: Player, nowMs: number): void {
+  if (p.weaponExpiresAtMs > 0 && nowMs >= p.weaponExpiresAtMs) {
+    resetToDefaultLoadout(p);
+  }
+  if (p.towerBuffExpiresAtMs > 0 && nowMs >= p.towerBuffExpiresAtMs) {
+    resetTowerBuff(p);
+  }
+  if (p.burnUntilMs > 0 && nowMs >= p.burnUntilMs) {
+    p.burnUntilMs = 0;
+  }
+  if (p.frozenUntilMs > 0 && nowMs >= p.frozenUntilMs) {
+    p.frozenUntilMs = 0;
+  }
+}
+
+function applyWeaponHitEffects(
+  victim: Player,
+  weaponKind: string,
+  nowMs: number
+): void {
+  if (weaponKind === "fire_sword") {
+    victim.burnUntilMs = nowMs + BURN_DURATION_MS;
+  }
+  if (weaponKind === "ice_bow") {
+    victim.frozenUntilMs = nowMs + FREEZE_DURATION_MS;
+  }
+}
+
+/** Burn DoT + debuff expiry. */
+export function tickDebuffs(
+  state: SurvivorState,
+  dtSec: number,
+  nowMs: number,
+  events: TickEvents
+): void {
+  state.players.forEach((p, sessionId) => {
+    if (!p.alive) return;
+    if (p.burnUntilMs > nowMs) {
+      applyDamage(state, p, sessionId, BURN_DPS * dtSec, null, nowMs, events);
+    }
+  });
 }
 
 /** Advance every alive player by their latest input. */
 export function tickPlayers(
   state: SurvivorState,
   inputs: Map<string, PlayerInput>,
-  dtSec: number
+  dtSec: number,
+  nowMs: number
 ): void {
   state.players.forEach((p, sessionId) => {
     if (!p.alive) return;
@@ -120,23 +218,25 @@ export function tickPlayers(
     if (!inp) return;
 
     p.aim = inp.aim;
-    const dx = inp.moveX * PLAYER_SPEED * dtSec;
-    const dy = inp.moveY * PLAYER_SPEED * dtSec;
+    const speed = playerSpeed(p, nowMs);
+    const radius = playerRadius(p);
+    const dx = inp.moveX * speed * dtSec;
+    const dy = inp.moveY * speed * dtSec;
 
     // Apply movement on each axis separately so the player slides along
     // obstacle walls rather than getting stuck against a corner.
     p.x = clamp(
       p.x + dx,
-      -WORLD_HALF + PLAYER_RADIUS,
-      WORLD_HALF - PLAYER_RADIUS
+      -WORLD_HALF + radius,
+      WORLD_HALF - radius
     );
-    resolvePlayerAgainstObstacles(p, state.obstacles, "x");
+    resolvePlayerAgainstObstacles(p, state.obstacles, "x", radius);
     p.y = clamp(
       p.y + dy,
-      -WORLD_HALF + PLAYER_RADIUS,
-      WORLD_HALF - PLAYER_RADIUS
+      -WORLD_HALF + radius,
+      WORLD_HALF - radius
     );
-    resolvePlayerAgainstObstacles(p, state.obstacles, "y");
+    resolvePlayerAgainstObstacles(p, state.obstacles, "y", radius);
   });
 }
 
@@ -148,13 +248,14 @@ export function tickPlayers(
 function resolvePlayerAgainstObstacles(
   p: Player,
   obstacles: SurvivorState["obstacles"],
-  axis: "x" | "y"
+  axis: "x" | "y",
+  radius = PLAYER_RADIUS
 ): void {
   obstacles.forEach((o) => {
-    const left = o.x - o.w / 2 - PLAYER_RADIUS;
-    const right = o.x + o.w / 2 + PLAYER_RADIUS;
-    const top = o.y - o.h / 2 - PLAYER_RADIUS;
-    const bottom = o.y + o.h / 2 + PLAYER_RADIUS;
+    const left = o.x - o.w / 2 - radius;
+    const right = o.x + o.w / 2 + radius;
+    const top = o.y - o.h / 2 - radius;
+    const bottom = o.y + o.h / 2 + radius;
     if (p.x <= left || p.x >= right || p.y <= top || p.y >= bottom) {
       return;
     }
@@ -237,36 +338,87 @@ function bulletPathHitsObstacle(
 }
 
 function getWeaponSpec(weapon: string) {
-  return WEAPONS[(weapon as WeaponKind) in WEAPONS ? (weapon as WeaponKind) : "pistol"];
+  return WEAPONS[
+    (weapon as WeaponKind) in WEAPONS ? (weapon as WeaponKind) : DEFAULT_WEAPON
+  ];
+}
+
+/** Expire weapon + tower personal buffs each tick. */
+export function tickPlayerBuffs(state: SurvivorState, nowMs: number): void {
+  state.players.forEach((p) => {
+    if (!p.alive) return;
+    expirePlayerBuffs(p, nowMs);
+  });
+}
+
+function performMeleeSwing(
+  state: SurvivorState,
+  attacker: Player,
+  attackerSessionId: string,
+  nowMs: number,
+  events: TickEvents
+): void {
+  const spec = WEAPONS[attacker.weapon as WeaponKind] ?? WEAPONS.sword;
+  const range = spec.meleeRange ?? 70;
+  const halfArc = spec.meleeArcRad ?? Math.PI / 4;
+  const atkR = playerRadius(attacker);
+
+  state.players.forEach((target, targetId) => {
+    if (targetId === attackerSessionId || !target.alive) return;
+    const dx = target.x - attacker.x;
+    const dy = target.y - attacker.y;
+    const dist = Math.hypot(dx, dy);
+    const tgtR = playerRadius(target);
+    if (dist > range + atkR + tgtR) return;
+    let angleTo = Math.atan2(dy, dx);
+    let diff = angleTo - attacker.aim;
+    while (diff > Math.PI) diff -= Math.PI * 2;
+    while (diff < -Math.PI) diff += Math.PI * 2;
+    if (Math.abs(diff) <= halfArc) {
+      applyDamage(
+        state,
+        target,
+        targetId,
+        spec.damage,
+        attackerSessionId,
+        nowMs,
+        events
+      );
+      applyWeaponHitEffects(target, attacker.weapon, nowMs);
+    }
+  });
 }
 
 /**
  * For every alive player whose input has shooting=true and cooldown expired,
  * spawn the weapon's pellet pattern. Also revives players whose weapon-buff
- * has timed out back to the default pistol.
+ * has timed out back to the default sword.
  */
 export function tickShooting(
   state: SurvivorState,
   inputs: Map<string, PlayerInput>,
-  nowMs: number
+  nowMs: number,
+  events: TickEvents
 ): number {
   let spawned = 0;
   state.players.forEach((p, sessionId) => {
-    // Expire any active weapon buff first so cooldown/spread reverts cleanly.
-    if (p.weaponExpiresAtMs > 0 && nowMs >= p.weaponExpiresAtMs) {
-      p.weapon = "pistol";
-      p.weaponExpiresAtMs = 0;
-    }
     if (!p.alive) return;
     const inp = inputs.get(sessionId);
     if (!inp?.shooting) return;
+
     const spec = getWeaponSpec(p.weapon);
+
+    if (isMeleeWeapon(p.weapon)) {
+      if (nowMs - p.lastShotAt < spec.cooldownMs) return;
+      performMeleeSwing(state, p, sessionId, nowMs, events);
+      p.lastShotAt = nowMs;
+      return;
+    }
+
     if (nowMs - p.lastShotAt < spec.cooldownMs) return;
 
     const pellets = Math.max(1, spec.pellets);
-    // For an odd pellet count, the middle bullet flies straight; for even
-    // counts the cone is symmetric around `aim`. spreadRad is the TOTAL
-    // cone width — bullets are evenly distributed across it.
+    const atkR = playerRadius(p);
     const step = pellets > 1 ? spec.spreadRad / (pellets - 1) : 0;
     const base = pellets > 1 ? p.aim - spec.spreadRad / 2 : p.aim;
 
@@ -274,8 +426,8 @@ export function tickShooting(
       const angle = base + step * i;
       const b = new BulletCtor();
       b.ownerId = sessionId;
-      b.x = p.x + Math.cos(angle) * (PLAYER_RADIUS + 2);
-      b.y = p.y + Math.sin(angle) * (PLAYER_RADIUS + 2);
+      b.x = p.x + Math.cos(angle) * (atkR + 2);
+      b.y = p.y + Math.sin(angle) * (atkR + 2);
       b.vx = Math.cos(angle) * spec.bulletSpeed;
       b.vy = Math.sin(angle) * spec.bulletSpeed;
       b.spawnedAt = nowMs;
@@ -340,10 +492,11 @@ export function tickBullets(
       if (sessionId === b.ownerId) return;
       const dx = p.x - b.x;
       const dy = p.y - b.y;
-      const r = PLAYER_RADIUS + BULLET_RADIUS;
+      const r = playerRadius(p) + BULLET_RADIUS;
       if (dx * dx + dy * dy <= r * r) {
-        const spec = getWeaponSpec(b.kind || "pistol");
+        const spec = getWeaponSpec(b.kind || DEFAULT_WEAPON);
         applyDamage(state, p, sessionId, spec.damage, b.ownerId, nowMs, events);
+        applyWeaponHitEffects(p, b.kind, nowMs);
         hit = true;
       }
     });
@@ -475,7 +628,7 @@ export function tickPickups(
       if (consumedBy || !p.alive) return;
       const dx = p.x - pu.x;
       const dy = p.y - pu.y;
-      const r = PLAYER_RADIUS + PICKUP_RADIUS;
+      const r = playerRadius(p) + PICKUP_RADIUS;
       if (dx * dx + dy * dy <= r * r) {
         applyPickup(p, pu.kind, nowMs);
         consumedBy = sessionId;
@@ -492,13 +645,23 @@ export function tickPickups(
 
 function applyPickup(p: Player, kind: string, nowMs: number): void {
   if (kind === "health") {
-    p.hp = Math.min(PLAYER_MAX_HP, p.hp + HEALTH_PACK_AMOUNT);
+    const cap = p.maxHp > 0 ? p.maxHp : PLAYER_MAX_HP;
+    p.hp = Math.min(cap, p.hp + HEALTH_PACK_AMOUNT);
     return;
   }
   if (kind in WEAPONS) {
     p.weapon = kind;
-    p.weaponExpiresAtMs = nowMs + WEAPON_BUFF_MS;
+    if (isGunWeapon(kind)) {
+      p.weaponExpiresAtMs = nowMs + WEAPON_BUFF_MS;
+    } else {
+      // Melee upgrades (fire sword) are permanent until death.
+      p.weaponExpiresAtMs = 0;
+    }
   }
+}
+
+function pickRandomGun(): WeaponKind {
+  return GUN_WEAPONS[Math.floor(Math.random() * GUN_WEAPONS.length)];
 }
 
 function rouletteKind(): string {
@@ -745,7 +908,10 @@ export function generateObstacles(state: SurvivorState): void {
   // ---- Pass 3: gorilla + flower feature props ----
   generateFeatureProps(state, placed);
 
-  // ---- Pass 4: standalone cover (palms, rocks, wreckage) ----
+  // ---- Pass 4: vendor towers (fixed scattered positions) ----
+  generateVendorTowers(state, placed);
+
+  // ---- Pass 5: standalone cover (palms, rocks, wreckage) ----
   const kindWeights: Array<{ kind: ObstacleKind; weight: number }> = [
     { kind: "palm", weight: 40 },
     { kind: "rock", weight: 30 },
@@ -804,4 +970,95 @@ export function generateObstacles(state: SurvivorState): void {
   }
 
   console.log(`[survivor] generateObstacles placed ${state.obstacles.length} segments`);
+}
+
+/** Place all vendor towers at hand-authored fixed positions. */
+function generateVendorTowers(
+  state: SurvivorState,
+  placed: ObstacleRect[]
+): void {
+  for (const slot of TOWER_PLACEMENTS) {
+    const size = OBSTACLE_SIZES[slot.kind][0];
+    const candidate: ObstacleRect = {
+      kind: slot.kind,
+      x: slot.x,
+      y: slot.y,
+      w: size.w,
+      h: size.h,
+    };
+    if (!withinWorld(candidate) || !withinPlayableZone(state, candidate, 12)) {
+      console.warn(
+        `[survivor] tower ${slot.kind} at (${slot.x},${slot.y}) may be out of bounds`
+      );
+    }
+    placed.push(candidate);
+  }
+}
+
+function findTowerObstacle(
+  state: SurvivorState,
+  kind: string
+): Obstacle | null {
+  for (let i = 0; i < state.obstacles.length; i++) {
+    const o = state.obstacles[i] as Obstacle;
+    if (o.kind === kind) return o;
+  }
+  return null;
+}
+
+function isInsideTowerZone(px: number, py: number, tower: Obstacle): boolean {
+  const dx = px - tower.x;
+  const dy = py - tower.y;
+  return Math.hypot(dx, dy) <= TOWER_BUFF_RADIUS;
+}
+
+function pickRandomTower(): TowerKind {
+  return TOWER_KINDS[Math.floor(Math.random() * TOWER_KINDS.length)];
+}
+
+function startTowerCycle(
+  state: SurvivorState,
+  nowMs: number,
+  events: TickEvents
+): void {
+  const towerKind = pickRandomTower();
+  state.activeTowerKind = towerKind;
+  state.activeBonusKind = "guns";
+  state.towerCycleEndsAtMs = nowMs + TOWER_CYCLE_MS;
+  events.towerBonus = {
+    vendorName: TOWER_DISPLAY_NAMES[towerKind],
+    bonusKind: "guns",
+    towerKind,
+    endsAtMs: state.towerCycleEndsAtMs,
+  };
+}
+
+/**
+ * Rotate which vendor tower is distributing guns; players who enter the glow
+ * ring during the cycle receive one random gun (once per cycle).
+ */
+export function tickTowerBonuses(
+  state: SurvivorState,
+  _dtSec: number,
+  nowMs: number,
+  events: TickEvents
+): void {
+  if (state.status !== "PLAYING") return;
+
+  if (!state.activeTowerKind || nowMs >= state.towerCycleEndsAtMs) {
+    startTowerCycle(state, nowMs, events);
+  }
+
+  const tower = findTowerObstacle(state, state.activeTowerKind);
+  if (!tower) return;
+
+  state.players.forEach((p) => {
+    if (!p.alive) return;
+    if (!isInsideTowerZone(p.x, p.y, tower)) return;
+    if (p.gunGrantedCycleEndsAtMs === state.towerCycleEndsAtMs) return;
+
+    p.weapon = pickRandomGun();
+    p.weaponExpiresAtMs = nowMs + WEAPON_BUFF_MS;
+    p.gunGrantedCycleEndsAtMs = state.towerCycleEndsAtMs;
+  });
 }

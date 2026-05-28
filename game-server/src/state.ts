@@ -37,11 +37,28 @@ export class Player extends Schema {
   /** True once they're connected to the room; flipped off on disconnect. */
   @type("boolean") connected = false;
 
-  /** Currently equipped weapon. Reverts to "pistol" when the buff expires. */
-  @type("string") weapon = "pistol";
+  /** Currently equipped weapon. Defaults to sword; guns expire back to melee. */
+  @type("string") weapon = "sword";
 
-  /** UNIX ms when a non-pistol weapon reverts. 0 means default pistol. */
+  /** UNIX ms when a temporary gun reverts to default melee. 0 = base loadout. */
   @type("number") weaponExpiresAtMs = 0;
+
+  /** Collision radius multiplier (1 = default PLAYER_RADIUS). */
+  @type("number") radiusScale = 1;
+  /** Move speed multiplier (1 = default PLAYER_SPEED). */
+  @type("number") speedScale = 1;
+  /** Current HP cap (default PLAYER_MAX_HP). */
+  @type("number") maxHp = 100;
+  /** UNIX ms burn DoT ends (fire sword). */
+  @type("number") burnUntilMs = 0;
+  /** UNIX ms freeze slow ends (ice bow). */
+  @type("number") frozenUntilMs = 0;
+  /** towerCycleEndsAtMs of the cycle that last granted a gun (avoid re-roll every tick). */
+  @type("number") gunGrantedCycleEndsAtMs = 0;
+  /** @deprecated — kept for schema compat */
+  @type("number") towerBuffExpiresAtMs = 0;
+  /** @deprecated — kept for schema compat */
+  @type("string") towerBuffKind = "";
 }
 
 export class Bullet extends Schema {
@@ -59,7 +76,7 @@ export class Bullet extends Schema {
 }
 
 export class Pickup extends Schema {
-  /** "health" | "shotgun" | "rapid" | "sniper" */
+  /** "health" | "shotgun" | "rapid" | "sniper" | "sword" */
   @type("string") kind = "";
   @type("number") x = 0;
   @type("number") y = 0;
@@ -72,7 +89,7 @@ export class Pickup extends Schema {
  * refuse to spawn inside.
  */
 export class Obstacle extends Schema {
-  /** "cliff" | "rock" | "palm" | "wreck" — island prop; blocks movement + bullets. */
+  /** cliff/rock/palm/wreck/gorilla/flower/tower_* — blocks movement + bullets. */
   @type("string") kind = "rock";
   /** World position of the AABB centre. */
   @type("number") x = 0;
@@ -104,6 +121,13 @@ export class SurvivorState extends Schema {
   @type("number") matchEndsAtMs = 0;
   /** 0..1 how far the safe zone has shrunk (synced each tick for reliable client render). */
   @type("number") zoneShrink01 = 0;
+
+  /** Vendor tower lit for the current gun-drop cycle (tower_* kind or empty). */
+  @type("string") activeTowerKind = "";
+  /** Always "guns" while a tower cycle is active. */
+  @type("string") activeBonusKind = "";
+  /** UNIX ms when the current tower bonus cycle ends. */
+  @type("number") towerCycleEndsAtMs = 0;
 
   @type({ map: Player }) players = new MapSchema<Player>();
   @type([Bullet]) bullets = new ArraySchema<Bullet>();

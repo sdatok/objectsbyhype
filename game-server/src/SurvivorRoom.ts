@@ -16,6 +16,9 @@ import {
   tickBullets,
   tickZone,
   tickPickups,
+  tickTowerBonuses,
+  tickPlayerBuffs,
+  tickDebuffs,
   freshPickupCtx,
   generateObstacles,
   sanitizeInput,
@@ -195,6 +198,16 @@ export class SurvivorRoom extends Room<SurvivorState> {
       p.x = spawn.x;
       p.y = spawn.y;
       p.hp = PLAYER_MAX_HP;
+      p.maxHp = PLAYER_MAX_HP;
+      p.weapon = "sword";
+      p.weaponExpiresAtMs = 0;
+      p.radiusScale = 1;
+      p.speedScale = 1;
+      p.burnUntilMs = 0;
+      p.frozenUntilMs = 0;
+      p.gunGrantedCycleEndsAtMs = 0;
+      p.towerBuffExpiresAtMs = 0;
+      p.towerBuffKind = "";
       p.alive = true;
     }
     this.state.players.set(client.sessionId, p);
@@ -441,11 +454,14 @@ export class SurvivorRoom extends Room<SurvivorState> {
 
     const events = emptyEvents();
 
-    tickPlayers(this.state, this.inputs, dtSec);
-    tickShooting(this.state, this.inputs, now);
+    tickPlayerBuffs(this.state, now);
+    tickDebuffs(this.state, dtSec, now, events);
+    tickPlayers(this.state, this.inputs, dtSec, now);
+    tickShooting(this.state, this.inputs, now, events);
     tickBullets(this.state, dtSec, now, events);
     tickZone(this.state, dtSec, now, events);
     this.pickupCtx = tickPickups(this.state, this.pickupCtx, now, events);
+    tickTowerBonuses(this.state, dtSec, now, events);
 
     // Forward transient events as room messages so the client can fire
     // kill-feed + pickup toast UI immediately without waiting for the next
@@ -460,6 +476,9 @@ export class SurvivorRoom extends Room<SurvivorState> {
         const cli = this.clients.find((c) => c.sessionId === ev.sessionId);
         cli?.send("event:pickup", { kind: ev.kind });
       }
+    }
+    if (events.towerBonus) {
+      this.broadcast("event:tower-bonus", events.towerBonus);
     }
 
     // End conditions: last alive OR timer expired.
@@ -591,6 +610,9 @@ export class SurvivorRoom extends Room<SurvivorState> {
     this.state.countdownEndsAtMs = 0;
     this.state.zoneShrink01 = 0;
     this.state.matchEndsAtMs = 0;
+    this.state.activeTowerKind = "";
+    this.state.activeBonusKind = "";
+    this.state.towerCycleEndsAtMs = 0;
     this.state.zone.radius = ZONE_START_RADIUS;
     this.state.zone.targetRadius = ZONE_START_RADIUS;
     this.resultPosted = false;

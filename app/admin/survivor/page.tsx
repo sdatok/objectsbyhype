@@ -31,7 +31,7 @@ export default async function AdminSurvivorPage() {
         gitSha?: string;
       };
       serverHealth = {
-        ok: res.ok && body.build === "island-v6",
+        ok: res.ok && body.build === "island-v8",
         build: body.build,
         gitSha: body.gitSha,
       };
@@ -79,7 +79,7 @@ export default async function AdminSurvivorPage() {
             <strong>Game server (Railway):</strong>{" "}
             {serverHealth.ok ? (
               <>
-                island-v6 live · git{" "}
+                island-v8 live · git{" "}
                 <code>{serverHealth.gitSha ?? "?"}</code>
               </>
             ) : serverHealth.error ? (
@@ -89,7 +89,7 @@ export default async function AdminSurvivorPage() {
               <>
                 outdated build (<code>{serverHealth.build ?? "unknown"}</code>
                 ). Railway must deploy latest <code>main</code> with root{" "}
-                <code>game-server</code> (expect <code>island-v6</code>), then
+                <code>game-server</code> (expect <code>island-v8</code>), then
                 open a <strong>new</strong> match.
               </>
             )}

@@ -46,6 +46,14 @@ interface ServerPlayer {
   placement: number;
   weapon: string;
   weaponExpiresAtMs: number;
+  lastShotAt: number;
+  radiusScale: number;
+  speedScale: number;
+  maxHp: number;
+  burnUntilMs: number;
+  frozenUntilMs: number;
+  towerBuffExpiresAtMs: number;
+  towerBuffKind: string;
 }
 
 interface ServerBullet {
@@ -98,6 +106,9 @@ interface ServerState {
   pickups: ServerPickup[] | { forEach: (cb: (p: ServerPickup) => void) => void; length: number };
   obstacles: ServerObstacle[] | { forEach: (cb: (o: ServerObstacle) => void) => void; length: number };
   zone: ServerZone;
+  activeTowerKind?: string;
+  activeBonusKind?: string;
+  towerCycleEndsAtMs?: number;
 }
 
 // Must match game-server/src/constants.ts.
@@ -113,10 +124,37 @@ const PICKUP_R = 14;
 // 130ms is ~4 patches of buffer — plenty of headroom without feeling laggy.
 const INTERP_DELAY_MS = 130;
 const WEAPON_BUFF_MS = 20_000;
+const TOWER_BUFF_RADIUS = 140;
+
+const TOWER_BONUS_LABELS: Record<string, string> = {
+  guns: "weapon drop",
+  health: "health bonus",
+  speed: "speed boost",
+  titan: "titan health",
+  sword: "sword pickup",
+};
+
+const TOWER_BONUS_RING_COLORS: Record<string, string> = {
+  guns: "rgba(251,191,36,0.8)",
+  health: "rgba(74,222,128,0.75)",
+  speed: "rgba(34,211,238,0.75)",
+  titan: "rgba(251,191,36,0.8)",
+  sword: "rgba(192,38,211,0.8)",
+};
 
 const OBSTACLE_SPRITE_URLS: Record<string, string> = {
   gorilla: "/survivor/obstacles/gorilla.png",
   flower: "/survivor/obstacles/flower.png",
+  tower_kt_corp: "/survivor/buildings/tower_kt_corp.png",
+  tower_dan_sporting: "/survivor/buildings/tower_dan_sporting.png",
+  tower_horizon: "/survivor/buildings/tower_horizon.png",
+  tower_goat: "/survivor/buildings/tower_goat.png",
+  tower_src: "/survivor/buildings/tower_src.png",
+  tower_pax: "/survivor/buildings/tower_pax.png",
+  tower_internet_money: "/survivor/buildings/tower_internet_money.png",
+  tower_tomy: "/survivor/buildings/tower_tomy.png",
+  tower_ror_sply: "/survivor/buildings/tower_ror_sply.png",
+  tower_gus_supply: "/survivor/buildings/tower_gus_supply.png",
 };
 /** Black-backed PNGs are keyed out at load time so only the art shows on sand. */
 const SPRITE_BLACK_KEY_THRESHOLD = 16;
@@ -159,12 +197,19 @@ function preloadObstacleSprites(): void {
 }
 
 const WEAPON_COLORS: Record<string, { core: string; glow: string; label: string }> = {
+  sword: { core: "#e879f9", glow: "rgba(232,121,249,0.55)", label: "SWORD" },
+  fire_sword: { core: "#fb923c", glow: "rgba(251,146,60,0.65)", label: "FIRE SWORD" },
   pistol: { core: "#f5f5f5", glow: "rgba(245,245,245,0.55)", label: "PISTOL" },
   shotgun: { core: "#fbbf24", glow: "rgba(251,191,36,0.55)", label: "SHOTGUN" },
   rapid: { core: "#34d399", glow: "rgba(52,211,153,0.55)", label: "RAPID" },
   sniper: { core: "#f87171", glow: "rgba(248,113,113,0.55)", label: "SNIPER" },
+  ice_bow: { core: "#67e8f9", glow: "rgba(103,232,249,0.65)", label: "ICE BOW" },
   health: { core: "#4ade80", glow: "rgba(74,222,128,0.55)", label: "HEALTH" },
 };
+
+function isMeleeWeapon(kind: string): boolean {
+  return kind === "sword" || kind === "fire_sword";
+}
 
 interface PlayerSnap {
   t: number;
@@ -232,6 +277,11 @@ export default function GameCanvas({ room, onLeave }: GameCanvasProps) {
     kind: string;
     expiresAt: number;
   } | null>(null);
+  const [towerAnnouncement, setTowerAnnouncement] = useState<{
+    vendorName: string;
+    bonusKind: string;
+    expiresAt: number;
+  } | null>(null);
 
   // HUD-relevant fields sampled from state at React rate.
   const [statusSnapshot, setStatusSnapshot] = useState<{
@@ -243,6 +293,8 @@ export default function GameCanvas({ room, onLeave }: GameCanvasProps) {
     selfPlacement: number;
     selfWeapon: string;
     selfWeaponExpiresAtMs: number;
+    selfMaxHp: number;
+    selfTowerBuffKind: string;
     matchEndsAtMs: number;
     countdownEndsAtMs: number;
     startedAtMs: number;
@@ -350,8 +402,20 @@ export default function GameCanvas({ room, onLeave }: GameCanvasProps) {
       if (!payload?.kind) return;
       setPickupToast({ kind: payload.kind, expiresAt: Date.now() + 1500 });
     };
+    const onTowerBonus = (payload: {
+      vendorName: string;
+      bonusKind: string;
+    }) => {
+      if (!payload?.vendorName || !payload?.bonusKind) return;
+      setTowerAnnouncement({
+        vendorName: payload.vendorName,
+        bonusKind: payload.bonusKind,
+        expiresAt: Date.now() + 5000,
+      });
+    };
     room.onMessage("event:kills", onKills);
     room.onMessage("event:pickup", onPickup);
+    room.onMessage("event:tower-bonus", onTowerBonus);
     return () => {
       // colyseus.js cleans listeners on room.leave; nothing to undo here.
     };
@@ -363,6 +427,7 @@ export default function GameCanvas({ room, onLeave }: GameCanvasProps) {
       const now = Date.now();
       setKillFeed((prev) => prev.filter((k) => k.expiresAt > now));
       setPickupToast((p) => (p && p.expiresAt > now ? p : null));
+      setTowerAnnouncement((a) => (a && a.expiresAt > now ? a : null));
     }, 250);
     return () => window.clearInterval(id);
   }, []);
@@ -509,6 +574,8 @@ export default function GameCanvas({ room, onLeave }: GameCanvasProps) {
         shake: shakeRef.current,
         now: Date.now(),
         matchClock: matchClockRef.current,
+        activeTowerKind: (rs as ServerState).activeTowerKind ?? "",
+        activeBonusKind: (rs as ServerState).activeBonusKind ?? "",
       });
 
       raf = window.requestAnimationFrame(draw);
@@ -563,6 +630,7 @@ export default function GameCanvas({ room, onLeave }: GameCanvasProps) {
         snapshot={statusSnapshot}
         killFeed={killFeed}
         pickupToast={pickupToast}
+        towerAnnouncement={towerAnnouncement}
         onLeave={onLeave}
         compact={mobileControls}
       />
@@ -581,10 +649,16 @@ function Hud(props: {
   snapshot: ReturnType<typeof snapshotStatus>;
   killFeed: Array<{ id: number; killer: string; victim: string; expiresAt: number }>;
   pickupToast: { kind: string; expiresAt: number } | null;
+  towerAnnouncement: {
+    vendorName: string;
+    bonusKind: string;
+    expiresAt: number;
+  } | null;
   onLeave: () => void;
   compact?: boolean;
 }) {
-  const { snapshot, killFeed, pickupToast, onLeave, compact } = props;
+  const { snapshot, killFeed, pickupToast, towerAnnouncement, onLeave, compact } =
+    props;
   const [, forceTick] = useState(0);
   useEffect(() => {
     const id = window.setInterval(() => forceTick((t) => t + 1), 200);
@@ -599,8 +673,8 @@ function Hud(props: {
     timerText = `${m}:${s.toString().padStart(2, "0")}`;
   }
 
-  const weapon = (snapshot.selfWeapon || "pistol").toLowerCase();
-  const weaponColor = WEAPON_COLORS[weapon] ?? WEAPON_COLORS.pistol;
+  const weapon = (snapshot.selfWeapon || "sword").toLowerCase();
+  const weaponColor = WEAPON_COLORS[weapon] ?? WEAPON_COLORS.sword;
   const weaponRemainingMs = Math.max(
     0,
     snapshot.selfWeaponExpiresAtMs - Date.now()
@@ -609,9 +683,38 @@ function Hud(props: {
     snapshot.selfWeaponExpiresAtMs > 0
       ? Math.max(0, Math.min(1, weaponRemainingMs / WEAPON_BUFF_MS))
       : 0;
+  const hpPct =
+    snapshot.selfMaxHp > 0 ? snapshot.selfHp / snapshot.selfMaxHp : 0;
 
   return (
     <>
+      {towerAnnouncement && (
+        <div className="absolute top-16 sm:top-20 inset-x-0 flex justify-center pointer-events-none px-4 z-30">
+          <div
+            className="border-2 border-fuchsia-400 bg-black/75 px-4 py-2 text-center max-w-lg"
+            style={{ fontFamily: MONO_FONT, boxShadow: "0 0 24px rgba(192,38,211,0.35)" }}
+          >
+            <p className="text-[10px] uppercase tracking-[0.25em] text-fuchsia-300">
+              Vendor bonus active
+            </p>
+            <p className="text-sm sm:text-base font-bold text-white mt-1">
+              {towerAnnouncement.bonusKind === "guns" ? (
+                <>
+                  Visit {towerAnnouncement.vendorName} for a random gun!
+                </>
+              ) : (
+                <>
+                  {towerAnnouncement.vendorName} tower is having a{" "}
+                  {TOWER_BONUS_LABELS[towerAnnouncement.bonusKind] ??
+                    towerAnnouncement.bonusKind}
+                  !
+                </>
+              )}
+            </p>
+          </div>
+        </div>
+      )}
+
       <div className="absolute top-3 left-3 sm:top-4 sm:left-4 pointer-events-none">
         <div
           className="border border-white/70 px-2 py-0.5 inline-flex items-center gap-1"
@@ -642,13 +745,22 @@ function Hud(props: {
                 : "00"
             }
             tone={
-              snapshot.selfHp > 40
+              hpPct > 0.4
                 ? "ok"
-                : snapshot.selfHp > 15
+                : hpPct > 0.15
                 ? "warn"
                 : "danger"
             }
           />
+          {snapshot.selfWeaponExpiresAtMs > Date.now() && (
+            <StatPill
+              label="GUN"
+              value={Math.ceil(
+                Math.max(0, snapshot.selfWeaponExpiresAtMs - Date.now()) / 1000
+              ).toString()}
+              tone="warn"
+            />
+          )}
           <StatPill label="K" value={snapshot.selfKills.toString()} tone="ok" />
           <StatPill
             label="LIVE"
@@ -876,8 +988,10 @@ function snapshotStatus(room: Room) {
     selfHp: 0,
     selfKills: 0,
     selfPlacement: 0,
-    selfWeapon: "pistol",
+    selfWeapon: "sword",
     selfWeaponExpiresAtMs: 0,
+    selfMaxHp: 100,
+    selfTowerBuffKind: "",
     matchEndsAtMs: 0,
     countdownEndsAtMs: 0,
     startedAtMs: 0,
@@ -900,8 +1014,13 @@ function snapshotStatus(room: Room) {
       selfHp: self?.hp ?? 0,
       selfKills: self?.kills ?? 0,
       selfPlacement: self?.placement ?? 0,
-      selfWeapon: self?.weapon ?? "pistol",
+      selfWeapon: self?.weapon ?? "sword",
       selfWeaponExpiresAtMs: self?.weaponExpiresAtMs ?? 0,
+      selfMaxHp:
+        self && typeof self.maxHp === "number" && self.maxHp > 0
+          ? self.maxHp
+          : 100,
+      selfTowerBuffKind: self?.towerBuffKind ?? "",
       matchEndsAtMs: rs.matchEndsAtMs ?? 0,
       countdownEndsAtMs: rs.countdownEndsAtMs ?? 0,
       startedAtMs: rs.startedAtMs ?? 0,
@@ -960,6 +1079,8 @@ interface RenderCtx {
     matchEndsAtMs: number;
     zoneShrink01: number;
   };
+  activeTowerKind: string;
+  activeBonusKind: string;
 }
 
 /** Beach radius from synced zoneShrink01 (primary) or match clock fallback. */
@@ -1074,7 +1195,15 @@ function renderFrame(
   drawGrid(ctx, w2s, scale, cssW, cssH, camX, camY, zoneVisual);
 
   iterateSchemaArray<ServerObstacle>(rs.obstacles, (o) => {
-    drawObstacle(ctx, o, w2s, scale);
+    drawObstacle(
+      ctx,
+      o,
+      w2s,
+      scale,
+      now,
+      rctx.activeTowerKind,
+      rctx.activeBonusKind
+    );
   });
 
   drawCreepingWater(ctx, zoneVisual, w2s, scale, cssW, cssH, now);
@@ -1359,15 +1488,55 @@ function drawBullets(
   ctx.restore();
 }
 
+function isTowerObstacle(kind: string): boolean {
+  return kind.startsWith("tower_");
+}
+
+function drawTowerGlowRing(
+  ctx: CanvasRenderingContext2D,
+  o: ServerObstacle,
+  w2s: (x: number, y: number) => { sx: number; sy: number },
+  scale: number,
+  bonusKind: string,
+  now: number
+) {
+  const centre = w2s(o.x, o.y + o.h * 0.22);
+  const rx = (TOWER_BUFF_RADIUS + o.w * 0.15) * scale;
+  const ry = TOWER_BUFF_RADIUS * scale * 0.72;
+  const pulse = 0.85 + Math.sin(now * 0.004) * 0.15;
+  const color =
+    TOWER_BONUS_RING_COLORS[bonusKind] ?? "rgba(192,38,211,0.7)";
+
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = Math.max(2, 3 * scale);
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 14 * pulse;
+  ctx.globalAlpha = 0.55 + Math.sin(now * 0.005) * 0.2;
+  ctx.beginPath();
+  ctx.ellipse(centre.sx, centre.sy, rx * pulse, ry * pulse, 0, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+}
+
 function drawObstacle(
   ctx: CanvasRenderingContext2D,
   o: ServerObstacle,
   w2s: (x: number, y: number) => { sx: number; sy: number },
-  scale: number
+  scale: number,
+  now: number,
+  activeTowerKind: string,
+  activeBonusKind: string
 ) {
   const kind = o.kind;
-  if (kind === "gorilla" || kind === "flower") {
-    drawSpriteObstacle(ctx, o, w2s, scale, kind);
+  const isActiveTower = isTowerObstacle(kind) && kind === activeTowerKind;
+
+  if (isActiveTower) {
+    drawTowerGlowRing(ctx, o, w2s, scale, activeBonusKind, now);
+  }
+
+  if (kind === "gorilla" || kind === "flower" || isTowerObstacle(kind)) {
+    drawSpriteObstacle(ctx, o, w2s, scale, kind, isTowerObstacle(kind) && !isActiveTower);
   } else if (kind === "cliff" || kind === "wall") {
     drawCliff(ctx, o, w2s, scale);
   } else if (kind === "palm" || kind === "crate") {
@@ -1384,7 +1553,8 @@ function drawSpriteObstacle(
   o: ServerObstacle,
   w2s: (x: number, y: number) => { sx: number; sy: number },
   scale: number,
-  kind: string
+  kind: string,
+  dimmed = false
 ) {
   const tl = w2s(o.x - o.w / 2, o.y - o.h / 2);
   const w = o.w * scale;
@@ -1393,10 +1563,18 @@ function drawSpriteObstacle(
 
   ctx.save();
   ctx.imageSmoothingEnabled = false;
+  if (dimmed) {
+    ctx.globalAlpha = 0.45;
+    ctx.filter = "brightness(0.65) saturate(0.7)";
+  }
   if (img && img.width > 0 && img.height > 0) {
     ctx.drawImage(img, tl.sx, tl.sy, w, h);
   } else {
-    ctx.fillStyle = kind === "flower" ? "#f472b6" : "#78716c";
+    ctx.fillStyle = kind.includes("tower")
+      ? "#6366f1"
+      : kind === "flower"
+      ? "#f472b6"
+      : "#78716c";
     ctx.fillRect(tl.sx, tl.sy, w, h);
     ctx.strokeStyle = "#fff";
     ctx.strokeRect(tl.sx, tl.sy, w, h);
@@ -1614,6 +1792,12 @@ function drawPickup(
       ? "R"
       : pu.kind === "sniper"
       ? "X"
+      : pu.kind === "sword"
+      ? "W"
+      : pu.kind === "fire_sword"
+      ? "F"
+      : pu.kind === "ice_bow"
+      ? "I"
       : "?";
   ctx.fillText(letter, 0, 1);
   ctx.restore();
@@ -1629,7 +1813,16 @@ function drawPlayer(
   now: number
 ) {
   const screen = w2s(pos.x, pos.y);
-  const r = PLAYER_R * scale;
+  const radiusScale =
+    typeof p.radiusScale === "number" && p.radiusScale > 0 ? p.radiusScale : 1;
+  const r = PLAYER_R * scale * radiusScale;
+  const maxHp = p.maxHp > 0 ? p.maxHp : 100;
+  const weapon = (p.weapon || "sword").toLowerCase();
+  const swingAge = now - (p.lastShotAt ?? 0);
+  const swinging =
+    isMeleeWeapon(weapon) && swingAge >= 0 && swingAge < 220;
+  const frozen = (p.frozenUntilMs ?? 0) > now;
+  const burning = (p.burnUntilMs ?? 0) > now;
 
   ctx.save();
   if (!p.alive) ctx.globalAlpha = 0.28;
@@ -1650,9 +1843,13 @@ function drawPlayer(
   ctx.fill();
   ctx.restore();
 
-  // Body (squircle).
-  const bodyColor = isSelf ? "#22d3ee" : "#f0abfc";
-  const strokeColor = isSelf ? "#0e7490" : "#a21caf";
+  // Body (squircle) — blue tint when frozen.
+  let bodyColor = isSelf ? "#22d3ee" : "#f0abfc";
+  let strokeColor = isSelf ? "#0e7490" : "#a21caf";
+  if (frozen) {
+    bodyColor = isSelf ? "#7dd3fc" : "#bae6fd";
+    strokeColor = "#0284c7";
+  }
   ctx.fillStyle = bodyColor;
   ctx.strokeStyle = strokeColor;
   ctx.lineWidth = Math.max(2, 2.5 * scale);
@@ -1668,24 +1865,89 @@ function drawPlayer(
   ctx.fill();
   ctx.stroke();
 
-  // Gun barrel (weapon-tinted).
-  if (p.alive) {
-    const weapon = (p.weapon || "pistol").toLowerCase();
-    const wcolor = WEAPON_COLORS[weapon] ?? WEAPON_COLORS.pistol;
+  if (frozen) {
     ctx.save();
-    ctx.strokeStyle = wcolor.core;
-    ctx.shadowColor = wcolor.glow;
-    ctx.shadowBlur = 8;
-    ctx.lineWidth = Math.max(2.5, 5 * scale);
-    ctx.lineCap = "round";
+    ctx.strokeStyle = "rgba(186,230,253,0.85)";
+    ctx.lineWidth = Math.max(1.5, 2 * scale);
     ctx.beginPath();
-    ctx.moveTo(screen.sx, screen.sy);
-    ctx.lineTo(
-      screen.sx + Math.cos(pos.aim) * (r + 14),
-      screen.sy + Math.sin(pos.aim) * (r + 14)
-    );
+    ctx.arc(screen.sx, screen.sy, side * 0.62, 0, Math.PI * 2);
     ctx.stroke();
     ctx.restore();
+  }
+
+  if (burning) {
+    ctx.save();
+    ctx.strokeStyle = "rgba(251,146,60,0.7)";
+    ctx.lineWidth = Math.max(2, 3 * scale);
+    ctx.shadowColor = "rgba(249,115,22,0.8)";
+    ctx.shadowBlur = 10;
+    ctx.beginPath();
+    ctx.arc(screen.sx, screen.sy, side * 0.55, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // Gun barrel or melee swipe.
+  if (p.alive) {
+    const wcolor = WEAPON_COLORS[weapon] ?? WEAPON_COLORS.sword;
+    if (isMeleeWeapon(weapon)) {
+      ctx.save();
+      const sweep =
+        swinging ? Math.sin((swingAge / 220) * Math.PI) * 0.55 - 0.25 : 0;
+      const arcStart = pos.aim - 0.95 + sweep;
+      const arcEnd = pos.aim + 0.95 + sweep;
+      const reach = r + 52 * scale;
+      ctx.strokeStyle = wcolor.core;
+      ctx.shadowColor = wcolor.glow;
+      ctx.shadowBlur = swinging ? 16 : 4;
+      ctx.lineWidth = Math.max(3, 5 * scale);
+      ctx.lineCap = "round";
+      ctx.globalAlpha = swinging ? 0.95 : 0.35;
+      ctx.beginPath();
+      ctx.arc(screen.sx, screen.sy, reach, arcStart, arcEnd);
+      ctx.stroke();
+      ctx.restore();
+    } else if (weapon === "ice_bow") {
+      ctx.save();
+      ctx.strokeStyle = wcolor.core;
+      ctx.shadowColor = wcolor.glow;
+      ctx.shadowBlur = 10;
+      ctx.lineWidth = Math.max(2, 4 * scale);
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(screen.sx, screen.sy);
+      ctx.lineTo(
+        screen.sx + Math.cos(pos.aim) * (r + 22),
+        screen.sy + Math.sin(pos.aim) * (r + 22)
+      );
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(
+        screen.sx + Math.cos(pos.aim) * (r + 10),
+        screen.sy + Math.sin(pos.aim) * (r + 10)
+      );
+      ctx.lineTo(
+        screen.sx + Math.cos(pos.aim + 0.35) * (r + 18),
+        screen.sy + Math.sin(pos.aim + 0.35) * (r + 18)
+      );
+      ctx.stroke();
+      ctx.restore();
+    } else {
+      ctx.save();
+      ctx.strokeStyle = wcolor.core;
+      ctx.shadowColor = wcolor.glow;
+      ctx.shadowBlur = 8;
+      ctx.lineWidth = Math.max(2.5, 5 * scale);
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(screen.sx, screen.sy);
+      ctx.lineTo(
+        screen.sx + Math.cos(pos.aim) * (r + 14),
+        screen.sy + Math.sin(pos.aim) * (r + 14)
+      );
+      ctx.stroke();
+      ctx.restore();
+    }
   }
 
   // HP bar with bracket ticks.
@@ -1696,7 +1958,7 @@ function drawPlayer(
     const by = screen.sy - r - 14;
     ctx.fillStyle = "rgba(0,0,0,0.7)";
     ctx.fillRect(bx, by, barW, barH);
-    const pct = Math.max(0, Math.min(1, p.hp / 100));
+    const pct = Math.max(0, Math.min(1, p.hp / maxHp));
     ctx.fillStyle = p.hp > 40 ? "#34d399" : p.hp > 15 ? "#fbbf24" : "#f87171";
     ctx.fillRect(bx, by, barW * pct, barH);
     ctx.strokeStyle = "rgba(255,255,255,0.55)";
