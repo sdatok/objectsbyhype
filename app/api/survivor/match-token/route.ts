@@ -83,15 +83,24 @@ export async function POST(request: Request) {
       );
     }
 
-    await ensureGameServerMatchBound(current, config);
-
-    // Reserve / reuse the player's slot. Display name is captured the first
-    // time so a returning player can't shadow their original entry.
     const existing = await prisma.survivorParticipant.findUnique({
       where: {
         matchId_email: { matchId: current.id, email },
       },
     });
+
+    if (current.status === "PLAYING") {
+      return NextResponse.json(
+        {
+          error:
+            "Match in progress — if you disconnected, wait for reconnect or the next match.",
+        },
+        { status: 409 }
+      );
+    }
+
+    await ensureGameServerMatchBound(current, config);
+
     if (!existing) {
       // Cap participants at 50 (25 active + room for spectators); the game
       // server is the final authority on the 25-active limit.

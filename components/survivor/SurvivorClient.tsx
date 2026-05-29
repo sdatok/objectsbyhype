@@ -5,19 +5,31 @@ import dynamic from "next/dynamic";
 import type { Client, Room } from "colyseus.js";
 import type { PublicSurvivorState } from "@/lib/survivor-config";
 import {
+  clearSurvivorReconnectSession,
   joinSurvivorRoom,
+  readSurvivorReconnectSession,
   reconnectSurvivorRoom,
+  saveSurvivorReconnectSession,
 } from "@/lib/survivor-client";
 import LobbyScene, { LobbyCard, LobbyPrimaryButton } from "./LobbyScene";
 import SlimeAvatar from "./SlimeAvatar";
 import {
+  DEFAULT_NAME_COLOR,
   DEFAULT_SLIME_COLOR,
+  NAME_COLOR_KEY,
+  NAME_COLORS,
+  parseNameColor,
+  parseSlimeAccessories,
   parseSlimeColor,
   parseSlimeFace,
+  SLIME_ACCESSORIES,
+  SLIME_ACCESSORIES_KEY,
   SLIME_COLOR_KEY,
   SLIME_COLORS,
   SLIME_FACE_COUNT,
   SLIME_FACE_KEY,
+  toggleAccessory,
+  type NameColor,
   type SlimeColor,
 } from "@/lib/survivor-slime";
 
@@ -57,6 +69,8 @@ export default function SurvivorClient({ initialState }: SurvivorClientProps) {
   const [email, setEmail] = useState("");
   const [slimeColor, setSlimeColor] = useState<SlimeColor>(DEFAULT_SLIME_COLOR);
   const [slimeFace, setSlimeFace] = useState(0);
+  const [slimeAccessories, setSlimeAccessories] = useState(0);
+  const [nameColor, setNameColor] = useState<NameColor>(DEFAULT_NAME_COLOR);
   const [error, setError] = useState<string | null>(null);
   const [roomReady, setRoomReady] = useState(false);
   const [roomStatus, setRoomStatus] = useState<RoomPhase>("WAITING");
@@ -65,8 +79,27 @@ export default function SurvivorClient({ initialState }: SurvivorClientProps) {
   const roomRef = useRef<Room | null>(null);
   const clientRef = useRef<Client | null>(null);
   const reconnectingRef = useRef(false);
+  const autoResumeAttemptedRef = useRef(false);
   const credentialsRef = useRef({ displayName: "", email: "" });
-  const fullRejoinRef = useRef<(() => Promise<boolean>) | null>(null);
+  const wsUrlRef = useRef("");
+
+  const persistReconnectSession = useCallback((room: Room) => {
+    const token = room.reconnectionToken;
+    const matchId = String(
+      (room.state as unknown as { matchId?: string })?.matchId ?? ""
+    );
+    const wsUrl = wsUrlRef.current;
+    const { displayName: name, email: addr } = credentialsRef.current;
+    if (!token || !matchId || !wsUrl || !addr) return;
+    saveSurvivorReconnectSession({
+      wsUrl,
+      matchId,
+      email: addr,
+      displayName: name,
+      reconnectionToken: token,
+      savedAtMs: Date.now(),
+    });
+  }, []);
 
   // Restore previously-used name/email so returning visitors don't retype.
   useEffect(() => {
@@ -75,6 +108,10 @@ export default function SurvivorClient({ initialState }: SurvivorClientProps) {
       setEmail(localStorage.getItem(EMAIL_KEY) ?? "");
       setSlimeColor(parseSlimeColor(localStorage.getItem(SLIME_COLOR_KEY)));
       setSlimeFace(parseSlimeFace(localStorage.getItem(SLIME_FACE_KEY)));
+      setSlimeAccessories(
+        parseSlimeAccessories(localStorage.getItem(SLIME_ACCESSORIES_KEY))
+      );
+      setNameColor(parseNameColor(localStorage.getItem(NAME_COLOR_KEY)));
     } catch {
       // ignore localStorage failures (private mode etc.)
     }
@@ -126,18 +163,21 @@ export default function SurvivorClient({ initialState }: SurvivorClientProps) {
         });
         setAliveInRoom(n);
         if (status === "ENDED") {
+          clearSurvivorReconnectSession();
           setPhase("inRoom");
         } else if (status === "PLAYING") {
           setPhase("inRoom");
         } else {
           setPhase("standby");
         }
+        persistReconnectSession(room);
       } catch (e) {
         console.warn("[survivor] state read failed", e);
       }
     };
     syncFromState();
     room.onStateChange(() => syncFromState());
+    persistReconnectSession(room);
 
     room.onLeave(async (code) => {
       if (roomRef.current !== room) return;
@@ -146,6 +186,7 @@ export default function SurvivorClient({ initialState }: SurvivorClientProps) {
         roomRef.current = null;
         clientRef.current = null;
         setRoomReady(false);
+        clearSurvivorReconnectSession();
         return;
       }
 
@@ -154,7 +195,9 @@ export default function SurvivorClient({ initialState }: SurvivorClientProps) {
       if (!token || !client || reconnectingRef.current) {
         roomRef.current = null;
         setRoomReady(false);
+        clearSurvivorReconnectSession();
         setPhase("disconnected");
+        setError("Connection lost. You can't rejoin a live match from the lobby.");
         return;
       }
 
@@ -186,21 +229,16 @@ export default function SurvivorClient({ initialState }: SurvivorClientProps) {
       reconnectingRef.current = false;
       roomRef.current = null;
       setRoomReady(false);
-
-      if (fullRejoinRef.current) {
-        setPhase("reconnecting");
-        const ok = await fullRejoinRef.current().catch(() => false);
-        if (ok) return;
-      }
-
+      clearSurvivorReconnectSession();
       setPhase("disconnected");
+      setError("Reconnect failed. Wait for the next match.");
     });
 
     room.onError((code, message) => {
       console.error("[survivor] room error", code, message);
       setError(message ?? "Room error");
     });
-  }, []);
+  }, [persistReconnectSession]);
 
   /**
    * Mint a token and connect. Returns the live Room on success; throws on
@@ -228,26 +266,15 @@ export default function SurvivorClient({ initialState }: SurvivorClientProps) {
         issuedAtMs: json.issuedAtMs,
         slimeColor,
         slimeFace,
+        slimeAccessories,
+        nameColor,
+      }).then((connection) => {
+        wsUrlRef.current = json.wsUrl as string;
+        return connection;
       });
     },
-    [slimeColor, slimeFace]
+    [slimeColor, slimeFace, slimeAccessories, nameColor]
   );
-
-  fullRejoinRef.current = async () => {
-    const { displayName: name, email: addr } = credentialsRef.current;
-    if (!name || !addr) return false;
-    try {
-      const connection = await attemptJoin(name, addr);
-      clientRef.current = connection.client;
-      roomRef.current = connection.room;
-      setRoomReady(true);
-      attachRoom(connection.room);
-      return true;
-    } catch (err) {
-      console.warn("[survivor] full rejoin failed", err);
-      return false;
-    }
-  };
 
   const join = useCallback(async () => {
     setError(null);
@@ -257,11 +284,24 @@ export default function SurvivorClient({ initialState }: SurvivorClientProps) {
       setError("Display name and email are required.");
       return;
     }
+    const matchStatus = serverState.currentMatch?.status;
+    if (matchStatus === "PLAYING") {
+      setError(
+        "Match already in progress. If you disconnected, reload to reconnect — you can't join fresh."
+      );
+      return;
+    }
+    if (matchStatus === "ENDED") {
+      setError("This match has ended. Wait for the next one.");
+      return;
+    }
     try {
       localStorage.setItem(NAME_KEY, trimmedName);
       localStorage.setItem(EMAIL_KEY, trimmedEmail);
       localStorage.setItem(SLIME_COLOR_KEY, slimeColor);
       localStorage.setItem(SLIME_FACE_KEY, String(slimeFace));
+      localStorage.setItem(SLIME_ACCESSORIES_KEY, String(slimeAccessories));
+      localStorage.setItem(NAME_COLOR_KEY, nameColor);
     } catch {
       /* ignore */
     }
@@ -303,10 +343,69 @@ export default function SurvivorClient({ initialState }: SurvivorClientProps) {
       setError(message);
       setPhase("lobby");
     }
-  }, [displayName, email, slimeColor, slimeFace, attemptJoin, attachRoom]);
+  }, [
+    displayName,
+    email,
+    slimeColor,
+    slimeFace,
+    slimeAccessories,
+    nameColor,
+    serverState.currentMatch?.status,
+    attemptJoin,
+    attachRoom,
+  ]);
+
+  // After a page refresh mid-match, try Colyseus reconnect before showing lobby.
+  useEffect(() => {
+    if (autoResumeAttemptedRef.current) return;
+    if (phase !== "lobby" && phase !== "noMatch") return;
+
+    const saved = readSurvivorReconnectSession();
+    const match = serverState.currentMatch;
+    if (!saved || !match || saved.matchId !== match.id) return;
+    if (match.status === "ENDED") {
+      clearSurvivorReconnectSession();
+      return;
+    }
+
+    autoResumeAttemptedRef.current = true;
+    credentialsRef.current = {
+      displayName: saved.displayName,
+      email: saved.email,
+    };
+    wsUrlRef.current = saved.wsUrl;
+    setDisplayName(saved.displayName);
+    setEmail(saved.email);
+    setPhase("reconnecting");
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const { Client } = await import("colyseus.js");
+        const client = new Client(saved.wsUrl);
+        const room = await reconnectSurvivorRoom(client, saved.reconnectionToken);
+        if (cancelled) return;
+        clientRef.current = client;
+        roomRef.current = room;
+        setRoomReady(true);
+        attachRoom(room);
+      } catch (err) {
+        if (cancelled) return;
+        console.warn("[survivor] auto-resume failed", err);
+        clearSurvivorReconnectSession();
+        setPhase("lobby");
+        setError("Reconnect expired — wait for the next match.");
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [phase, serverState.currentMatch, attachRoom]);
 
   const leaveAndReset = useCallback(() => {
     reconnectingRef.current = false;
+    clearSurvivorReconnectSession();
     const room = roomRef.current;
     if (room) {
       try {
@@ -349,10 +448,14 @@ export default function SurvivorClient({ initialState }: SurvivorClientProps) {
           email={email}
           slimeColor={slimeColor}
           slimeFace={slimeFace}
+          slimeAccessories={slimeAccessories}
+          nameColor={nameColor}
           onName={setDisplayName}
           onEmail={setEmail}
           onSlimeColor={setSlimeColor}
           onSlimeFace={setSlimeFace}
+          onSlimeAccessories={setSlimeAccessories}
+          onNameColor={setNameColor}
           onJoin={join}
           phase={phase}
           error={error}
@@ -373,6 +476,8 @@ export default function SurvivorClient({ initialState }: SurvivorClientProps) {
           displayName={displayName}
           slimeColor={slimeColor}
           slimeFace={slimeFace}
+          slimeAccessories={slimeAccessories}
+          nameColor={nameColor}
           onLeave={leaveAndReset}
         />
       )}
@@ -447,10 +552,14 @@ function LobbyPanel(props: {
   email: string;
   slimeColor: SlimeColor;
   slimeFace: number;
+  slimeAccessories: number;
+  nameColor: NameColor;
   onName: (v: string) => void;
   onEmail: (v: string) => void;
   onSlimeColor: (v: SlimeColor) => void;
   onSlimeFace: (v: number) => void;
+  onSlimeAccessories: (v: number) => void;
+  onNameColor: (v: NameColor) => void;
   onJoin: () => void;
   phase: Phase;
   error: string | null;
@@ -461,25 +570,32 @@ function LobbyPanel(props: {
     email,
     slimeColor,
     slimeFace,
+    slimeAccessories,
+    nameColor,
     onName,
     onEmail,
     onSlimeColor,
     onSlimeFace,
+    onSlimeAccessories,
+    onNameColor,
     onJoin,
     phase,
     error,
   } = props;
   const busy = phase === "joining" || phase === "connecting";
   const status = serverState.currentMatch?.status;
+  const matchLive = status === "PLAYING";
+  const matchClosed = status === "ENDED";
+  const joinBlocked = matchLive || matchClosed;
   const participantCount = serverState.currentMatch?.participantCount ?? 0;
 
   return (
     <LobbyScene>
       <LobbyCard>
-        <form
+          <form
           onSubmit={(e) => {
             e.preventDefault();
-            if (!busy) onJoin();
+            if (!busy && !joinBlocked) onJoin();
           }}
           className="space-y-5"
         >
@@ -489,8 +605,11 @@ function LobbyPanel(props: {
             </p>
             <h2 className="text-xl font-bold mt-2">Join the arena</h2>
             <p className="text-xs text-neutral-400 mt-1">
-              {participantCount} {participantCount === 1 ? "player" : "players"}{" "}
-              queued. Match begins when the host starts it.
+              {matchLive
+                ? "Match is live — reload this page to reconnect if you were in it."
+                : matchClosed
+                ? "This match has ended. Wait for the next drop."
+                : `${participantCount} ${participantCount === 1 ? "player" : "players"} queued. Match begins when the host starts it.`}
             </p>
           </div>
 
@@ -506,7 +625,29 @@ function LobbyPanel(props: {
               maxLength={24}
               required
               className="w-full bg-black/70 border border-white/15 px-3 py-3 text-base text-white placeholder-neutral-600 focus:outline-none focus:border-fuchsia-500 transition-colors"
+              style={{ color: nameColor }}
             />
+            <div className="mt-3">
+              <p className="text-[10px] uppercase tracking-widest text-neutral-400 mb-2">
+                Name tag colour
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {NAME_COLORS.map((c) => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    aria-label={`Name colour ${c.label}`}
+                    onClick={() => onNameColor(c.id)}
+                    className={`h-7 w-7 border-2 transition-transform ${
+                      nameColor === c.id
+                        ? "border-white scale-110"
+                        : "border-white/20 hover:border-white/50"
+                    }`}
+                    style={{ backgroundColor: c.id }}
+                  />
+                ))}
+              </div>
+            </div>
           </div>
 
           <div>
@@ -528,14 +669,27 @@ function LobbyPanel(props: {
 
           <div className="border border-white/10 bg-black/40 p-4 space-y-4">
             <div className="flex items-center gap-4">
-              <SlimeAvatar color={slimeColor} face={slimeFace} size={88} />
+              <SlimeAvatar
+                color={slimeColor}
+                face={slimeFace}
+                accessories={slimeAccessories}
+                size={88}
+              />
               <div>
                 <p className="text-[10px] uppercase tracking-[0.25em] text-fuchsia-300">
                   Your slime
                 </p>
                 <p className="text-xs text-neutral-400 mt-1">
-                  Pick a colour and face before you drop in.
+                  Colour, face, and drip before you drop in.
                 </p>
+                {displayName && (
+                  <p
+                    className="text-sm font-bold tracking-widest uppercase mt-2"
+                    style={{ color: nameColor }}
+                  >
+                    {displayName}
+                  </p>
+                )}
               </div>
             </div>
 
@@ -582,17 +736,48 @@ function LobbyPanel(props: {
                 ))}
               </div>
             </div>
+
+            <div>
+              <p className="text-[10px] uppercase tracking-widest text-neutral-400 mb-2">
+                Accessories
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {SLIME_ACCESSORIES.map((a) => {
+                  const on = (slimeAccessories & a.bit) !== 0;
+                  return (
+                    <button
+                      key={a.bit}
+                      type="button"
+                      onClick={() =>
+                        onSlimeAccessories(toggleAccessory(slimeAccessories, a.bit))
+                      }
+                      className={`px-3 py-1.5 text-[10px] uppercase tracking-widest border ${
+                        on
+                          ? "border-fuchsia-400 text-white bg-fuchsia-500/20"
+                          : "border-white/15 text-neutral-400 hover:border-white/40"
+                      }`}
+                    >
+                      {a.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           </div>
 
           {error && (
             <p className="text-xs text-rose-400 break-words">{error}</p>
           )}
 
-          <LobbyPrimaryButton type="submit" disabled={busy}>
+          <LobbyPrimaryButton type="submit" disabled={busy || joinBlocked}>
             {phase === "joining"
               ? "Joining…"
               : phase === "connecting"
               ? "Connecting…"
+              : matchLive
+              ? "Match in progress"
+              : matchClosed
+              ? "Match ended"
               : "Enter lobby"}
           </LobbyPrimaryButton>
 
@@ -620,6 +805,8 @@ function StandbyPanel({
   displayName,
   slimeColor,
   slimeFace,
+  slimeAccessories,
+  nameColor,
   onLeave,
 }: {
   status: RoomPhase;
@@ -628,6 +815,8 @@ function StandbyPanel({
   displayName: string;
   slimeColor: SlimeColor;
   slimeFace: number;
+  slimeAccessories: number;
+  nameColor: NameColor;
   onLeave: () => void;
 }) {
   const [now, setNow] = useState(() => Date.now());
@@ -644,9 +833,17 @@ function StandbyPanel({
     <LobbyScene>
       <LobbyCard className="text-center space-y-6">
         <div className="flex flex-col items-center gap-3">
-          <SlimeAvatar color={slimeColor} face={slimeFace} size={112} />
-          <h2 className="text-2xl font-bold mt-1">
-            {displayName ? `Welcome, ${displayName}.` : "You're in."}
+          <SlimeAvatar
+            color={slimeColor}
+            face={slimeFace}
+            accessories={slimeAccessories}
+            size={112}
+          />
+          <h2
+            className="text-2xl font-bold mt-1 tracking-widest uppercase"
+            style={{ color: nameColor }}
+          >
+            {displayName ? displayName : "You're in."}
           </h2>
         </div>
 

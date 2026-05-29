@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getAdminSession } from "@/lib/auth";
-import { SURVIVOR_CONFIG_ID } from "@/lib/survivor-config";
+import {
+  SURVIVOR_CONFIG_ID,
+  SURVIVOR_MAX_MATCH_SECONDS,
+  SURVIVOR_MIN_MATCH_SECONDS,
+} from "@/lib/survivor-config";
 
 export const dynamic = "force-dynamic";
 
@@ -43,9 +47,11 @@ export async function PUT(request: Request) {
     }
     if (typeof body.matchSeconds === "number") {
       const n = Math.round(body.matchSeconds);
-      if (n < 30 || n > 3600) {
+      if (n < SURVIVOR_MIN_MATCH_SECONDS || n > SURVIVOR_MAX_MATCH_SECONDS) {
         return NextResponse.json(
-          { error: "Match seconds must be between 30 and 3600." },
+          {
+            error: `Match seconds must be between ${SURVIVOR_MIN_MATCH_SECONDS} and ${SURVIVOR_MAX_MATCH_SECONDS}.`,
+          },
           { status: 400 }
         );
       }

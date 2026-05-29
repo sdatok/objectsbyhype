@@ -203,6 +203,34 @@ export function parseSlimeFace(raw: unknown): number {
   return Math.max(0, Math.min(SLIME_FACE_COUNT - 1, n));
 }
 
+export const SLIME_ACCESSORY_GUCCI_HAT = 1;
+export const SLIME_ACCESSORY_SUNGLASSES = 2;
+
+export const NAME_COLORS = [
+  "#ffffff",
+  "#22d3ee",
+  "#facc15",
+  "#f472b6",
+  "#a3e635",
+  "#fb923c",
+  "#e879f9",
+] as const;
+
+export const DEFAULT_NAME_COLOR = "#ffffff";
+
+export function parseSlimeAccessories(raw: unknown): number {
+  const n = Math.floor(Number(raw));
+  if (!Number.isFinite(n)) return 0;
+  return n & (SLIME_ACCESSORY_GUCCI_HAT | SLIME_ACCESSORY_SUNGLASSES);
+}
+
+export function parseNameColor(raw: unknown): string {
+  const v = String(raw ?? "").trim().toLowerCase();
+  return (NAME_COLORS as readonly string[]).includes(v)
+    ? v
+    : DEFAULT_NAME_COLOR;
+}
+
 // ---------- Vendor towers ----------
 /** Weapon granted when standing in the active tower glow ring during a cycle. */
 export type TowerBonusKind = WeaponKind;
@@ -356,6 +384,10 @@ export const DEFAULT_MATCH_SECONDS = 420;
 /** Default lobby seconds (between admin-start and PLAYING). Players who join
  *  during this window spawn as active; admin can override per-match. */
 export const DEFAULT_LOBBY_SECONDS = 60;
+export const MIN_LOBBY_SECONDS = 1;
+export const MAX_LOBBY_SECONDS = 600;
+export const MIN_MATCH_SECONDS = 10;
+export const MAX_MATCH_SECONDS = 3600;
 export const MAX_PLAYERS = 25;
 
 // ---------- Anti-cheat ----------

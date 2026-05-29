@@ -11,6 +11,10 @@ import {
 import {
   DEFAULT_MATCH_SECONDS,
   DEFAULT_LOBBY_SECONDS,
+  MIN_LOBBY_SECONDS,
+  MAX_LOBBY_SECONDS,
+  MIN_MATCH_SECONDS,
+  MAX_MATCH_SECONDS,
   MAX_PLAYERS,
 } from "./constants";
 
@@ -69,7 +73,7 @@ app.get("/healthz", (_req, res) => {
     ts: Date.now(),
     service: "objectsbyhype-survivor",
     gitSha: process.env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 7) ?? "unknown",
-    build: "island-v9.1",
+    build: "island-v9.3",
     features: ["obstacles", "island-maze", "zone-shrink", "mobile-sticks", "gorilla-flower", "reconnect", "sprite-key", "vendor-towers", "slime-avatars", "rocket-aoe", "flamethrower", "ice-bow", "schema-fix"],
   });
 });
@@ -77,7 +81,7 @@ app.get("/healthz", (_req, res) => {
 app.get("/version", (_req, res) => {
   res.json({
     ok: true,
-    build: "island-v9.1",
+    build: "island-v9.3",
     gitSha: process.env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 7) ?? "unknown",
   });
 });
@@ -129,12 +133,12 @@ app.post("/admin/start", async (req: Request, res: Response) => {
     const matchId = String(body.matchId ?? "");
     const prizeTitle = String(body.prizeTitle ?? "OBH Survivor Prize");
     const matchSeconds = Math.max(
-      30,
-      Math.min(3600, Number(body.matchSeconds) || DEFAULT_MATCH_SECONDS)
+      MIN_MATCH_SECONDS,
+      Math.min(MAX_MATCH_SECONDS, Number(body.matchSeconds) || DEFAULT_MATCH_SECONDS)
     );
     const lobbySeconds = Math.max(
-      5,
-      Math.min(600, Number(body.lobbySeconds) || DEFAULT_LOBBY_SECONDS)
+      MIN_LOBBY_SECONDS,
+      Math.min(MAX_LOBBY_SECONDS, Number(body.lobbySeconds) || DEFAULT_LOBBY_SECONDS)
     );
     if (!matchId) {
       res.status(400).json({ error: "matchId required" });
@@ -177,12 +181,12 @@ app.post("/admin/rebind", async (req: Request, res: Response) => {
     const matchId = String(body.matchId ?? "");
     const prizeTitle = String(body.prizeTitle ?? "OBH Survivor Prize");
     const matchSeconds = Math.max(
-      30,
-      Math.min(3600, Number(body.matchSeconds) || DEFAULT_MATCH_SECONDS)
+      MIN_MATCH_SECONDS,
+      Math.min(MAX_MATCH_SECONDS, Number(body.matchSeconds) || DEFAULT_MATCH_SECONDS)
     );
     const lobbySeconds = Math.max(
-      5,
-      Math.min(600, Number(body.lobbySeconds) || DEFAULT_LOBBY_SECONDS)
+      MIN_LOBBY_SECONDS,
+      Math.min(MAX_LOBBY_SECONDS, Number(body.lobbySeconds) || DEFAULT_LOBBY_SECONDS)
     );
     const targetStatus = String(body.targetStatus ?? "COUNTDOWN") as
       | "WAITING"

@@ -5,6 +5,8 @@ import { signAdminCommand } from "@/lib/survivor-hmac";
 import {
   getOrCreateSurvivorConfig,
   SURVIVOR_CONFIG_ID,
+  clampLobbySeconds,
+  clampMatchSeconds,
 } from "@/lib/survivor-config";
 
 export const dynamic = "force-dynamic";
@@ -55,14 +57,11 @@ export async function POST(request: Request) {
       }
     }
 
-    const matchSeconds = Math.max(
-      30,
-      Math.min(3600, Number(body.matchSeconds) || config.matchSeconds)
+    const matchSeconds = clampMatchSeconds(
+      body.matchSeconds,
+      config.matchSeconds
     );
-    const lobbySeconds = Math.max(
-      5,
-      Math.min(600, Number(body.lobbySeconds) || 60)
-    );
+    const lobbySeconds = clampLobbySeconds(body.lobbySeconds, 60);
 
     const baseUrl = process.env.SURVIVOR_GAME_SERVER_URL;
     if (!baseUrl) {

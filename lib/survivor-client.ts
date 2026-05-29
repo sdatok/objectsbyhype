@@ -11,6 +11,57 @@ import { Client, Room } from "colyseus.js";
  * directly on each render frame.
  */
 
+export const SURVIVOR_RECONNECT_KEY = "obh-survivor-reconnect";
+
+export interface SurvivorReconnectSession {
+  wsUrl: string;
+  matchId: string;
+  email: string;
+  displayName: string;
+  reconnectionToken: string;
+  savedAtMs: number;
+}
+
+export function readSurvivorReconnectSession(): SurvivorReconnectSession | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = sessionStorage.getItem(SURVIVOR_RECONNECT_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as SurvivorReconnectSession;
+    if (
+      !parsed?.wsUrl ||
+      !parsed.matchId ||
+      !parsed.reconnectionToken ||
+      !parsed.email
+    ) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+export function saveSurvivorReconnectSession(
+  session: SurvivorReconnectSession
+): void {
+  if (typeof window === "undefined") return;
+  try {
+    sessionStorage.setItem(SURVIVOR_RECONNECT_KEY, JSON.stringify(session));
+  } catch {
+    /* ignore quota / private mode */
+  }
+}
+
+export function clearSurvivorReconnectSession(): void {
+  if (typeof window === "undefined") return;
+  try {
+    sessionStorage.removeItem(SURVIVOR_RECONNECT_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
 export interface JoinParams {
   wsUrl: string;
   matchId: string;
@@ -20,6 +71,8 @@ export interface JoinParams {
   issuedAtMs: number;
   slimeColor?: string;
   slimeFace?: number;
+  slimeAccessories?: number;
+  nameColor?: string;
 }
 
 const ROOM_NAME = "survivor";
@@ -56,6 +109,8 @@ export async function joinSurvivorRoom(
       issuedAtMs: params.issuedAtMs,
       slimeColor: params.slimeColor ?? "",
       slimeFace: params.slimeFace ?? 0,
+      slimeAccessories: params.slimeAccessories ?? 0,
+      nameColor: params.nameColor ?? "",
     });
     if (typeof window !== "undefined") {
       console.info("[survivor] joined room", {

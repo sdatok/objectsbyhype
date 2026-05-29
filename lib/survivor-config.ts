@@ -7,6 +7,30 @@ import type {
 
 const SINGLETON_ID = "default";
 
+/** Shared admin timing bounds (also mirrored in game-server/src/constants.ts). */
+export const SURVIVOR_MIN_LOBBY_SECONDS = 1;
+export const SURVIVOR_MAX_LOBBY_SECONDS = 600;
+export const SURVIVOR_MIN_MATCH_SECONDS = 10;
+export const SURVIVOR_MAX_MATCH_SECONDS = 3600;
+
+export function clampLobbySeconds(raw: unknown, fallback = 60): number {
+  const n = Math.round(Number(raw));
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(
+    SURVIVOR_MIN_LOBBY_SECONDS,
+    Math.min(SURVIVOR_MAX_LOBBY_SECONDS, n)
+  );
+}
+
+export function clampMatchSeconds(raw: unknown, fallback = 420): number {
+  const n = Math.round(Number(raw));
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(
+    SURVIVOR_MIN_MATCH_SECONDS,
+    Math.min(SURVIVOR_MAX_MATCH_SECONDS, n)
+  );
+}
+
 /** Public, leak-safe shape returned by /api/survivor/state. */
 export interface PublicSurvivorState {
   enabled: boolean;

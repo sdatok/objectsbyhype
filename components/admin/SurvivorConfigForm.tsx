@@ -2,6 +2,11 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import {
+  clampMatchSeconds,
+  SURVIVOR_MAX_MATCH_SECONDS,
+  SURVIVOR_MIN_MATCH_SECONDS,
+} from "@/lib/survivor-config";
 
 interface InitialConfig {
   enabled: boolean;
@@ -23,7 +28,9 @@ export default function SurvivorConfigForm({
   const [prizeDescription, setPrizeDescription] = useState(
     initialConfig.prizeDescription
   );
-  const [matchSeconds, setMatchSeconds] = useState(initialConfig.matchSeconds);
+  const [matchSecondsInput, setMatchSecondsInput] = useState(
+    String(initialConfig.matchSeconds)
+  );
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -34,6 +41,11 @@ export default function SurvivorConfigForm({
     setMessage(null);
     setError(null);
     try {
+      const matchSeconds = clampMatchSeconds(
+        matchSecondsInput,
+        initialConfig.matchSeconds
+      );
+      setMatchSecondsInput(String(matchSeconds));
       const res = await fetch("/api/admin/survivor/config", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -123,18 +135,23 @@ export default function SurvivorConfigForm({
         </label>
         <input
           type="number"
-          min={30}
-          max={3600}
-          value={matchSeconds}
-          onChange={(e) =>
-            setMatchSeconds(
-              Math.max(30, Math.min(3600, parseInt(e.target.value, 10) || 30))
+          min={SURVIVOR_MIN_MATCH_SECONDS}
+          max={SURVIVOR_MAX_MATCH_SECONDS}
+          step={1}
+          value={matchSecondsInput}
+          onChange={(e) => setMatchSecondsInput(e.target.value)}
+          onBlur={() =>
+            setMatchSecondsInput(
+              String(
+                clampMatchSeconds(matchSecondsInput, initialConfig.matchSeconds)
+              )
             )
           }
           className="w-full border border-neutral-300 px-3 py-3 min-h-[44px] text-base sm:text-[13px] focus:outline-none focus:border-black transition-colors"
         />
         <p className="text-[10px] text-neutral-400 mt-1">
-          Default 420 = 7 minutes. Used when you open a new match.
+          Default round length ({SURVIVOR_MIN_MATCH_SECONDS}–
+          {SURVIVOR_MAX_MATCH_SECONDS}s). Used when you open a new match.
         </p>
       </div>
 

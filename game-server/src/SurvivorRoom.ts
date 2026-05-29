@@ -12,6 +12,9 @@ import {
   DEFAULT_SLIME_COLOR,
   parseSlimeColor,
   parseSlimeFace,
+  parseSlimeAccessories,
+  parseNameColor,
+  DEFAULT_NAME_COLOR,
 } from "./constants";
 import { verifyMatchToken } from "./hmac";
 import {
@@ -41,8 +44,8 @@ import { postMatchResult, type ResultParticipant } from "./webhook";
  *   ENDED     ─ result posted to Next.js ─▶  WAITING (matchId cleared)
  *
  * One instance is created lazily on first connection and kept alive for the
- * server's lifetime. Joining clients that arrive while PLAYING attach as
- * spectators (Player.alive=false, can't move/shoot).
+ * server's lifetime. Fresh joinOrCreate is only allowed in WAITING/COUNTDOWN;
+ * during PLAYING clients must reconnect with their Colyseus token.
  */
 export class SurvivorRoom extends Room<SurvivorState> {
   maxClients = 200; // generous; spectators can fill above MAX_PLAYERS
@@ -114,6 +117,8 @@ export class SurvivorRoom extends Room<SurvivorState> {
     isSpectator: boolean;
     slimeColor: string;
     slimeFace: number;
+    slimeAccessories: number;
+    nameColor: string;
   }> {
     const email = String(options.email ?? "").trim().toLowerCase();
     const displayName = String(options.displayName ?? "").trim().slice(0, 32);
@@ -148,12 +153,38 @@ export class SurvivorRoom extends Room<SurvivorState> {
     if (!ok) {
       throw new Error("Invalid join token");
     }
-    // One live connection per email. Disconnected slots (connected=false) are
-    // cleared so a fresh join works when reconnectionToken was lost (e.g. page
-    // reload). Reconnecting via token skips onAuth and reuses the same seat.
+    // One live connection per email.
     const existingEntry = Array.from(this.state.players.entries()).find(
       ([, p]) => p.email === email
     );
+
+    const inLobby =
+      this.state.status === "WAITING" || this.state.status === "COUNTDOWN";
+
+    // Once the match is live, joinOrCreate cannot mint a fresh seat. Players
+    // must reconnect with their Colyseus token (same sessionId) or wait for
+    // the next match — prevents refresh → respawn exploits.
+    if (this.state.status === "PLAYING") {
+      if (!existingEntry) {
+        throw new Error("Match already in progress — wait for the next one.");
+      }
+      const [, existingPlayer] = existingEntry;
+      if (existingPlayer.connected) {
+        throw new Error("You are already in this match in another tab.");
+      }
+      throw new Error(
+        existingPlayer.alive
+          ? "Reconnect window expired — you can't re-enter this match."
+          : "You were eliminated — wait for the next match."
+      );
+    }
+
+    if (this.state.status === "ENDED") {
+      throw new Error("This match has ended — wait for the next one.");
+    }
+
+    // Lobby phases: drop stale disconnected seats so a page reload can rejoin
+    // before the match goes live. Reconnecting via token skips onAuth entirely.
     if (existingEntry) {
       const [existingSessionId, existingPlayer] = existingEntry;
       if (existingPlayer.connected) {
@@ -164,22 +195,26 @@ export class SurvivorRoom extends Room<SurvivorState> {
       this.inputCounters.delete(existingSessionId);
     }
 
-    // WAITING/COUNTDOWN admit everyone as active. During PLAYING we still
-    // admit active players while under the cap so a Railway restart doesn't
-    // trap returning players as permanent spectators.
-    const inLobby =
-      this.state.status === "WAITING" || this.state.status === "COUNTDOWN";
     const alivePlayers = this.countAlive();
-    const canJoinActive =
-      inLobby ||
-      (this.state.status === "PLAYING" && alivePlayers < MAX_PLAYERS);
+    const canJoinActive = inLobby && alivePlayers < MAX_PLAYERS;
     if (inLobby && alivePlayers >= MAX_PLAYERS) {
       throw new Error("Match is full (25 players).");
     }
     const isSpectator = !canJoinActive;
     const slimeColor = parseSlimeColor(options.slimeColor);
     const slimeFace = parseSlimeFace(options.slimeFace);
-    return { email, displayName, matchId, isSpectator, slimeColor, slimeFace };
+    const slimeAccessories = parseSlimeAccessories(options.slimeAccessories);
+    const nameColor = parseNameColor(options.nameColor);
+    return {
+      email,
+      displayName,
+      matchId,
+      isSpectator,
+      slimeColor,
+      slimeFace,
+      slimeAccessories,
+      nameColor,
+    };
   }
 
   override onJoin(
@@ -192,6 +227,8 @@ export class SurvivorRoom extends Room<SurvivorState> {
       isSpectator: boolean;
       slimeColor: string;
       slimeFace: number;
+      slimeAccessories: number;
+      nameColor: string;
     }
   ): void {
     const p = new Player();
@@ -199,6 +236,8 @@ export class SurvivorRoom extends Room<SurvivorState> {
     p.displayName = auth.displayName;
     p.slimeColor = auth.slimeColor || DEFAULT_SLIME_COLOR;
     p.slimeFace = auth.slimeFace ?? 0;
+    p.slimeAccessories = auth.slimeAccessories ?? 0;
+    p.nameColor = auth.nameColor || DEFAULT_NAME_COLOR;
     p.connected = true;
 
     if (auth.isSpectator) {

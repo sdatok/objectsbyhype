@@ -64,6 +64,10 @@ export class Player extends Schema {
   @type("string") slimeColor = "#22d3ee";
   /** Eye expression preset 0..3. */
   @type("number") slimeFace = 0;
+  /** Bitmask: 1 = gucci hat, 2 = sunglasses. */
+  @type("number") slimeAccessories = 0;
+  /** Display name tag colour (hex). */
+  @type("string") nameColor = "#ffffff";
 }
 
 export class Bullet extends Schema {

@@ -2,6 +2,14 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import {
+  clampLobbySeconds,
+  clampMatchSeconds,
+  SURVIVOR_MAX_LOBBY_SECONDS,
+  SURVIVOR_MAX_MATCH_SECONDS,
+  SURVIVOR_MIN_LOBBY_SECONDS,
+  SURVIVOR_MIN_MATCH_SECONDS,
+} from "@/lib/survivor-config";
 
 interface InitialControls {
   hasActive: boolean;
@@ -28,8 +36,10 @@ export default function SurvivorMatchControls({
   initial,
 }: SurvivorMatchControlsProps) {
   const router = useRouter();
-  const [lobbySeconds, setLobbySeconds] = useState(60);
-  const [matchSeconds, setMatchSeconds] = useState(initial.defaultMatchSeconds);
+  const [lobbySecondsInput, setLobbySecondsInput] = useState("60");
+  const [matchSecondsInput, setMatchSecondsInput] = useState(
+    String(initial.defaultMatchSeconds)
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -63,7 +73,23 @@ export default function SurvivorMatchControls({
   const hasActive =
     !!liveMatchId && (liveStatus === "WAITING" || liveStatus === "PLAYING");
 
+  function normalizeLobbyInput(raw: string): string {
+    return String(clampLobbySeconds(raw, 60));
+  }
+
+  function normalizeMatchInput(raw: string): string {
+    return String(clampMatchSeconds(raw, initial.defaultMatchSeconds));
+  }
+
   async function startMatch() {
+    const lobbySeconds = clampLobbySeconds(lobbySecondsInput, 60);
+    const matchSeconds = clampMatchSeconds(
+      matchSecondsInput,
+      initial.defaultMatchSeconds
+    );
+    setLobbySecondsInput(String(lobbySeconds));
+    setMatchSecondsInput(String(matchSeconds));
+
     setBusy(true);
     setError(null);
     setMessage(null);
@@ -75,7 +101,9 @@ export default function SurvivorMatchControls({
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error ?? "Start failed");
-      setMessage(`Match opened (${data.matchId}). Lobby is live.`);
+      setMessage(
+        `Match opened (${data.matchId}). Countdown: ${data.lobbySeconds}s · length: ${data.matchSeconds}s.`
+      );
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Start failed");
@@ -145,21 +173,19 @@ export default function SurvivorMatchControls({
             </label>
             <input
               type="number"
-              min={5}
-              max={600}
-              value={lobbySeconds}
-              onChange={(e) =>
-                setLobbySeconds(
-                  Math.max(
-                    5,
-                    Math.min(600, parseInt(e.target.value, 10) || 5)
-                  )
-                )
+              min={SURVIVOR_MIN_LOBBY_SECONDS}
+              max={SURVIVOR_MAX_LOBBY_SECONDS}
+              step={1}
+              value={lobbySecondsInput}
+              onChange={(e) => setLobbySecondsInput(e.target.value)}
+              onBlur={() =>
+                setLobbySecondsInput(normalizeLobbyInput(lobbySecondsInput))
               }
               className="w-full border border-neutral-300 px-3 py-3 min-h-[44px] text-base sm:text-[13px] focus:outline-none focus:border-black transition-colors"
             />
             <p className="text-[10px] text-neutral-400 mt-1">
-              Time players have to join before PLAYING begins.
+              Time players have to join before PLAYING begins (
+              {SURVIVOR_MIN_LOBBY_SECONDS}–{SURVIVOR_MAX_LOBBY_SECONDS}s).
             </p>
           </div>
           <div>
@@ -168,19 +194,20 @@ export default function SurvivorMatchControls({
             </label>
             <input
               type="number"
-              min={30}
-              max={3600}
-              value={matchSeconds}
-              onChange={(e) =>
-                setMatchSeconds(
-                  Math.max(
-                    30,
-                    Math.min(3600, parseInt(e.target.value, 10) || 30)
-                  )
-                )
+              min={SURVIVOR_MIN_MATCH_SECONDS}
+              max={SURVIVOR_MAX_MATCH_SECONDS}
+              step={1}
+              value={matchSecondsInput}
+              onChange={(e) => setMatchSecondsInput(e.target.value)}
+              onBlur={() =>
+                setMatchSecondsInput(normalizeMatchInput(matchSecondsInput))
               }
               className="w-full border border-neutral-300 px-3 py-3 min-h-[44px] text-base sm:text-[13px] focus:outline-none focus:border-black transition-colors"
             />
+            <p className="text-[10px] text-neutral-400 mt-1">
+              Round length ({SURVIVOR_MIN_MATCH_SECONDS}–
+              {SURVIVOR_MAX_MATCH_SECONDS}s).
+            </p>
           </div>
         </div>
       )}

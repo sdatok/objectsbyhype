@@ -10,8 +10,8 @@ import MobileControls, {
   type VirtualStickState,
 } from "./MobileControls";
 import RetroOverlay from "./RetroOverlay";
-import { drawSlime } from "./SlimeAvatar";
-import { DEFAULT_SLIME_COLOR } from "@/lib/survivor-slime";
+import SlimeAvatar, { drawSlime } from "./SlimeAvatar";
+import { DEFAULT_NAME_COLOR, DEFAULT_SLIME_COLOR, parseNameColor } from "@/lib/survivor-slime";
 
 /**
  * Top-down 2D Survivor game. The server simulates at 30Hz; this client
@@ -56,6 +56,8 @@ interface ServerPlayer {
   frozenUntilMs: number;
   slimeColor: string;
   slimeFace: number;
+  slimeAccessories: number;
+  nameColor: string;
   towerBuffExpiresAtMs: number;
   towerBuffKind: string;
 }
@@ -316,22 +318,9 @@ export default function GameCanvas({ room, onLeave }: GameCanvasProps) {
   } | null>(null);
 
   // HUD-relevant fields sampled from state at React rate.
-  const [statusSnapshot, setStatusSnapshot] = useState<{
-    status: ServerState["status"];
-    aliveCount: number;
-    selfAlive: boolean;
-    selfHp: number;
-    selfKills: number;
-    selfPlacement: number;
-    selfWeapon: string;
-    selfWeaponExpiresAtMs: number;
-    selfMaxHp: number;
-    selfTowerBuffKind: string;
-    matchEndsAtMs: number;
-    countdownEndsAtMs: number;
-    startedAtMs: number;
-    zoneShrink01: number;
-  }>(() => snapshotStatus(room));
+  const [statusSnapshot, setStatusSnapshot] = useState<
+    ReturnType<typeof snapshotStatus>
+  >(() => snapshotStatus(room));
 
   useEffect(() => {
     sessionIdRef.current = room.sessionId;
@@ -924,35 +913,7 @@ function Hud(props: {
       )}
 
       {snapshot.status === "ENDED" && (
-        <div className="absolute inset-0 bg-black/85 backdrop-blur-sm flex items-center justify-center p-6 pointer-events-auto">
-          <div className="max-w-md text-center space-y-4">
-            <div className="inline-block border-2 border-rose-400 px-3 py-1 mb-2">
-              <p
-                className="text-[10px] uppercase tracking-[0.35em] text-rose-400 font-bold"
-                style={{ fontFamily: MONO_FONT }}
-              >
-                Match over
-              </p>
-            </div>
-            <h2 className="text-3xl font-bold">
-              {snapshot.selfPlacement === 1
-                ? "You won."
-                : snapshot.selfPlacement === 0
-                ? "Match complete."
-                : `Placement #${snapshot.selfPlacement}`}
-            </h2>
-            <p className="text-sm text-neutral-400">
-              We&apos;ll email the winner. Thanks for playing.
-            </p>
-            <button
-              type="button"
-              onClick={onLeave}
-              className="text-xs tracking-widest uppercase px-5 py-3 border border-white hover:bg-white hover:text-black transition-colors"
-            >
-              Back to lobby
-            </button>
-          </div>
-        </div>
+        <MatchEndOverlay snapshot={snapshot} onLeave={onLeave} />
       )}
 
       {snapshot.status === "PLAYING" && !snapshot.selfAlive && (
@@ -966,6 +927,200 @@ function Hud(props: {
         </div>
       )}
     </>
+  );
+}
+
+function MatchEndOverlay({
+  snapshot,
+  onLeave,
+}: {
+  snapshot: ReturnType<typeof snapshotStatus>;
+  onLeave: () => void;
+}) {
+  const won = snapshot.selfPlacement === 1;
+  const podium = snapshot.selfPlacement >= 2 && snapshot.selfPlacement <= 3;
+  const placement = snapshot.selfPlacement;
+
+  const headline = won
+    ? "CHAMPION"
+    : podium
+    ? "PODIUM FINISH"
+    : placement > 0
+    ? "ELIMINATED"
+    : "MATCH COMPLETE";
+
+  const subline = won
+    ? "You survived the island. Crown secured."
+    : podium
+    ? `#${placement} — still dripped out.`
+    : placement > 0
+    ? `#${placement} of 25 — run it back.`
+    : "Thanks for watching the chaos.";
+
+  const tagline = won
+    ? ["Absolute menace.", "Island cleared.", "They never stood a chance."][
+        snapshot.selfKills % 3
+      ]
+    : podium
+    ? "So close to the crown."
+    : snapshot.selfKills > 0
+    ? `${snapshot.selfKills} elim${snapshot.selfKills === 1 ? "" : "s"} — not bad.`
+    : "Next drop, different story.";
+
+  return (
+    <div className="absolute inset-0 bg-black/88 backdrop-blur-md flex items-center justify-center p-6 pointer-events-auto overflow-hidden">
+      {won && <ConfettiBurst />}
+      <div className="relative max-w-lg w-full text-center space-y-5">
+        <div
+          className={`inline-block border-2 px-4 py-1.5 ${
+            won
+              ? "border-fuchsia-400 shadow-[0_0_30px_rgba(232,121,249,0.45)]"
+              : podium
+              ? "border-amber-400"
+              : "border-rose-400/70"
+          }`}
+        >
+          <p
+            className={`text-[10px] uppercase tracking-[0.4em] font-bold ${
+              won ? "text-fuchsia-300" : podium ? "text-amber-300" : "text-rose-300"
+            }`}
+            style={{ fontFamily: MONO_FONT }}
+          >
+            {won ? "Victory royale" : "Match over"}
+          </p>
+        </div>
+
+        <div className="flex flex-col items-center gap-3">
+          <div
+            className={`relative ${won ? "animate-pulse" : ""}`}
+            style={
+              won
+                ? {
+                    filter: "drop-shadow(0 0 18px rgba(250,204,21,0.55))",
+                  }
+                : undefined
+            }
+          >
+            <SlimeAvatar
+              color={snapshot.selfSlimeColor}
+              face={snapshot.selfSlimeFace}
+              accessories={snapshot.selfSlimeAccessories}
+              size={won ? 128 : 96}
+            />
+          </div>
+          {snapshot.selfDisplayName && (
+            <p
+              className="text-lg font-bold tracking-[0.25em] uppercase"
+              style={{
+                color: snapshot.selfNameColor,
+                fontFamily: MONO_FONT,
+              }}
+            >
+              {snapshot.selfDisplayName}
+            </p>
+          )}
+        </div>
+
+        <h2
+          className={`text-4xl sm:text-5xl font-black tracking-tight uppercase ${
+            won
+              ? "bg-gradient-to-r from-fuchsia-300 via-yellow-300 to-cyan-300 bg-clip-text text-transparent"
+              : podium
+              ? "text-amber-300"
+              : "text-white"
+          }`}
+        >
+          {headline}
+        </h2>
+
+        <p className="text-base text-neutral-200">{subline}</p>
+        <p
+          className="text-sm text-fuchsia-300/90 italic"
+          style={{ fontFamily: MONO_FONT }}
+        >
+          {tagline}
+        </p>
+
+        <div className="flex justify-center gap-6 pt-1">
+          {placement > 0 && (
+            <div className="text-center">
+              <p className="text-[9px] uppercase tracking-[0.3em] text-neutral-500">
+                Place
+              </p>
+              <p className="text-2xl font-bold text-white">#{placement}</p>
+            </div>
+          )}
+          <div className="text-center">
+            <p className="text-[9px] uppercase tracking-[0.3em] text-neutral-500">
+              Kills
+            </p>
+            <p className="text-2xl font-bold text-emerald-400">
+              {snapshot.selfKills}
+            </p>
+          </div>
+        </div>
+
+        {won && (
+          <p className="text-xs text-neutral-400 pt-1">
+            Prize details coming to your inbox. Go flex.
+          </p>
+        )}
+
+        <button
+          type="button"
+          onClick={onLeave}
+          className={`text-xs tracking-widest uppercase px-6 py-3 border transition-colors ${
+            won
+              ? "border-fuchsia-400 text-fuchsia-200 hover:bg-fuchsia-500 hover:text-black"
+              : "border-white text-white hover:bg-white hover:text-black"
+          }`}
+        >
+          Back to lobby
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ConfettiBurst() {
+  const colors = ["#f472b6", "#facc15", "#22d3ee", "#a3e635", "#e879f9"];
+  const pieces = Array.from({ length: 48 }, (_, i) => ({
+    id: i,
+    left: `${(i * 17 + 7) % 100}%`,
+    delay: `${(i % 8) * 0.25}s`,
+    duration: `${2.5 + (i % 5) * 0.4}s`,
+    color: colors[i % colors.length],
+    size: 6 + (i % 4),
+    rotate: (i * 47) % 360,
+  }));
+
+  return (
+    <div className="absolute inset-0 pointer-events-none overflow-hidden" aria-hidden>
+      <style>{`
+        @keyframes obh-confetti-fall {
+          0% { transform: translateY(-10vh) rotate(0deg); opacity: 1; }
+          100% { transform: translateY(110vh) rotate(720deg); opacity: 0.35; }
+        }
+        .obh-confetti-piece {
+          animation: obh-confetti-fall linear forwards;
+        }
+      `}</style>
+      {pieces.map((p) => (
+        <span
+          key={p.id}
+          className="obh-confetti-piece absolute top-0"
+          style={{
+            left: p.left,
+            width: p.size,
+            height: p.size * 0.6,
+            backgroundColor: p.color,
+            transform: `rotate(${p.rotate}deg)`,
+            animationDelay: p.delay,
+            animationDuration: p.duration,
+          }}
+        />
+      ))}
+    </div>
   );
 }
 
@@ -1043,6 +1198,11 @@ function snapshotStatus(room: Room) {
     selfWeaponExpiresAtMs: 0,
     selfMaxHp: 100,
     selfTowerBuffKind: "",
+    selfDisplayName: "",
+    selfSlimeColor: DEFAULT_SLIME_COLOR,
+    selfSlimeFace: 0,
+    selfSlimeAccessories: 0,
+    selfNameColor: DEFAULT_NAME_COLOR,
     matchEndsAtMs: 0,
     countdownEndsAtMs: 0,
     startedAtMs: 0,
@@ -1072,6 +1232,15 @@ function snapshotStatus(room: Room) {
           ? self.maxHp
           : 100,
       selfTowerBuffKind: self?.towerBuffKind ?? "",
+      selfDisplayName: self?.displayName ?? "",
+      selfSlimeColor: self?.slimeColor || DEFAULT_SLIME_COLOR,
+      selfSlimeFace:
+        typeof self?.slimeFace === "number"
+          ? Math.max(0, Math.min(3, self.slimeFace))
+          : 0,
+      selfSlimeAccessories:
+        typeof self?.slimeAccessories === "number" ? self.slimeAccessories : 0,
+      selfNameColor: parseNameColor(self?.nameColor),
       matchEndsAtMs: rs.matchEndsAtMs ?? 0,
       countdownEndsAtMs: rs.countdownEndsAtMs ?? 0,
       startedAtMs: rs.startedAtMs ?? 0,
@@ -1908,6 +2077,9 @@ function drawPlayer(
   const slimeColor = p.slimeColor || DEFAULT_SLIME_COLOR;
   const slimeFace =
     typeof p.slimeFace === "number" ? Math.max(0, Math.min(3, p.slimeFace)) : 0;
+  const slimeAccessories =
+    typeof p.slimeAccessories === "number" ? p.slimeAccessories : 0;
+  const nameColor = parseNameColor(p.nameColor);
 
   ctx.save();
   if (!p.alive) ctx.globalAlpha = 0.28;
@@ -1922,7 +2094,8 @@ function drawPlayer(
     pos.aim,
     frozen,
     burning,
-    now
+    now,
+    slimeAccessories
   );
 
   if (p.alive) {
@@ -2028,13 +2201,19 @@ function drawPlayer(
     ctx.restore();
   }
 
-  // Display name.
-  ctx.globalAlpha = p.alive ? 0.92 : 0.35;
-  ctx.fillStyle = "#ffffff";
-  ctx.font = `bold ${Math.max(10, 11 * Math.min(1.6, scale))}px ${MONO_FONT}`;
+  // Display name — larger, customizable colour.
+  const nameSize = Math.max(13, 15 * Math.min(1.6, scale));
+  const nameY = screen.sy - r - 22;
+  ctx.globalAlpha = p.alive ? 0.95 : 0.4;
+  ctx.font = `bold ${nameSize}px ${MONO_FONT}`;
   ctx.textAlign = "center";
   ctx.textBaseline = "bottom";
-  ctx.fillText(p.displayName.toUpperCase(), screen.sx, screen.sy - r - 20);
+  ctx.strokeStyle = "rgba(0,0,0,0.75)";
+  ctx.lineWidth = Math.max(2, nameSize * 0.14);
+  ctx.lineJoin = "round";
+  ctx.strokeText(p.displayName.toUpperCase(), screen.sx, nameY);
+  ctx.fillStyle = nameColor;
+  ctx.fillText(p.displayName.toUpperCase(), screen.sx, nameY);
 
   ctx.restore();
 }
