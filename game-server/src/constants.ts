@@ -211,6 +211,20 @@ export const VOLCANO_LAVA_RADIUS = 210;
 export const VOLCANO_DPS = 38;
 export const VOLCANO_BURN_MS = 900;
 
+// ---------- Giant slime bosses ----------
+/** Same cadence as meteors, but offset 30s so hazards alternate. */
+export const BOSS_EVENT_INTERVAL_MS = 60_000;
+export const BOSS_EVENT_OFFSET_MS = 30_000;
+export const BOSS_RADIUS = 72;
+export const BOSS_MAX_HP = 900;
+export const BOSS_JUMP_INTERVAL_MS = 2_200;
+export const BOSS_JUMP_DISTANCE_MIN = 200;
+export const BOSS_JUMP_DISTANCE_MAX = 460;
+export const BOSS_CONTACT_DPS = 42;
+export const BOSS_TRAIL_RADIUS = 40;
+export const BOSS_TRAIL_LINGER_MS = 6_000;
+export const BOSS_TRAIL_DPS = 24;
+
 // ---------- Slime avatars ----------
 export const SLIME_COLORS = [
   "#22d3ee",

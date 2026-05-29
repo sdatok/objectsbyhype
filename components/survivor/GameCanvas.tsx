@@ -10,6 +10,7 @@ import MobileControls, {
   type VirtualStickState,
 } from "./MobileControls";
 import RetroOverlay from "./RetroOverlay";
+import { MusicMuteButton } from "./SurvivorMusic";
 import SlimeAvatar, { drawSlime } from "./SlimeAvatar";
 import { DEFAULT_NAME_COLOR, DEFAULT_SLIME_COLOR, parseNameColor } from "@/lib/survivor-slime";
 
@@ -95,6 +96,20 @@ interface ServerZone {
   targetRadius: number;
 }
 
+interface ServerBoss {
+  id: string;
+  kind: string;
+  x: number;
+  y: number;
+  hp: number;
+  maxHp: number;
+  radius: number;
+  slimeColor: string;
+  slimeFace: number;
+  nextJumpAtMs: number;
+  jumpLandAtMs: number;
+}
+
 interface ServerState {
   status: "WAITING" | "COUNTDOWN" | "PLAYING" | "ENDED";
   matchId: string;
@@ -111,6 +126,7 @@ interface ServerState {
   bullets: ServerBullet[] | { forEach: (cb: (b: ServerBullet, idx: number) => void) => void; length: number };
   pickups: ServerPickup[] | { forEach: (cb: (p: ServerPickup) => void) => void; length: number };
   obstacles: ServerObstacle[] | { forEach: (cb: (o: ServerObstacle) => void) => void; length: number };
+  bosses?: ServerBoss[] | { forEach: (cb: (b: ServerBoss) => void) => void; length: number };
   zone: ServerZone;
   activeTowerKind?: string;
   activeBonusKind?: string;
@@ -134,6 +150,8 @@ const TOWER_BUFF_RADIUS = 250;
 const METEOR_WARNING_MS = 2800;
 const METEOR_CRATER_LINGER_MS = 14_000;
 const VOLCANO_LAVA_RADIUS = 210;
+const BOSS_TRAIL_LINGER_MS = 6_000;
+const BOSS_TRAIL_RADIUS = 40;
 
 const TOWER_BONUS_LABELS: Record<string, string> = {
   pistol: "pistol",
@@ -332,6 +350,10 @@ export default function GameCanvas({ room, onLeave }: GameCanvasProps) {
     message: string;
     expiresAt: number;
   } | null>(null);
+  const [bossAnnouncement, setBossAnnouncement] = useState<{
+    message: string;
+    expiresAt: number;
+  } | null>(null);
   const meteorFxRef = useRef<
     Array<{
       x: number;
@@ -340,6 +362,15 @@ export default function GameCanvas({ room, onLeave }: GameCanvasProps) {
       startMs: number;
       impactAtMs: number;
       craterUntilMs: number;
+    }>
+  >([]);
+  const bossTrailFxRef = useRef<
+    Array<{
+      x: number;
+      y: number;
+      radius: number;
+      expiresAtMs: number;
+      color: string;
     }>
   >([]);
 
@@ -522,10 +553,33 @@ export default function GameCanvas({ room, onLeave }: GameCanvasProps) {
         })),
       ].slice(-24);
     };
+    const onBossSpawn = (payload: { message?: string }) => {
+      const now = Date.now();
+      setBossAnnouncement({
+        message: payload.message ?? "Giant slimes are hopping across the island!",
+        expiresAt: now + 6500,
+      });
+    };
+    const onBossTrails = (
+      payload: Array<{
+        x: number;
+        y: number;
+        radius: number;
+        expiresAtMs: number;
+        color: string;
+      }>
+    ) => {
+      if (!Array.isArray(payload) || payload.length === 0) return;
+      bossTrailFxRef.current = [...bossTrailFxRef.current, ...payload].slice(
+        -48
+      );
+    };
     room.onMessage("event:kills", onKills);
     room.onMessage("event:pickup", onPickup);
     room.onMessage("event:tower-bonus", onTowerBonus);
     room.onMessage("event:volcano-eruption", onVolcanoEruption);
+    room.onMessage("event:boss-spawn", onBossSpawn);
+    room.onMessage("event:boss-trails", onBossTrails);
     room.onMessage("event:explosions", onExplosions);
     return () => {
       // colyseus.js cleans listeners on room.leave; nothing to undo here.
@@ -540,9 +594,13 @@ export default function GameCanvas({ room, onLeave }: GameCanvasProps) {
       setPickupToast((p) => (p && p.expiresAt > now ? p : null));
       setTowerAnnouncement((a) => (a && a.expiresAt > now ? a : null));
       setVolcanoAnnouncement((a) => (a && a.expiresAt > now ? a : null));
+      setBossAnnouncement((a) => (a && a.expiresAt > now ? a : null));
       explosionsRef.current = explosionsRef.current.filter((e) => e.expiresAt > now);
       meteorFxRef.current = meteorFxRef.current.filter(
         (m) => m.craterUntilMs > now
+      );
+      bossTrailFxRef.current = bossTrailFxRef.current.filter(
+        (t) => t.expiresAtMs > now
       );
     }, 250);
     return () => window.clearInterval(id);
@@ -735,6 +793,7 @@ export default function GameCanvas({ room, onLeave }: GameCanvasProps) {
         activeBonusKind: (rs as ServerState).activeBonusKind ?? "",
         explosions: explosionsRef.current,
         meteors: meteorFxRef.current,
+        bossTrails: bossTrailFxRef.current,
       });
 
       raf = window.requestAnimationFrame(draw);
@@ -795,6 +854,7 @@ export default function GameCanvas({ room, onLeave }: GameCanvasProps) {
         pickupToast={pickupToast}
         towerAnnouncement={towerAnnouncement}
         volcanoAnnouncement={volcanoAnnouncement}
+        bossAnnouncement={bossAnnouncement}
         onLeave={onLeave}
         compact={mobileControls}
       />
@@ -822,10 +882,14 @@ function Hud(props: {
     message: string;
     expiresAt: number;
   } | null;
+  bossAnnouncement: {
+    message: string;
+    expiresAt: number;
+  } | null;
   onLeave: () => void;
   compact?: boolean;
 }) {
-  const { snapshot, killFeed, pickupToast, towerAnnouncement, volcanoAnnouncement, onLeave, compact } =
+  const { snapshot, killFeed, pickupToast, towerAnnouncement, volcanoAnnouncement, bossAnnouncement, onLeave, compact } =
     props;
   const [, forceTick] = useState(0);
   useEffect(() => {
@@ -892,6 +956,28 @@ function Hud(props: {
             </p>
             <p className="text-[10px] text-orange-200/80 mt-1 tracking-widest uppercase">
               Meteors incoming — stay out of the red zones
+            </p>
+          </div>
+        </div>
+      )}
+
+      {bossAnnouncement && (
+        <div className="absolute top-28 sm:top-32 inset-x-0 flex justify-center pointer-events-none px-4 z-30">
+          <div
+            className="border-2 border-lime-400 bg-black/80 px-5 py-3 text-center max-w-lg animate-pulse"
+            style={{
+              fontFamily: MONO_FONT,
+              boxShadow: "0 0 32px rgba(163,230,53,0.4)",
+            }}
+          >
+            <p className="text-[10px] uppercase tracking-[0.3em] text-lime-300">
+              ⚠ Slime bosses
+            </p>
+            <p className="text-base sm:text-lg font-bold text-white mt-1">
+              {bossAnnouncement.message}
+            </p>
+            <p className="text-[10px] text-lime-200/80 mt-1 tracking-widest uppercase">
+              Avoid the slime trails — they burn
             </p>
           </div>
         </div>
@@ -1004,6 +1090,7 @@ function Hud(props: {
       )}
 
       <div className="absolute top-3 right-3 sm:top-4 sm:right-4 pointer-events-none flex flex-col items-end gap-2">
+        <MusicMuteButton compact className="mb-1" />
         <div className="text-right">
           <div className="text-[9px] tracking-[0.35em] uppercase bg-white text-black px-2 py-0.5 inline-block font-bold">
             MATCH TIME
@@ -1472,6 +1559,13 @@ interface RenderCtx {
     impactAtMs: number;
     craterUntilMs: number;
   }>;
+  bossTrails: Array<{
+    x: number;
+    y: number;
+    radius: number;
+    expiresAtMs: number;
+    color: string;
+  }>;
 }
 
 /** Beach radius from synced zoneShrink01 (primary) or match clock fallback. */
@@ -1610,7 +1704,14 @@ function renderFrame(
 
   drawBullets(ctx, w2s, scale, now, rctx.bulletBuf);
   drawMeteorFx(ctx, w2s, scale, now, rctx.meteors);
+  drawBossTrails(ctx, w2s, scale, now, rctx.bossTrails);
   drawExplosions(ctx, w2s, scale, now, rctx.explosions);
+
+  if (rs.bosses) {
+    iterateSchemaArray<ServerBoss>(rs.bosses, (boss) => {
+      drawBoss(ctx, boss, w2s, scale, now);
+    });
+  }
 
   forEachPlayer(rs, (p, sessionId) => {
     const buf = rctx.playerBuf.get(sessionId);
@@ -2442,6 +2543,101 @@ function drawMysteryPickup(
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillText("?", cx, cy - 2 * scale);
+  ctx.restore();
+}
+
+function drawBossTrails(
+  ctx: CanvasRenderingContext2D,
+  w2s: (x: number, y: number) => { sx: number; sy: number },
+  scale: number,
+  now: number,
+  trails: RenderCtx["bossTrails"]
+) {
+  for (const trail of trails) {
+    const fade = Math.max(
+      0,
+      Math.min(1, (trail.expiresAtMs - now) / BOSS_TRAIL_LINGER_MS)
+    );
+    if (fade <= 0) continue;
+    const pos = w2s(trail.x, trail.y);
+    const r = trail.radius * scale;
+    const pulse = 0.65 + 0.35 * Math.sin(now / 180 + trail.x * 0.01);
+
+    ctx.save();
+    ctx.globalAlpha = 0.35 * fade * pulse;
+    ctx.fillStyle = trail.color;
+    ctx.shadowColor = trail.color;
+    ctx.shadowBlur = 16 * scale;
+    ctx.beginPath();
+    ctx.ellipse(pos.sx, pos.sy, r, r * 0.72, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.globalAlpha = 0.55 * fade;
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = "rgba(255,255,255,0.12)";
+    ctx.beginPath();
+    ctx.ellipse(pos.sx, pos.sy - 2 * scale, r * 0.55, r * 0.35, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+function drawBoss(
+  ctx: CanvasRenderingContext2D,
+  boss: ServerBoss,
+  w2s: (x: number, y: number) => { sx: number; sy: number },
+  scale: number,
+  now: number
+) {
+  const screen = w2s(boss.x, boss.y);
+  const landAge = now - (boss.jumpLandAtMs ?? 0);
+  const squash =
+    landAge >= 0 && landAge < 320
+      ? 1 + 0.22 * Math.sin((landAge / 320) * Math.PI)
+      : 1;
+  const r = Math.max(24, boss.radius * scale) * squash;
+  const slimeColor = boss.slimeColor || "#a3e635";
+  const slimeFace =
+    typeof boss.slimeFace === "number" ? Math.max(0, Math.min(3, boss.slimeFace)) : 0;
+  const maxHp = boss.maxHp > 0 ? boss.maxHp : 900;
+  const aim = Math.sin(now / 900 + boss.x * 0.002) * 0.4;
+
+  ctx.save();
+  ctx.shadowColor = slimeColor;
+  ctx.shadowBlur = 28 * scale;
+  drawSlime(
+    ctx,
+    screen.sx,
+    screen.sy,
+    r,
+    slimeColor,
+    slimeFace,
+    aim,
+    false,
+    true,
+    now,
+    0
+  );
+  ctx.shadowBlur = 0;
+
+  const barW = Math.max(56, r * 2.4);
+  const barH = Math.max(5, 6 * scale);
+  const bx = screen.sx - barW / 2;
+  const by = screen.sy - r - 22;
+  ctx.fillStyle = "rgba(0,0,0,0.75)";
+  ctx.fillRect(bx, by, barW, barH);
+  const pct = Math.max(0, Math.min(1, boss.hp / maxHp));
+  ctx.fillStyle = pct > 0.35 ? slimeColor : "#f87171";
+  ctx.fillRect(bx, by, barW * pct, barH);
+  ctx.strokeStyle = "rgba(255,255,255,0.6)";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(bx, by, barW, barH);
+
+  ctx.fillStyle = "#ffffff";
+  ctx.font = `bold ${Math.max(9, 10 * scale)}px ${MONO_FONT}`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "bottom";
+  ctx.fillText("GIANT SLIME", screen.sx, by - 4);
   ctx.restore();
 }
 

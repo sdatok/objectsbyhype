@@ -27,6 +27,9 @@ import {
   tickMeteorVolcano,
   freshMeteorCtx,
   type MeteorTickContext,
+  tickBosses,
+  freshBossCtx,
+  type BossTickContext,
   tickPlayerBuffs,
   tickDebuffs,
   freshPickupCtx,
@@ -76,6 +79,8 @@ export class SurvivorRoom extends Room<SurvivorState> {
   private pickupCtx = freshPickupCtx();
   /** Meteor shower + lava crater state (not part of the schema). */
   private meteorCtx: MeteorTickContext = freshMeteorCtx();
+  /** Giant slime bosses + trail DoT (not part of the schema). */
+  private bossCtx: BossTickContext = freshBossCtx();
 
   override onCreate() {
     const state = new SurvivorState();
@@ -420,6 +425,7 @@ export class SurvivorRoom extends Room<SurvivorState> {
         nextSpawnAtMs: now + Math.floor(PICKUP_SPAWN_INTERVAL_MS * 0.6),
       };
       this.meteorCtx = freshMeteorCtx(now);
+      this.bossCtx = freshBossCtx(now);
       this.playersAtMatchStart = this.countAlive();
       // Snap zone to the correct point on the shrink curve immediately.
       tickZone(this.state, 0, now, emptyEvents());
@@ -530,6 +536,13 @@ export class SurvivorRoom extends Room<SurvivorState> {
       now,
       events
     );
+    this.bossCtx = tickBosses(
+      this.state,
+      this.bossCtx,
+      dtSec,
+      now,
+      events
+    );
 
     // Forward transient events as room messages so the client can fire
     // kill-feed + pickup toast UI immediately without waiting for the next
@@ -557,6 +570,12 @@ export class SurvivorRoom extends Room<SurvivorState> {
     }
     if (events.explosions.length > 0) {
       this.broadcast("event:explosions", events.explosions);
+    }
+    if (events.bossSpawn) {
+      this.broadcast("event:boss-spawn", events.bossSpawn);
+    }
+    if (events.bossTrails.length > 0) {
+      this.broadcast("event:boss-trails", events.bossTrails);
     }
 
     // End conditions: everyone dead, or last standing after a multi-player start.
@@ -590,6 +609,7 @@ export class SurvivorRoom extends Room<SurvivorState> {
     // instead of dropping on top of fresh spawns.
     this.pickupCtx = { nextSpawnAtMs: now + Math.floor(PICKUP_SPAWN_INTERVAL_MS * 0.6) };
     this.meteorCtx = freshMeteorCtx(now);
+    this.bossCtx = freshBossCtx(now);
     console.log("[SurvivorRoom] PLAYING");
   }
 
@@ -687,6 +707,7 @@ export class SurvivorRoom extends Room<SurvivorState> {
     this.state.bullets.clear();
     this.state.pickups.clear();
     this.state.obstacles.clear();
+    this.state.bosses.clear();
     this.inputs.clear();
     this.inputCounters.clear();
     this.state.endedAtMs = 0;
@@ -705,6 +726,7 @@ export class SurvivorRoom extends Room<SurvivorState> {
     this.startedAtServerMs = 0;
     this.pickupCtx = freshPickupCtx();
     this.meteorCtx = freshMeteorCtx();
+    this.bossCtx = freshBossCtx();
   }
 
   override onDispose() {

@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import { MusicMuteButton } from "./SurvivorMusic";
 
 const POSTER_SRC = "/survivor/survivor-island-poster.png";
 
@@ -47,6 +48,9 @@ export default function LobbyScene({ children }: LobbySceneProps) {
       />
 
       <div className="relative z-10 flex-1 flex flex-col min-h-0">
+        <div className="absolute top-3 right-3 sm:top-4 sm:right-4 z-20">
+          <MusicMuteButton />
+        </div>
         <div className="flex-1 flex items-start sm:items-center justify-center px-4 pt-5 pb-6 sm:py-8 min-h-0 overflow-y-auto">
           {children}
         </div>

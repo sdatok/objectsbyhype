@@ -115,6 +115,23 @@ export class Zone extends Schema {
   @type("number") targetRadius = 0;
 }
 
+/** Giant slime boss — synced position/HP; trails live in server tick context. */
+export class Boss extends Schema {
+  @type("string") id = "";
+  @type("string") kind = "slime_giant";
+  @type("number") x = 0;
+  @type("number") y = 0;
+  @type("number") hp = 0;
+  @type("number") maxHp = 0;
+  @type("number") radius = 72;
+  @type("string") slimeColor = "#a3e635";
+  @type("number") slimeFace = 0;
+  /** UNIX ms when the boss will leap to a new spot. */
+  @type("number") nextJumpAtMs = 0;
+  /** UNIX ms of the last landing — drives client squash FX. */
+  @type("number") jumpLandAtMs = 0;
+}
+
 export class SurvivorState extends Schema {
   @type("string") status: GameStatus = "WAITING";
   @type("string") matchId = "";
@@ -144,6 +161,9 @@ export class SurvivorState extends Schema {
   @type([Obstacle]) obstacles = new ArraySchema<Obstacle>();
   @type(Zone) zone = new Zone();
 
-  /** Monotonic counter — drives sequential tower + weapon rotation. Appended last for schema compat. */
+  /** Monotonic counter — drives sequential tower + weapon rotation. */
   @type("number") towerCycleIndex = 0;
+
+  /** Giant slime bosses — appended last for schema compat. */
+  @type([Boss]) bosses = new ArraySchema<Boss>();
 }

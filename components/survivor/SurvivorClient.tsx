@@ -12,6 +12,7 @@ import {
   saveSurvivorReconnectSession,
 } from "@/lib/survivor-client";
 import LobbyScene, { LobbyCard, LobbyPrimaryButton } from "./LobbyScene";
+import { SurvivorMusicProvider } from "./SurvivorMusic";
 import SlimeAvatar from "./SlimeAvatar";
 import {
   DEFAULT_NAME_COLOR,
@@ -436,7 +437,8 @@ export default function SurvivorClient({ initialState }: SurvivorClientProps) {
   }, []);
 
   return (
-    <main className="min-h-[100dvh] flex flex-col">
+    <SurvivorMusicProvider>
+      <main className="min-h-[100dvh] flex flex-col">
       <Header serverState={serverState} />
 
       {phase === "noMatch" && <NoMatchPanel last={serverState.lastWinner} />}
@@ -492,7 +494,8 @@ export default function SurvivorClient({ initialState }: SurvivorClientProps) {
           onLeave={leaveAndReset}
         />
       )}
-    </main>
+      </main>
+    </SurvivorMusicProvider>
   );
 }
 

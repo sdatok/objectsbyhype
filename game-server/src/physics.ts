@@ -32,6 +32,17 @@ import {
   VOLCANO_LAVA_RADIUS,
   VOLCANO_DPS,
   VOLCANO_BURN_MS,
+  BOSS_EVENT_INTERVAL_MS,
+  BOSS_EVENT_OFFSET_MS,
+  BOSS_RADIUS,
+  BOSS_MAX_HP,
+  BOSS_JUMP_INTERVAL_MS,
+  BOSS_JUMP_DISTANCE_MIN,
+  BOSS_JUMP_DISTANCE_MAX,
+  BOSS_CONTACT_DPS,
+  BOSS_TRAIL_RADIUS,
+  BOSS_TRAIL_LINGER_MS,
+  BOSS_TRAIL_DPS,
   DEFAULT_WEAPON,
   BURN_DURATION_MS,
   BURN_DPS,
@@ -68,11 +79,13 @@ import type {
   Bullet,
   Pickup,
   Obstacle,
+  Boss,
 } from "./state";
 import {
   Bullet as BulletCtor,
   Pickup as PickupCtor,
   Obstacle as ObstacleCtor,
+  Boss as BossCtor,
 } from "./state";
 
 /** Latest input held server-side per player. Stored in a plain Map (NOT
@@ -153,6 +166,16 @@ export interface TickEvents {
     radius: number;
     kind: string;
   }>;
+  bossSpawn: {
+    message: string;
+  } | null;
+  bossTrails: Array<{
+    x: number;
+    y: number;
+    radius: number;
+    expiresAtMs: number;
+    color: string;
+  }>;
 }
 
 export function emptyEvents(): TickEvents {
@@ -162,6 +185,8 @@ export function emptyEvents(): TickEvents {
     towerBonus: null,
     volcanoEruption: null,
     explosions: [],
+    bossSpawn: null,
+    bossTrails: [],
   };
 }
 
@@ -522,6 +547,35 @@ export function tickBullets(
         hit = true;
       }
     });
+
+    if (!hit) {
+      for (let bi = state.bosses.length - 1; bi >= 0; bi--) {
+        const boss = state.bosses[bi] as Boss;
+        const dx = boss.x - b.x;
+        const dy = boss.y - b.y;
+        const r = boss.radius + BULLET_RADIUS;
+        if (dx * dx + dy * dy > r * r) continue;
+        const spec = getWeaponSpec(b.kind || DEFAULT_WEAPON);
+        if (b.kind === "rocket") {
+          detonateRocket(state, b.x, b.y, b.ownerId, nowMs, events);
+          boss.hp = Math.max(0, boss.hp - (spec.splashDamage ?? spec.damage));
+        } else {
+          boss.hp = Math.max(0, boss.hp - spec.damage);
+        }
+        hit = true;
+        if (boss.hp <= 0) {
+          events.explosions.push({
+            x: boss.x,
+            y: boss.y,
+            radius: boss.radius * 1.15,
+            kind: "boss",
+          });
+          state.bosses.splice(bi, 1);
+        }
+        break;
+      }
+    }
+
     if (hit) state.bullets.splice(i, 1);
   }
 }
@@ -1318,6 +1372,234 @@ export function tickMeteorVolcano(
 
   if (ctx.nextEventAtMs > 0 && nowMs >= ctx.nextEventAtMs) {
     scheduleMeteorShower(state, nowMs, events, ctx);
+  }
+
+  return ctx;
+}
+
+// ---------- Giant slime bosses ----------
+
+export interface BossTickContext {
+  nextSpawnAtMs: number;
+  activeTrails: Array<{
+    x: number;
+    y: number;
+    radius: number;
+    expiresAtMs: number;
+    color: string;
+  }>;
+}
+
+const BOSS_SLOTS = [
+  { id: "slime_a", color: "#a3e635", face: 2 },
+  { id: "slime_b", color: "#c084fc", face: 1 },
+] as const;
+
+export function freshBossCtx(matchStartedAtMs = 0): BossTickContext {
+  return {
+    nextSpawnAtMs:
+      matchStartedAtMs > 0
+        ? matchStartedAtMs + BOSS_EVENT_OFFSET_MS
+        : 0,
+    activeTrails: [],
+  };
+}
+
+function findBossById(state: SurvivorState, id: string): Boss | null {
+  for (let i = 0; i < state.bosses.length; i++) {
+    const boss = state.bosses[i] as Boss;
+    if (boss.id === id) return boss;
+  }
+  return null;
+}
+
+function depositBossTrail(
+  ctx: BossTickContext,
+  x: number,
+  y: number,
+  color: string,
+  nowMs: number,
+  events: TickEvents
+): void {
+  const trail = {
+    x,
+    y,
+    radius: BOSS_TRAIL_RADIUS * (0.85 + Math.random() * 0.25),
+    expiresAtMs: nowMs + BOSS_TRAIL_LINGER_MS,
+    color,
+  };
+  ctx.activeTrails.push(trail);
+  events.bossTrails.push(trail);
+}
+
+function pickBossJumpTarget(
+  state: SurvivorState,
+  boss: Boss
+): { x: number; y: number } {
+  let nearestX = boss.x;
+  let nearestY = boss.y;
+  let nearestDist = Infinity;
+  state.players.forEach((p) => {
+    if (!p.alive) return;
+    const d = Math.hypot(p.x - boss.x, p.y - boss.y);
+    if (d < nearestDist) {
+      nearestDist = d;
+      nearestX = p.x;
+      nearestY = p.y;
+    }
+  });
+
+  let tx = boss.x;
+  let ty = boss.y;
+  if (nearestDist > 1 && nearestDist < Infinity) {
+    const jumpDist =
+      BOSS_JUMP_DISTANCE_MIN +
+      Math.random() * (BOSS_JUMP_DISTANCE_MAX - BOSS_JUMP_DISTANCE_MIN);
+    const ang = Math.atan2(nearestY - boss.y, nearestX - boss.x);
+    tx = boss.x + Math.cos(ang) * jumpDist;
+    ty = boss.y + Math.sin(ang) * jumpDist;
+  } else {
+    const pos = randomPointInsideZone(state);
+    if (pos) return pos;
+  }
+
+  const maxR = Math.max(40, state.zone.radius - BOSS_RADIUS - 24);
+  const dx = tx - state.zone.cx;
+  const dy = ty - state.zone.cy;
+  const len = Math.hypot(dx, dy);
+  if (len > maxR) {
+    tx = state.zone.cx + (dx / len) * maxR;
+    ty = state.zone.cy + (dy / len) * maxR;
+  }
+  return { x: tx, y: ty };
+}
+
+function spawnMissingBosses(
+  state: SurvivorState,
+  nowMs: number,
+  events: TickEvents
+): void {
+  let spawned = false;
+  for (const slot of BOSS_SLOTS) {
+    if (findBossById(state, slot.id)) continue;
+    const pos = randomPointInsideZone(state);
+    if (!pos) continue;
+    const boss = new BossCtor();
+    boss.id = slot.id;
+    boss.kind = "slime_giant";
+    boss.x = pos.x;
+    boss.y = pos.y;
+    boss.hp = BOSS_MAX_HP;
+    boss.maxHp = BOSS_MAX_HP;
+    boss.radius = BOSS_RADIUS;
+    boss.slimeColor = slot.color;
+    boss.slimeFace = slot.face;
+    boss.nextJumpAtMs = nowMs + 600 + Math.random() * 900;
+    boss.jumpLandAtMs = nowMs;
+    state.bosses.push(boss);
+    spawned = true;
+  }
+  if (spawned) {
+    events.bossSpawn = {
+      message: "Giant slimes are hopping across the island!",
+    };
+  }
+}
+
+function tickBossJumps(
+  state: SurvivorState,
+  ctx: BossTickContext,
+  nowMs: number,
+  events: TickEvents
+): void {
+  for (let i = 0; i < state.bosses.length; i++) {
+    const boss = state.bosses[i] as Boss;
+    if (nowMs < boss.nextJumpAtMs) continue;
+
+    depositBossTrail(ctx, boss.x, boss.y, boss.slimeColor, nowMs, events);
+    const target = pickBossJumpTarget(state, boss);
+    boss.x = target.x;
+    boss.y = target.y;
+    boss.nextJumpAtMs =
+      nowMs + BOSS_JUMP_INTERVAL_MS + Math.floor(Math.random() * 700);
+    boss.jumpLandAtMs = nowMs;
+    depositBossTrail(ctx, boss.x, boss.y, boss.slimeColor, nowMs, events);
+  }
+}
+
+function tickBossTrails(
+  state: SurvivorState,
+  ctx: BossTickContext,
+  dtSec: number,
+  nowMs: number,
+  events: TickEvents
+): void {
+  ctx.activeTrails = ctx.activeTrails.filter((t) => t.expiresAtMs > nowMs);
+  for (const trail of ctx.activeTrails) {
+    state.players.forEach((p, sessionId) => {
+      if (!p.alive) return;
+      const r = playerRadius(p);
+      const dx = p.x - trail.x;
+      const dy = p.y - trail.y;
+      const limit = trail.radius + r;
+      if (dx * dx + dy * dy > limit * limit) return;
+      applyDamage(
+        state,
+        p,
+        sessionId,
+        BOSS_TRAIL_DPS * dtSec,
+        null,
+        nowMs,
+        events
+      );
+    });
+  }
+}
+
+function tickBossContact(
+  state: SurvivorState,
+  dtSec: number,
+  nowMs: number,
+  events: TickEvents
+): void {
+  for (let i = 0; i < state.bosses.length; i++) {
+    const boss = state.bosses[i] as Boss;
+    state.players.forEach((p, sessionId) => {
+      if (!p.alive) return;
+      const r = playerRadius(p) + boss.radius * 0.82;
+      const dx = p.x - boss.x;
+      const dy = p.y - boss.y;
+      if (dx * dx + dy * dy > r * r) return;
+      applyDamage(
+        state,
+        p,
+        sessionId,
+        BOSS_CONTACT_DPS * dtSec,
+        null,
+        nowMs,
+        events
+      );
+    });
+  }
+}
+
+/** Two giant slimes on a 60s cadence offset 30s from meteor showers. */
+export function tickBosses(
+  state: SurvivorState,
+  ctx: BossTickContext,
+  dtSec: number,
+  nowMs: number,
+  events: TickEvents
+): BossTickContext {
+  if (state.status !== "PLAYING") return ctx;
+
+  tickBossTrails(state, ctx, dtSec, nowMs, events);
+  tickBossContact(state, dtSec, nowMs, events);
+  tickBossJumps(state, ctx, nowMs, events);
+
+  if (ctx.nextSpawnAtMs > 0 && nowMs >= ctx.nextSpawnAtMs) {
+    spawnMissingBosses(state, nowMs, events);
+    ctx.nextSpawnAtMs = nowMs + BOSS_EVENT_INTERVAL_MS;
   }
 
   return ctx;
