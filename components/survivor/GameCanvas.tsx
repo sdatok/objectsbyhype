@@ -131,6 +131,9 @@ const PICKUP_R = 14;
 const INTERP_DELAY_MS = 130;
 const WEAPON_BUFF_MS = 20_000;
 const TOWER_BUFF_RADIUS = 250;
+const METEOR_WARNING_MS = 2800;
+const METEOR_CRATER_LINGER_MS = 14_000;
+const VOLCANO_LAVA_RADIUS = 210;
 
 const TOWER_BONUS_LABELS: Record<string, string> = {
   pistol: "pistol",
@@ -240,6 +243,7 @@ const WEAPON_COLORS: Record<string, { core: string; glow: string; label: string 
   flamethrower: { core: "#fb923c", glow: "rgba(251,146,60,0.65)", label: "FLAMETHROWER" },
   rocket: { core: "#ef4444", glow: "rgba(239,68,68,0.65)", label: "ROCKET" },
   health: { core: "#4ade80", glow: "rgba(74,222,128,0.55)", label: "HEALTH" },
+  mystery: { core: "#ff6eb4", glow: "rgba(255,110,180,0.55)", label: "MYSTERY" },
 };
 
 interface PlayerSnap {
@@ -292,6 +296,12 @@ export default function GameCanvas({ room, onLeave }: GameCanvasProps) {
 
   // Camera + screen-shake state, lerped in the render loop for smooth pan.
   const cameraRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const spectatorCamRef = useRef<{ x: number; y: number; ready: boolean }>({
+    x: 0,
+    y: 0,
+    ready: false,
+  });
+  const lastSelfAliveRef = useRef(true);
   const shakeRef = useRef<{ amount: number; until: number }>({
     amount: 0,
     until: 0,
@@ -309,6 +319,8 @@ export default function GameCanvas({ room, onLeave }: GameCanvasProps) {
   >([]);
   const [pickupToast, setPickupToast] = useState<{
     kind: string;
+    label: string;
+    blurb: string;
     expiresAt: number;
   } | null>(null);
   const [towerAnnouncement, setTowerAnnouncement] = useState<{
@@ -316,6 +328,20 @@ export default function GameCanvas({ room, onLeave }: GameCanvasProps) {
     bonusKind: string;
     expiresAt: number;
   } | null>(null);
+  const [volcanoAnnouncement, setVolcanoAnnouncement] = useState<{
+    message: string;
+    expiresAt: number;
+  } | null>(null);
+  const meteorFxRef = useRef<
+    Array<{
+      x: number;
+      y: number;
+      radius: number;
+      startMs: number;
+      impactAtMs: number;
+      craterUntilMs: number;
+    }>
+  >([]);
 
   // HUD-relevant fields sampled from state at React rate.
   const [statusSnapshot, setStatusSnapshot] = useState<
@@ -378,6 +404,19 @@ export default function GameCanvas({ room, onLeave }: GameCanvasProps) {
             shakeRef.current = { amount: intensity, until: now + 220 };
           }
           lastSelfHpRef.current = self.hp;
+
+          if (self.alive && !lastSelfAliveRef.current) {
+            spectatorCamRef.current.ready = false;
+          }
+          if (!self.alive && lastSelfAliveRef.current) {
+            const corpse = playerBufRef.current.get(sessionIdRef.current)?.curr;
+            spectatorCamRef.current = {
+              x: corpse?.x ?? self.x ?? cameraRef.current.x,
+              y: corpse?.y ?? self.y ?? cameraRef.current.y,
+              ready: true,
+            };
+          }
+          lastSelfAliveRef.current = self.alive;
         }
 
         matchClockRef.current = {
@@ -422,9 +461,18 @@ export default function GameCanvas({ room, onLeave }: GameCanvasProps) {
         return next;
       });
     };
-    const onPickup = (payload: { kind: string }) => {
+    const onPickup = (payload: {
+      kind: string;
+      label?: string;
+      blurb?: string;
+    }) => {
       if (!payload?.kind) return;
-      setPickupToast({ kind: payload.kind, expiresAt: Date.now() + 1500 });
+      setPickupToast({
+        kind: payload.kind,
+        label: payload.label ?? payload.kind,
+        blurb: payload.blurb ?? "Mystery power-up unlocked.",
+        expiresAt: Date.now() + 3200,
+      });
     };
     const onTowerBonus = (payload: {
       vendorName: string;
@@ -447,9 +495,37 @@ export default function GameCanvas({ room, onLeave }: GameCanvasProps) {
         ...payload.map((e) => ({ ...e, expiresAt: now + 450 })),
       ].slice(-12);
     };
+    const onVolcanoEruption = (payload: {
+      message?: string;
+      strikes?: Array<{
+        x: number;
+        y: number;
+        radius: number;
+        impactAtMs: number;
+      }>;
+    }) => {
+      if (!payload?.strikes?.length) return;
+      const now = Date.now();
+      setVolcanoAnnouncement({
+        message: payload.message ?? "The volcano is erupting!",
+        expiresAt: now + 7000,
+      });
+      meteorFxRef.current = [
+        ...meteorFxRef.current,
+        ...payload.strikes.map((s) => ({
+          x: s.x,
+          y: s.y,
+          radius: s.radius,
+          startMs: now,
+          impactAtMs: s.impactAtMs,
+          craterUntilMs: s.impactAtMs + METEOR_CRATER_LINGER_MS,
+        })),
+      ].slice(-24);
+    };
     room.onMessage("event:kills", onKills);
     room.onMessage("event:pickup", onPickup);
     room.onMessage("event:tower-bonus", onTowerBonus);
+    room.onMessage("event:volcano-eruption", onVolcanoEruption);
     room.onMessage("event:explosions", onExplosions);
     return () => {
       // colyseus.js cleans listeners on room.leave; nothing to undo here.
@@ -463,7 +539,11 @@ export default function GameCanvas({ room, onLeave }: GameCanvasProps) {
       setKillFeed((prev) => prev.filter((k) => k.expiresAt > now));
       setPickupToast((p) => (p && p.expiresAt > now ? p : null));
       setTowerAnnouncement((a) => (a && a.expiresAt > now ? a : null));
+      setVolcanoAnnouncement((a) => (a && a.expiresAt > now ? a : null));
       explosionsRef.current = explosionsRef.current.filter((e) => e.expiresAt > now);
+      meteorFxRef.current = meteorFxRef.current.filter(
+        (m) => m.craterUntilMs > now
+      );
     }, 250);
     return () => window.clearInterval(id);
   }, []);
@@ -544,63 +624,104 @@ export default function GameCanvas({ room, onLeave }: GameCanvasProps) {
       const dt = Math.min(0.05, (nowPerf - lastFrame) / 1000);
       lastFrame = nowPerf;
 
-      const moveStick = moveStickRef.current;
-      if (moveStick.active) {
-        inputRef.current.moveX = moveStick.moveX;
-        inputRef.current.moveY = moveStick.moveY;
-      } else {
-        const k = keysRef.current;
-        const moveX =
-          (k.has("d") || k.has("arrowright") ? 1 : 0) +
-          (k.has("a") || k.has("arrowleft") ? -1 : 0);
-        const moveY =
-          (k.has("s") || k.has("arrowdown") ? 1 : 0) +
-          (k.has("w") || k.has("arrowup") ? -1 : 0);
-        const len = Math.hypot(moveX, moveY) || 1;
-        inputRef.current.moveX = moveX / len;
-        inputRef.current.moveY = moveY / len;
-      }
-
       const rs = room.state as unknown as ServerState | undefined;
       if (!rs) {
         raf = window.requestAnimationFrame(draw);
         return;
       }
 
-      // Lerp camera toward the (interpolated) self position.
-      const selfInterp = interpPlayer(
-        playerBufRef.current.get(sessionIdRef.current)
-      );
-      const targetX = selfInterp?.x ?? cameraRef.current.x;
-      const targetY = selfInterp?.y ?? cameraRef.current.y;
-      const cameraLerp = 1 - Math.exp(-dt * 8);
-      cameraRef.current.x += (targetX - cameraRef.current.x) * cameraLerp;
-      cameraRef.current.y += (targetY - cameraRef.current.y) * cameraLerp;
+      const moveStick = moveStickRef.current;
+      const self = lookupPlayer(rs, sessionIdRef.current);
+      const isSpectating =
+        rs.status === "PLAYING" && !!self && !self.alive;
 
-      // Aim: right stick on mobile, mouse on desktop.
-      if (selfInterp) {
-        const aimStick = aimStickRef.current;
-        if (aimStick.active) {
-          const ax = aimStick.moveX;
-          const ay = aimStick.moveY;
-          if (Math.hypot(ax, ay) > 0.05) {
-            inputRef.current.aim = Math.atan2(ay, ax);
-          }
-          inputRef.current.shooting = aimStickFiring(aimStick);
-        } else {
-          const rect = canvas.getBoundingClientRect();
-          const scale = computeWorldScale(rect.width, rect.height);
-          const cx = rect.width / 2;
-          const cy = rect.height / 2;
-          const wx =
-            (mouseRef.current.x - rect.left - cx) / scale + cameraRef.current.x;
-          const wy =
-            (mouseRef.current.y - rect.top - cy) / scale + cameraRef.current.y;
-          inputRef.current.aim = Math.atan2(
-            wy - selfInterp.y,
-            wx - selfInterp.x
+      let moveX = 0;
+      let moveY = 0;
+      if (moveStick.active) {
+        moveX = moveStick.moveX;
+        moveY = moveStick.moveY;
+      } else {
+        const k = keysRef.current;
+        moveX =
+          (k.has("d") || k.has("arrowright") ? 1 : 0) +
+          (k.has("a") || k.has("arrowleft") ? -1 : 0);
+        moveY =
+          (k.has("s") || k.has("arrowdown") ? 1 : 0) +
+          (k.has("w") || k.has("arrowup") ? -1 : 0);
+        const len = Math.hypot(moveX, moveY) || 1;
+        moveX /= len;
+        moveY /= len;
+      }
+
+      if (isSpectating) {
+        inputRef.current.moveX = 0;
+        inputRef.current.moveY = 0;
+        inputRef.current.shooting = false;
+
+        if (!spectatorCamRef.current.ready) {
+          const corpse = interpPlayer(
+            playerBufRef.current.get(sessionIdRef.current)
           );
-          inputRef.current.shooting = mouseShootingRef.current;
+          spectatorCamRef.current = {
+            x: corpse?.x ?? cameraRef.current.x,
+            y: corpse?.y ?? cameraRef.current.y,
+            ready: true,
+          };
+        }
+
+        const ghostSpeed = 340;
+        const halfWorld = WORLD * 0.48;
+        spectatorCamRef.current.x = clamp(
+          spectatorCamRef.current.x + moveX * ghostSpeed * dt,
+          -halfWorld,
+          halfWorld
+        );
+        spectatorCamRef.current.y = clamp(
+          spectatorCamRef.current.y + moveY * ghostSpeed * dt,
+          -halfWorld,
+          halfWorld
+        );
+        cameraRef.current.x = spectatorCamRef.current.x;
+        cameraRef.current.y = spectatorCamRef.current.y;
+      } else {
+        inputRef.current.moveX = moveX;
+        inputRef.current.moveY = moveY;
+
+        const selfInterp = interpPlayer(
+          playerBufRef.current.get(sessionIdRef.current)
+        );
+        const targetX = selfInterp?.x ?? cameraRef.current.x;
+        const targetY = selfInterp?.y ?? cameraRef.current.y;
+        const cameraLerp = 1 - Math.exp(-dt * 8);
+        cameraRef.current.x += (targetX - cameraRef.current.x) * cameraLerp;
+        cameraRef.current.y += (targetY - cameraRef.current.y) * cameraLerp;
+
+        if (selfInterp) {
+          const aimStick = aimStickRef.current;
+          if (aimStick.active) {
+            const ax = aimStick.moveX;
+            const ay = aimStick.moveY;
+            if (Math.hypot(ax, ay) > 0.05) {
+              inputRef.current.aim = Math.atan2(ay, ax);
+            }
+            inputRef.current.shooting = aimStickFiring(aimStick);
+          } else {
+            const rect = canvas.getBoundingClientRect();
+            const scale = computeWorldScale(rect.width, rect.height);
+            const cx = rect.width / 2;
+            const cy = rect.height / 2;
+            const wx =
+              (mouseRef.current.x - rect.left - cx) / scale +
+              cameraRef.current.x;
+            const wy =
+              (mouseRef.current.y - rect.top - cy) / scale +
+              cameraRef.current.y;
+            inputRef.current.aim = Math.atan2(
+              wy - selfInterp.y,
+              wx - selfInterp.x
+            );
+            inputRef.current.shooting = mouseShootingRef.current;
+          }
         }
       }
 
@@ -613,6 +734,7 @@ export default function GameCanvas({ room, onLeave }: GameCanvasProps) {
         activeTowerKind: (rs as ServerState).activeTowerKind ?? "",
         activeBonusKind: (rs as ServerState).activeBonusKind ?? "",
         explosions: explosionsRef.current,
+        meteors: meteorFxRef.current,
       });
 
       raf = window.requestAnimationFrame(draw);
@@ -650,14 +772,18 @@ export default function GameCanvas({ room, onLeave }: GameCanvasProps) {
         onMouseUp={onMouseUp}
         onContextMenu={onContextMenu}
         className={`block w-full h-full ${
-          mobileControls ? "cursor-default" : "cursor-crosshair"
+          mobileControls ||
+          (statusSnapshot.status === "PLAYING" && !statusSnapshot.selfAlive)
+            ? "cursor-default"
+            : "cursor-crosshair"
         }`}
       />
       <RetroOverlay />
       <MobileControls
         moveStickRef={moveStickRef}
         aimStickRef={aimStickRef}
-        enabled={
+        enabled={mobileControls && statusSnapshot.status === "PLAYING"}
+        aimEnabled={
           mobileControls &&
           statusSnapshot.status === "PLAYING" &&
           statusSnapshot.selfAlive
@@ -668,6 +794,7 @@ export default function GameCanvas({ room, onLeave }: GameCanvasProps) {
         killFeed={killFeed}
         pickupToast={pickupToast}
         towerAnnouncement={towerAnnouncement}
+        volcanoAnnouncement={volcanoAnnouncement}
         onLeave={onLeave}
         compact={mobileControls}
       />
@@ -685,16 +812,20 @@ const MONO_FONT =
 function Hud(props: {
   snapshot: ReturnType<typeof snapshotStatus>;
   killFeed: Array<{ id: number; killer: string; victim: string; expiresAt: number }>;
-  pickupToast: { kind: string; expiresAt: number } | null;
+  pickupToast: { kind: string; label: string; blurb: string; expiresAt: number } | null;
   towerAnnouncement: {
     vendorName: string;
     bonusKind: string;
     expiresAt: number;
   } | null;
+  volcanoAnnouncement: {
+    message: string;
+    expiresAt: number;
+  } | null;
   onLeave: () => void;
   compact?: boolean;
 }) {
-  const { snapshot, killFeed, pickupToast, towerAnnouncement, onLeave, compact } =
+  const { snapshot, killFeed, pickupToast, towerAnnouncement, volcanoAnnouncement, onLeave, compact } =
     props;
   const [, forceTick] = useState(0);
   useEffect(() => {
@@ -739,6 +870,28 @@ function Hud(props: {
               {TOWER_BONUS_LABELS[towerAnnouncement.bonusKind] ??
                 towerAnnouncement.bonusKind.replace(/_/g, " ")}
               !
+            </p>
+          </div>
+        </div>
+      )}
+
+      {volcanoAnnouncement && (
+        <div className="absolute top-28 sm:top-32 inset-x-0 flex justify-center pointer-events-none px-4 z-30">
+          <div
+            className="border-2 border-orange-500 bg-black/80 px-5 py-3 text-center max-w-lg animate-pulse"
+            style={{
+              fontFamily: MONO_FONT,
+              boxShadow: "0 0 32px rgba(249,115,22,0.45)",
+            }}
+          >
+            <p className="text-[10px] uppercase tracking-[0.3em] text-orange-300">
+              ⚠ Volcanic event
+            </p>
+            <p className="text-base sm:text-lg font-bold text-white mt-1">
+              {volcanoAnnouncement.message}
+            </p>
+            <p className="text-[10px] text-orange-200/80 mt-1 tracking-widest uppercase">
+              Meteors incoming — stay out of the red zones
             </p>
           </div>
         </div>
@@ -896,17 +1049,20 @@ function Hud(props: {
             }}
           >
             <p className="text-[9px] tracking-[0.35em] uppercase text-white/60">
-              ▸ Acquired
+              ▸ Mystery drop
             </p>
             <p
-              className="text-base font-bold tracking-[0.2em] uppercase"
+              className="text-base font-bold tracking-[0.15em] uppercase"
               style={{
                 color:
                   (WEAPON_COLORS[pickupToast.kind] ?? WEAPON_COLORS.pistol)
                     .core,
               }}
             >
-              {(WEAPON_COLORS[pickupToast.kind] ?? WEAPON_COLORS.pistol).label}
+              {pickupToast.label}
+            </p>
+            <p className="text-[11px] text-neutral-200 mt-1 max-w-xs leading-snug">
+              {pickupToast.blurb}
             </p>
           </div>
         </div>
@@ -919,10 +1075,10 @@ function Hud(props: {
       {snapshot.status === "PLAYING" && !snapshot.selfAlive && (
         <div className="absolute inset-x-0 bottom-6 flex justify-center pointer-events-none">
           <p
-            className="text-xs uppercase tracking-[0.25em] text-rose-400 bg-black/60 px-4 py-2 border border-rose-400/30"
+            className="text-xs uppercase tracking-[0.2em] text-rose-300/95 bg-black/65 px-4 py-2 border border-rose-400/35 text-center max-w-sm"
             style={{ fontFamily: MONO_FONT }}
           >
-            Spectating
+            Ghost spectating — WASD or left stick to roam
           </p>
         </div>
       )}
@@ -1308,6 +1464,14 @@ interface RenderCtx {
     kind: string;
     expiresAt: number;
   }>;
+  meteors: Array<{
+    x: number;
+    y: number;
+    radius: number;
+    startMs: number;
+    impactAtMs: number;
+    craterUntilMs: number;
+  }>;
 }
 
 /** Beach radius from synced zoneShrink01 (primary) or match clock fallback. */
@@ -1445,6 +1609,7 @@ function renderFrame(
   }
 
   drawBullets(ctx, w2s, scale, now, rctx.bulletBuf);
+  drawMeteorFx(ctx, w2s, scale, now, rctx.meteors);
   drawExplosions(ctx, w2s, scale, now, rctx.explosions);
 
   forEachPlayer(rs, (p, sessionId) => {
@@ -1796,6 +1961,8 @@ function drawObstacle(
 
   if (kind === "gorilla" || kind === "flower" || isTowerObstacle(kind)) {
     drawSpriteObstacle(ctx, o, w2s, scale, kind);
+  } else if (kind === "volcano") {
+    drawVolcano(ctx, o, w2s, scale, now);
   } else if (kind === "cliff" || kind === "wall") {
     drawCliff(ctx, o, w2s, scale);
   } else if (kind === "palm" || kind === "crate") {
@@ -2004,6 +2171,280 @@ function drawWreck(
   ctx.restore();
 }
 
+function drawVolcano(
+  ctx: CanvasRenderingContext2D,
+  o: ServerObstacle,
+  w2s: (x: number, y: number) => { sx: number; sy: number },
+  scale: number,
+  now: number
+) {
+  const cx = o.x;
+  const baseY = o.y + o.h * 0.42;
+  const craterY = o.y - o.h * 0.22;
+  const pulse = 0.65 + 0.35 * Math.sin(now / 380);
+  const poolPulse = 0.5 + 0.5 * Math.sin(now / 260);
+  const pool = w2s(cx, baseY + 28);
+  const poolRx = VOLCANO_LAVA_RADIUS * scale * 0.92;
+  const poolRy = VOLCANO_LAVA_RADIUS * scale * 0.55;
+
+  ctx.save();
+
+  ctx.fillStyle = `rgba(255,80,25,${0.1 * poolPulse})`;
+  ctx.beginPath();
+  ctx.ellipse(pool.sx, pool.sy, poolRx, poolRy, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  const peak = w2s(cx, craterY);
+  const left = w2s(cx - o.w * 0.52, baseY);
+  const right = w2s(cx + o.w * 0.52, baseY);
+  const base = w2s(cx, baseY);
+
+  ctx.fillStyle = "#3a2518";
+  ctx.beginPath();
+  ctx.moveTo(peak.sx, peak.sy);
+  ctx.lineTo(left.sx, base.sy);
+  ctx.lineTo(right.sx, base.sy);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = "#261610";
+  ctx.beginPath();
+  ctx.moveTo(peak.sx, peak.sy);
+  ctx.lineTo(base.sx, base.sy);
+  ctx.lineTo(right.sx, base.sy);
+  ctx.closePath();
+  ctx.fill();
+
+  const crater = w2s(cx, craterY + o.h * 0.06);
+  ctx.fillStyle = "#120a08";
+  ctx.beginPath();
+  ctx.ellipse(
+    crater.sx,
+    crater.sy,
+    o.w * scale * 0.24,
+    o.h * scale * 0.1,
+    0,
+    0,
+    Math.PI * 2
+  );
+  ctx.fill();
+
+  ctx.fillStyle = `rgba(255,110,35,${0.75 * pulse})`;
+  ctx.beginPath();
+  ctx.ellipse(
+    crater.sx,
+    crater.sy + 2,
+    o.w * scale * 0.17,
+    o.h * scale * 0.06,
+    0,
+    0,
+    Math.PI * 2
+  );
+  ctx.fill();
+
+  for (let i = 0; i < 5; i++) {
+    const sx = crater.sx + Math.sin(now / 500 + i * 1.4) * o.w * scale * 0.08;
+    const drift = ((now / 40 + i * 30) % 40) / 40;
+    const sy = crater.sy - 8 - drift * 36;
+    ctx.fillStyle = `rgba(200,200,210,${0.25 * (1 - drift)})`;
+    ctx.beginPath();
+    ctx.arc(sx, sy, 5 + i, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.fillStyle = `rgba(255,70,15,${0.28 * poolPulse})`;
+  ctx.beginPath();
+  ctx.ellipse(pool.sx, pool.sy, poolRx, poolRy, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = `rgba(255,140,40,${0.22 * poolPulse})`;
+  ctx.beginPath();
+  ctx.ellipse(
+    pool.sx,
+    pool.sy - 4 * scale,
+    poolRx * 0.6,
+    poolRy * 0.58,
+    0,
+    0,
+    Math.PI * 2
+  );
+  ctx.fill();
+
+  for (let i = 0; i < 10; i++) {
+    const ang = (i / 10) * Math.PI * 2 + now / 300;
+    const fx = pool.sx + Math.cos(ang) * poolRx * 0.55;
+    const fy = pool.sy + Math.sin(ang) * poolRy * 0.35;
+    ctx.fillStyle = `rgba(255,${90 + (i % 4) * 25},30,${0.35 * poolPulse})`;
+    ctx.beginPath();
+    ctx.arc(fx, fy, (7 + Math.sin(now / 90 + i) * 3) * scale, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.restore();
+}
+
+function drawMeteorFx(
+  ctx: CanvasRenderingContext2D,
+  w2s: (x: number, y: number) => { sx: number; sy: number },
+  scale: number,
+  now: number,
+  meteors: RenderCtx["meteors"]
+) {
+  for (const m of meteors) {
+    const target = w2s(m.x, m.y);
+    const r = m.radius * scale;
+
+    if (now < m.impactAtMs) {
+      const total = Math.max(1, m.impactAtMs - m.startMs);
+      const progress = Math.min(1, (now - m.startMs) / total);
+      const pulse = 0.55 + 0.45 * Math.sin(now / 110);
+
+      ctx.save();
+      ctx.strokeStyle = `rgba(255,90,30,${0.35 + pulse * 0.4})`;
+      ctx.lineWidth = Math.max(2, 4 * scale);
+      ctx.setLineDash([10, 8]);
+      ctx.beginPath();
+      ctx.arc(target.sx, target.sy, r * (0.7 + progress * 0.3), 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.strokeStyle = `rgba(255,210,80,${0.55 * pulse})`;
+      ctx.lineWidth = Math.max(1, 2 * scale);
+      ctx.beginPath();
+      ctx.arc(target.sx, target.sy, r * 0.35, 0, Math.PI * 2);
+      ctx.stroke();
+
+      const streakTop = w2s(m.x, m.y - 420 + progress * 400);
+      const grad = ctx.createLinearGradient(
+        streakTop.sx,
+        streakTop.sy - 70 * scale,
+        target.sx,
+        target.sy
+      );
+      grad.addColorStop(0, "rgba(255,180,80,0)");
+      grad.addColorStop(0.45, "rgba(255,110,40,0.85)");
+      grad.addColorStop(1, "rgba(255,45,15,1)");
+      ctx.strokeStyle = grad;
+      ctx.lineWidth = Math.max(8, 18 * scale);
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(streakTop.sx, streakTop.sy - 50 * scale);
+      ctx.lineTo(target.sx, target.sy - 8 * scale);
+      ctx.stroke();
+
+      ctx.fillStyle = "#ff5c2a";
+      ctx.beginPath();
+      ctx.arc(streakTop.sx, streakTop.sy, Math.max(10, 18 * scale), 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "rgba(255,220,150,0.7)";
+      ctx.beginPath();
+      ctx.arc(
+        streakTop.sx - 5 * scale,
+        streakTop.sy - 5 * scale,
+        Math.max(4, 6 * scale),
+        0,
+        Math.PI * 2
+      );
+      ctx.fill();
+      ctx.restore();
+    } else if (now < m.craterUntilMs) {
+      const linger = m.craterUntilMs - m.impactAtMs;
+      const fade = 1 - (now - m.impactAtMs) / linger;
+      ctx.save();
+      ctx.fillStyle = `rgba(15,8,6,${0.75 * fade})`;
+      ctx.beginPath();
+      ctx.arc(target.sx, target.sy, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = `rgba(255,75,20,${0.4 * fade})`;
+      ctx.beginPath();
+      ctx.arc(target.sx, target.sy, r * 0.78, 0, Math.PI * 2);
+      ctx.fill();
+      for (let i = 0; i < 9; i++) {
+        const ang = (i / 9) * Math.PI * 2 + now / 180;
+        const fx = target.sx + Math.cos(ang) * r * 0.52;
+        const fy = target.sy + Math.sin(ang) * r * 0.38;
+        ctx.fillStyle = `rgba(255,${120 + (i % 3) * 35},35,${0.55 * fade})`;
+        ctx.beginPath();
+        ctx.arc(
+          fx,
+          fy,
+          (9 + Math.sin(now / 70 + i) * 4) * scale,
+          0,
+          Math.PI * 2
+        );
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+  }
+}
+
+function drawMysteryPickup(
+  ctx: CanvasRenderingContext2D,
+  pos: { sx: number; sy: number },
+  scale: number,
+  now: number
+) {
+  const bob = Math.sin(now / 260) * 4 * scale;
+  const cy = pos.sy + bob;
+  const pulse = 0.88 + 0.12 * Math.sin(now / 200);
+  const cx = pos.sx;
+
+  ctx.save();
+  ctx.fillStyle = "rgba(255,80,160,0.18)";
+  ctx.beginPath();
+  ctx.arc(cx, cy, 34 * scale * pulse, 0, Math.PI * 2);
+  ctx.fill();
+
+  const arcColors = ["#ff6eb4", "#a855f7", "#22d3ee"];
+  const arcRadii = [28, 22, 16];
+  for (let i = 0; i < 3; i++) {
+    ctx.strokeStyle = arcColors[i]!;
+    ctx.lineWidth = Math.max(2, 4 * scale);
+    ctx.shadowColor = arcColors[i]!;
+    ctx.shadowBlur = 12 * scale;
+    ctx.beginPath();
+    ctx.arc(
+      cx,
+      cy + 6 * scale,
+      arcRadii[i]! * scale * pulse,
+      Math.PI * 1.08,
+      Math.PI * 1.92
+    );
+    ctx.stroke();
+  }
+  ctx.shadowBlur = 0;
+
+  ctx.fillStyle = "#ff4d6d";
+  ctx.shadowColor = "#ff4d6d";
+  ctx.shadowBlur = 14 * scale;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy + 10 * scale);
+  ctx.bezierCurveTo(
+    cx - 12 * scale,
+    cy - 2 * scale,
+    cx - 10 * scale,
+    cy - 14 * scale,
+    cx,
+    cy - 8 * scale
+  );
+  ctx.bezierCurveTo(
+    cx + 10 * scale,
+    cy - 14 * scale,
+    cx + 12 * scale,
+    cy - 2 * scale,
+    cx,
+    cy + 10 * scale
+  );
+  ctx.fill();
+  ctx.shadowBlur = 0;
+
+  ctx.fillStyle = "rgba(255,255,255,0.85)";
+  ctx.font = `bold ${Math.max(8, 9 * scale)}px ${MONO_FONT}`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("?", cx, cy - 2 * scale);
+  ctx.restore();
+}
+
 function drawPickup(
   ctx: CanvasRenderingContext2D,
   pu: ServerPickup,
@@ -2012,6 +2453,12 @@ function drawPickup(
   now: number
 ) {
   const pos = w2s(pu.x, pu.y);
+
+  if (pu.kind === "mystery") {
+    drawMysteryPickup(ctx, pos, scale, now);
+    return;
+  }
+
   const color = WEAPON_COLORS[pu.kind] ?? WEAPON_COLORS.pistol;
   const bob = Math.sin(now / 350 + pu.x * 0.01) * 3;
   const rot = ((now / 1200) % (Math.PI * 2)) + (pu.x + pu.y) * 0.001;
@@ -2238,4 +2685,8 @@ function roundRect(
   ctx.lineTo(x, y + rr);
   ctx.quadraticCurveTo(x, y, x + rr, y);
   ctx.closePath();
+}
+
+function clamp(v: number, lo: number, hi: number): number {
+  return v < lo ? lo : v > hi ? hi : v;
 }

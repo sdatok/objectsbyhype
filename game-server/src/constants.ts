@@ -171,6 +171,46 @@ export const PICKUP_WEIGHTS: { kind: "health" | WeaponKind; weight: number }[] =
   { kind: "rocket", weight: 8 },
 ];
 
+/** Ground pickup always shows as mystery; resolved on collection. */
+export const MYSTERY_PICKUP_KIND = "mystery";
+
+export const POWERUP_LABELS: Record<string, string> = {
+  health: "Health Pack",
+  pistol: "Pistol",
+  shotgun: "Shotgun",
+  rapid: "Rapid Fire",
+  sniper: "Sniper",
+  ice_bow: "Ice Bow",
+  flamethrower: "Flamethrower",
+  rocket: "Rocket",
+};
+
+export const POWERUP_BLURBS: Record<string, string> = {
+  health: "+50 HP — patch yourself up and keep fighting.",
+  pistol: "Reliable sidearm — steady shots, no fuss.",
+  shotgun: "Close-range chaos — delete whoever's in your face.",
+  rapid: "Spray mode — volume over precision.",
+  sniper: "One shot, one opportunity. Make it count.",
+  ice_bow: "Freeze them slow — then finish the job.",
+  flamethrower: "They'll feel the burn for a while.",
+  rocket: "Splash damage — clear the whole squad.",
+};
+
+// ---------- Volcano / meteors ----------
+export const METEOR_EVENT_INTERVAL_MS = 60_000;
+export const METEOR_WARNING_MS = 2800;
+export const METEOR_STRIKE_MIN = 5;
+export const METEOR_STRIKE_MAX = 9;
+export const METEOR_IMPACT_RADIUS = 95;
+export const METEOR_IMPACT_DAMAGE = 48;
+export const METEOR_STRIKE_STAGGER_MS = 350;
+export const METEOR_CRATER_LINGER_MS = 14_000;
+export const METEOR_CRATER_DPS = 20;
+
+export const VOLCANO_LAVA_RADIUS = 210;
+export const VOLCANO_DPS = 38;
+export const VOLCANO_BURN_MS = 900;
+
 // ---------- Slime avatars ----------
 export const SLIME_COLORS = [
   "#22d3ee",
@@ -335,6 +375,7 @@ export type ObstacleKind =
   | "wreck"
   | "gorilla"
   | "flower"
+  | "volcano"
   | TowerKind;
 
 export const OBSTACLE_SIZES: Record<ObstacleKind, Array<{ w: number; h: number }>> = {
@@ -359,6 +400,7 @@ export const OBSTACLE_SIZES: Record<ObstacleKind, Array<{ w: number; h: number }
   ],
   gorilla: [{ w: 220, h: 290 }],
   flower: [{ w: 170, h: 170 }],
+  volcano: [{ w: 280, h: 240 }],
   tower_kt_corp: [{ w: 160, h: 280 }],
   tower_dan_sporting: [{ w: 160, h: 280 }],
   tower_horizon: [{ w: 170, h: 290 }],

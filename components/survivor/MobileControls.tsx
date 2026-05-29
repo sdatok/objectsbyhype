@@ -39,6 +39,7 @@ interface MobileControlsProps {
   moveStickRef: React.MutableRefObject<VirtualStickState>;
   aimStickRef: React.MutableRefObject<VirtualStickState>;
   enabled: boolean;
+  aimEnabled?: boolean;
 }
 
 /**
@@ -49,6 +50,7 @@ export default function MobileControls({
   moveStickRef,
   aimStickRef,
   enabled,
+  aimEnabled = enabled,
 }: MobileControlsProps) {
   const moveBaseRef = useRef<HTMLDivElement>(null);
   const aimBaseRef = useRef<HTMLDivElement>(null);
@@ -83,10 +85,11 @@ export default function MobileControls({
     (
       stickRef: React.MutableRefObject<VirtualStickState>,
       setVis: React.Dispatch<React.SetStateAction<StickVisual>>,
-      baseRef: React.RefObject<HTMLDivElement | null>
+      baseRef: React.RefObject<HTMLDivElement | null>,
+      stickEnabled: boolean
     ) => ({
       onPointerDown(e: React.PointerEvent) {
-        if (!enabled || !baseRef.current) return;
+        if (!stickEnabled || !baseRef.current) return;
         e.preventDefault();
         e.currentTarget.setPointerCapture(e.pointerId);
         const { nx, ny, knobDx, knobDy } = vectorFromPointer(
@@ -103,7 +106,7 @@ export default function MobileControls({
         setVis({ active: true, knobDx, knobDy });
       },
       onPointerMove(e: React.PointerEvent) {
-        if (!enabled || !baseRef.current) return;
+        if (!stickEnabled || !baseRef.current) return;
         if (stickRef.current.pointerId !== e.pointerId) return;
         e.preventDefault();
         const { nx, ny, knobDx, knobDy } = vectorFromPointer(
@@ -131,20 +134,23 @@ export default function MobileControls({
         setVis(idleVisual());
       },
     }),
-    [enabled, vectorFromPointer]
+    [vectorFromPointer]
   );
 
-  const moveHandlers = bindStick(moveStickRef, setMoveVis, moveBaseRef);
-  const aimHandlers = bindStick(aimStickRef, setAimVis, aimBaseRef);
+  const moveHandlers = bindStick(moveStickRef, setMoveVis, moveBaseRef, enabled);
+  const aimHandlers = bindStick(aimStickRef, setAimVis, aimBaseRef, aimEnabled);
 
-  // Clear sticks if controls are disabled mid-match (spectator / ended).
   useEffect(() => {
     if (enabled) return;
     moveStickRef.current = emptyStick();
-    aimStickRef.current = emptyStick();
     setMoveVis(idleVisual());
+  }, [enabled, moveStickRef]);
+
+  useEffect(() => {
+    if (aimEnabled) return;
+    aimStickRef.current = emptyStick();
     setAimVis(idleVisual());
-  }, [enabled, moveStickRef, aimStickRef]);
+  }, [aimEnabled, aimStickRef]);
 
   if (!enabled) return null;
 
@@ -161,19 +167,21 @@ export default function MobileControls({
         className="left-4 bottom-[max(1rem,env(safe-area-inset-bottom))]"
         handlers={moveHandlers}
       />
-      <Stick
-        label="AIM"
-        baseRef={aimBaseRef}
-        visual={aimVis}
-        accent="#22d3ee"
-        className="right-4 bottom-[max(1rem,env(safe-area-inset-bottom))]"
-        handlers={aimHandlers}
-        firing={
-          aimVis.active &&
-          Math.hypot(aimStickRef.current.moveX, aimStickRef.current.moveY) >=
-            AIM_FIRE_THRESHOLD
-        }
-      />
+      {aimEnabled && (
+        <Stick
+          label="AIM"
+          baseRef={aimBaseRef}
+          visual={aimVis}
+          accent="#22d3ee"
+          className="right-4 bottom-[max(1rem,env(safe-area-inset-bottom))]"
+          handlers={aimHandlers}
+          firing={
+            aimVis.active &&
+            Math.hypot(aimStickRef.current.moveX, aimStickRef.current.moveY) >=
+              AIM_FIRE_THRESHOLD
+          }
+        />
+      )}
     </div>
   );
 }

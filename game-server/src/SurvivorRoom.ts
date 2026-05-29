@@ -24,6 +24,9 @@ import {
   tickZone,
   tickPickups,
   tickTowerBonuses,
+  tickMeteorVolcano,
+  freshMeteorCtx,
+  type MeteorTickContext,
   tickPlayerBuffs,
   tickDebuffs,
   freshPickupCtx,
@@ -71,6 +74,8 @@ export class SurvivorRoom extends Room<SurvivorState> {
   private playersAtMatchStart = 0;
   /** Mutable context for pickup spawn cadence (not part of the schema). */
   private pickupCtx = freshPickupCtx();
+  /** Meteor shower + lava crater state (not part of the schema). */
+  private meteorCtx: MeteorTickContext = freshMeteorCtx();
 
   override onCreate() {
     const state = new SurvivorState();
@@ -278,9 +283,10 @@ export class SurvivorRoom extends Room<SurvivorState> {
     if (!p) return;
 
     const status = this.state.status;
+    // Hold seats for any disconnect during an active match — including
+    // eliminated spectators who need to reconnect and keep watching.
     const canReconnect =
       !consented &&
-      p.alive &&
       (status === "PLAYING" || status === "COUNTDOWN" || status === "WAITING");
 
     if (canReconnect) {
@@ -413,6 +419,7 @@ export class SurvivorRoom extends Room<SurvivorState> {
       this.pickupCtx = {
         nextSpawnAtMs: now + Math.floor(PICKUP_SPAWN_INTERVAL_MS * 0.6),
       };
+      this.meteorCtx = freshMeteorCtx(now);
       this.playersAtMatchStart = this.countAlive();
       // Snap zone to the correct point on the shrink curve immediately.
       tickZone(this.state, 0, now, emptyEvents());
@@ -516,6 +523,13 @@ export class SurvivorRoom extends Room<SurvivorState> {
     tickZone(this.state, dtSec, now, events);
     this.pickupCtx = tickPickups(this.state, this.pickupCtx, now, events);
     tickTowerBonuses(this.state, dtSec, now, events);
+    this.meteorCtx = tickMeteorVolcano(
+      this.state,
+      this.meteorCtx,
+      dtSec,
+      now,
+      events
+    );
 
     // Forward transient events as room messages so the client can fire
     // kill-feed + pickup toast UI immediately without waiting for the next
@@ -528,11 +542,18 @@ export class SurvivorRoom extends Room<SurvivorState> {
       // toast only fires for their own pickups.
       for (const ev of events.pickupsCollected) {
         const cli = this.clients.find((c) => c.sessionId === ev.sessionId);
-        cli?.send("event:pickup", { kind: ev.kind });
+        cli?.send("event:pickup", {
+          kind: ev.kind,
+          label: ev.label,
+          blurb: ev.blurb,
+        });
       }
     }
     if (events.towerBonus) {
       this.broadcast("event:tower-bonus", events.towerBonus);
+    }
+    if (events.volcanoEruption) {
+      this.broadcast("event:volcano-eruption", events.volcanoEruption);
     }
     if (events.explosions.length > 0) {
       this.broadcast("event:explosions", events.explosions);
@@ -568,6 +589,7 @@ export class SurvivorRoom extends Room<SurvivorState> {
     // Skip the very first beat so pickups appear shortly after combat begins
     // instead of dropping on top of fresh spawns.
     this.pickupCtx = { nextSpawnAtMs: now + Math.floor(PICKUP_SPAWN_INTERVAL_MS * 0.6) };
+    this.meteorCtx = freshMeteorCtx(now);
     console.log("[SurvivorRoom] PLAYING");
   }
 
@@ -682,6 +704,7 @@ export class SurvivorRoom extends Room<SurvivorState> {
     this.resultPosted = false;
     this.startedAtServerMs = 0;
     this.pickupCtx = freshPickupCtx();
+    this.meteorCtx = freshMeteorCtx();
   }
 
   override onDispose() {

@@ -17,6 +17,21 @@ import {
   PICKUP_ZONE_MARGIN,
   PICKUP_WEIGHTS,
   HEALTH_PACK_AMOUNT,
+  MYSTERY_PICKUP_KIND,
+  POWERUP_LABELS,
+  POWERUP_BLURBS,
+  METEOR_EVENT_INTERVAL_MS,
+  METEOR_WARNING_MS,
+  METEOR_STRIKE_MIN,
+  METEOR_STRIKE_MAX,
+  METEOR_IMPACT_RADIUS,
+  METEOR_IMPACT_DAMAGE,
+  METEOR_STRIKE_STAGGER_MS,
+  METEOR_CRATER_LINGER_MS,
+  METEOR_CRATER_DPS,
+  VOLCANO_LAVA_RADIUS,
+  VOLCANO_DPS,
+  VOLCANO_BURN_MS,
   DEFAULT_WEAPON,
   BURN_DURATION_MS,
   BURN_DPS,
@@ -114,12 +129,23 @@ export interface TickEvents {
   pickupsCollected: Array<{
     sessionId: string;
     kind: string;
+    label: string;
+    blurb: string;
   }>;
   towerBonus: {
     vendorName: string;
     bonusKind: string;
     towerKind: string;
     endsAtMs: number;
+  } | null;
+  volcanoEruption: {
+    message: string;
+    strikes: Array<{
+      x: number;
+      y: number;
+      radius: number;
+      impactAtMs: number;
+    }>;
   } | null;
   explosions: Array<{
     x: number;
@@ -130,7 +156,13 @@ export interface TickEvents {
 }
 
 export function emptyEvents(): TickEvents {
-  return { kills: [], pickupsCollected: [], towerBonus: null, explosions: [] };
+  return {
+    kills: [],
+    pickupsCollected: [],
+    towerBonus: null,
+    volcanoEruption: null,
+    explosions: [],
+  };
 }
 
 function playerRadius(p: Player): number {
@@ -594,11 +626,10 @@ export function tickPickups(
     nowMs >= nextSpawnAtMs &&
     state.pickups.length < PICKUP_MAX_ACTIVE
   ) {
-    const kind = rouletteKind();
     const pos = randomPointInsideZone(state);
     if (pos) {
       const pu = new PickupCtor();
-      pu.kind = kind;
+      pu.kind = MYSTERY_PICKUP_KIND;
       pu.x = pos.x;
       pu.y = pos.y;
       pu.spawnedAt = nowMs;
@@ -620,12 +651,20 @@ export function tickPickups(
       const dy = p.y - pu.y;
       const r = playerRadius(p) + PICKUP_RADIUS;
       if (dx * dx + dy * dy <= r * r) {
-        applyPickup(p, pu.kind, nowMs);
+        const resolved = rouletteKind();
+        applyPickup(p, resolved, nowMs);
         consumedBy = sessionId;
+        events.pickupsCollected.push({
+          sessionId: consumedBy,
+          kind: resolved,
+          label: POWERUP_LABELS[resolved] ?? resolved,
+          blurb:
+            POWERUP_BLURBS[resolved] ??
+            "Mystery power-up unlocked — good luck out there.",
+        });
       }
     });
     if (consumedBy) {
-      events.pickupsCollected.push({ sessionId: consumedBy, kind: pu.kind });
       state.pickups.splice(i, 1);
     }
   }
@@ -869,6 +908,29 @@ function generateFeatureProps(
   }
 }
 
+/** One volcanic hazard per map — lava pool + meteor event anchor. */
+function generateVolcano(
+  state: SurvivorState,
+  placed: ObstacleRect[]
+): void {
+  const size = OBSTACLE_SIZES.volcano[0];
+  for (let attempt = 0; attempt < OBSTACLE_PLACEMENT_ATTEMPTS; attempt++) {
+    const angle = Math.random() * Math.PI * 2;
+    const dist =
+      OBSTACLE_KEEP_OUT +
+      180 +
+      Math.random() * (state.zone.radius * 0.55 - OBSTACLE_KEEP_OUT);
+    const candidate: ObstacleRect = {
+      kind: "volcano",
+      x: Math.cos(angle) * dist,
+      y: Math.sin(angle) * dist,
+      w: size.w,
+      h: size.h,
+    };
+    if (tryPlaceObstacle(state, placed, candidate)) return;
+  }
+}
+
 /**
  * Generate a fresh obstacle layout for a new match and write it into
  * `state.obstacles`.
@@ -895,6 +957,9 @@ export function generateObstacles(state: SurvivorState): void {
 
   // ---- Pass 3: gorilla + flower feature props ----
   generateFeatureProps(state, placed);
+
+  // ---- Pass 3b: volcano (lava hazard + meteor source) ----
+  generateVolcano(state, placed);
 
   // ---- Pass 4: vendor towers (fixed scattered positions) ----
   generateVendorTowers(state, placed);
@@ -1060,4 +1125,200 @@ export function tickTowerBonuses(
     p.weaponExpiresAtMs = nowMs + WEAPON_BUFF_MS;
     p.gunGrantedCycleEndsAtMs = state.towerCycleEndsAtMs;
   });
+}
+
+// ---------- Volcano lava + meteor showers ----------
+
+export interface MeteorTickContext {
+  nextEventAtMs: number;
+  pendingStrikes: Array<{
+    x: number;
+    y: number;
+    radius: number;
+    impactAtMs: number;
+  }>;
+  activeCraters: Array<{
+    x: number;
+    y: number;
+    radius: number;
+    expiresAtMs: number;
+  }>;
+}
+
+export function freshMeteorCtx(matchStartedAtMs = 0): MeteorTickContext {
+  return {
+    nextEventAtMs:
+      matchStartedAtMs > 0
+        ? matchStartedAtMs + METEOR_EVENT_INTERVAL_MS
+        : 0,
+    pendingStrikes: [],
+    activeCraters: [],
+  };
+}
+
+function findVolcanoObstacle(state: SurvivorState): Obstacle | null {
+  for (let i = 0; i < state.obstacles.length; i++) {
+    const o = state.obstacles[i] as Obstacle;
+    if (o.kind === "volcano") return o;
+  }
+  return null;
+}
+
+function tickVolcanoLava(
+  state: SurvivorState,
+  dtSec: number,
+  nowMs: number,
+  events: TickEvents
+): void {
+  const volcano = findVolcanoObstacle(state);
+  if (!volcano) return;
+
+  const lavaX = volcano.x;
+  const lavaY = volcano.y + volcano.h * 0.12;
+  const lavaR = VOLCANO_LAVA_RADIUS;
+
+  state.players.forEach((p, sessionId) => {
+    if (!p.alive) return;
+    const r = playerRadius(p);
+    const dx = p.x - lavaX;
+    const dy = p.y - lavaY;
+    const limit = lavaR + r;
+    if (dx * dx + dy * dy > limit * limit) return;
+    applyDamage(state, p, sessionId, VOLCANO_DPS * dtSec, null, nowMs, events);
+    p.burnUntilMs = Math.max(p.burnUntilMs, nowMs + VOLCANO_BURN_MS);
+  });
+}
+
+function tickMeteorCraters(
+  state: SurvivorState,
+  ctx: MeteorTickContext,
+  dtSec: number,
+  nowMs: number,
+  events: TickEvents
+): void {
+  ctx.activeCraters = ctx.activeCraters.filter((c) => c.expiresAtMs > nowMs);
+  for (const crater of ctx.activeCraters) {
+    state.players.forEach((p, sessionId) => {
+      if (!p.alive) return;
+      const r = playerRadius(p);
+      const dx = p.x - crater.x;
+      const dy = p.y - crater.y;
+      const limit = crater.radius * 0.85 + r;
+      if (dx * dx + dy * dy > limit * limit) return;
+      applyDamage(
+        state,
+        p,
+        sessionId,
+        METEOR_CRATER_DPS * dtSec,
+        null,
+        nowMs,
+        events
+      );
+      p.burnUntilMs = Math.max(p.burnUntilMs, nowMs + 600);
+    });
+  }
+}
+
+function resolveMeteorStrike(
+  state: SurvivorState,
+  strike: MeteorTickContext["pendingStrikes"][number],
+  nowMs: number,
+  events: TickEvents
+): void {
+  state.players.forEach((p, sessionId) => {
+    if (!p.alive) return;
+    const r = playerRadius(p);
+    const dx = p.x - strike.x;
+    const dy = p.y - strike.y;
+    const limit = strike.radius + r;
+    if (dx * dx + dy * dy > limit * limit) return;
+    const dist = Math.hypot(dx, dy);
+    const falloff = 1 - dist / Math.max(1, limit);
+    applyDamage(
+      state,
+      p,
+      sessionId,
+      METEOR_IMPACT_DAMAGE * Math.max(0.25, falloff),
+      null,
+      nowMs,
+      events
+    );
+    p.burnUntilMs = Math.max(p.burnUntilMs, nowMs + BURN_DURATION_MS);
+  });
+
+  events.explosions.push({
+    x: strike.x,
+    y: strike.y,
+    radius: strike.radius,
+    kind: "meteor",
+  });
+}
+
+function scheduleMeteorShower(
+  state: SurvivorState,
+  nowMs: number,
+  events: TickEvents,
+  ctx: MeteorTickContext
+): void {
+  const count =
+    METEOR_STRIKE_MIN +
+    Math.floor(Math.random() * (METEOR_STRIKE_MAX - METEOR_STRIKE_MIN + 1));
+  const strikes: MeteorTickContext["pendingStrikes"] = [];
+
+  for (let i = 0; i < count; i++) {
+    const pos = randomPointInsideZone(state);
+    if (!pos) continue;
+    strikes.push({
+      x: pos.x,
+      y: pos.y,
+      radius: METEOR_IMPACT_RADIUS * (0.85 + Math.random() * 0.3),
+      impactAtMs:
+        nowMs + METEOR_WARNING_MS + i * METEOR_STRIKE_STAGGER_MS,
+    });
+  }
+
+  if (strikes.length === 0) return;
+
+  ctx.pendingStrikes.push(...strikes);
+  ctx.nextEventAtMs = nowMs + METEOR_EVENT_INTERVAL_MS;
+  events.volcanoEruption = {
+    message: "The volcano is erupting!",
+    strikes: strikes.map((s) => ({ ...s })),
+  };
+}
+
+/** Volcano lava DoT + periodic meteor showers across the island. */
+export function tickMeteorVolcano(
+  state: SurvivorState,
+  ctx: MeteorTickContext,
+  dtSec: number,
+  nowMs: number,
+  events: TickEvents
+): MeteorTickContext {
+  if (state.status !== "PLAYING") return ctx;
+
+  tickVolcanoLava(state, dtSec, nowMs, events);
+  tickMeteorCraters(state, ctx, dtSec, nowMs, events);
+
+  const remaining: MeteorTickContext["pendingStrikes"] = [];
+  for (const strike of ctx.pendingStrikes) {
+    if (nowMs >= strike.impactAtMs) {
+      resolveMeteorStrike(state, strike, nowMs, events);
+      ctx.activeCraters.push({
+        x: strike.x,
+        y: strike.y,
+        radius: strike.radius,
+        expiresAtMs: nowMs + METEOR_CRATER_LINGER_MS,
+      });
+    } else {
+      remaining.push(strike);
+    }
+  }
+  ctx.pendingStrikes = remaining;
+
+  if (ctx.nextEventAtMs > 0 && nowMs >= ctx.nextEventAtMs) {
+    scheduleMeteorShower(state, nowMs, events, ctx);
+  }
+
+  return ctx;
 }

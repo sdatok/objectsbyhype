@@ -466,7 +466,18 @@ export default function SurvivorClient({ initialState }: SurvivorClientProps) {
         <DisconnectedPanel onRetry={leaveAndReset} />
       )}
 
-      {phase === "reconnecting" && <ReconnectingPanel />}
+      {phase === "reconnecting" && !(roomReady && roomRef.current) && (
+        <ReconnectingPanel />
+      )}
+
+      {(phase === "inRoom" || phase === "reconnecting") &&
+        roomReady &&
+        roomRef.current && (
+          <div className="flex-1 flex flex-col relative min-h-0">
+            <GameCanvas room={roomRef.current} onLeave={leaveAndReset} />
+            {phase === "reconnecting" && <ReconnectingBanner />}
+          </div>
+        )}
 
       {phase === "standby" && roomReady && (
         <StandbyPanel
@@ -478,13 +489,6 @@ export default function SurvivorClient({ initialState }: SurvivorClientProps) {
           slimeFace={slimeFace}
           slimeAccessories={slimeAccessories}
           nameColor={nameColor}
-          onLeave={leaveAndReset}
-        />
-      )}
-
-      {phase === "inRoom" && roomReady && roomRef.current && (
-        <GameCanvas
-          room={roomRef.current}
           onLeave={leaveAndReset}
         />
       )}
@@ -919,6 +923,22 @@ function DisconnectedPanel({ onRetry }: { onRetry: () => void }) {
         </LobbyPrimaryButton>
       </LobbyCard>
     </LobbyScene>
+  );
+}
+
+function ReconnectingBanner() {
+  return (
+    <div className="absolute top-4 inset-x-0 flex justify-center z-40 pointer-events-none px-4">
+      <div className="border border-fuchsia-400/40 bg-black/80 backdrop-blur-sm px-4 py-2 text-center max-w-md">
+        <p className="text-[10px] uppercase tracking-[0.3em] text-fuchsia-300">
+          Reconnecting
+        </p>
+        <p className="text-xs text-neutral-200 mt-1">
+          Connection blipped — rejoining your seat. Keep watching; ghost roam
+          still works.
+        </p>
+      </div>
+    </div>
   );
 }
 
