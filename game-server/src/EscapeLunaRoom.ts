@@ -24,6 +24,8 @@ import {
   tickLunaDog,
   tickLunaPlayers,
   tickLunaZone,
+  maxLunaSpawnRadius,
+  isSafeLunaSpawnPoint,
   type PlayerInput,
 } from "./luna-physics";
 import { postLunaMatchResult, type ResultParticipant } from "./webhook";
@@ -369,7 +371,7 @@ export class EscapeLunaRoom extends Room<EscapeLunaState> {
     tickLunaZone(this.state, dtSec, now);
 
     const aliveCount = this.countAlive();
-    if (aliveCount < 1) {
+    if (aliveCount < 1 && this.playersAtMatchStart > 0) {
       this.endMatch("lastAlive");
       return;
     }
@@ -393,8 +395,20 @@ export class EscapeLunaRoom extends Room<EscapeLunaState> {
     this.state.zone.targetRadius = LUNA_ZONE_START_RADIUS;
     this.state.countdownEndsAtMs = 0;
     this.playersAtMatchStart = this.countAlive();
+    this.relocatePlayersToSafeSpawns();
     spawnLunaDog(this.state);
     console.log("[EscapeLunaRoom] PLAYING — Luna is loose");
+  }
+
+  /** Players may have joined during COUNTDOWN at coords outside the world square. */
+  private relocatePlayersToSafeSpawns() {
+    this.state.players.forEach((p) => {
+      if (!p.alive) return;
+      if (isSafeLunaSpawnPoint(this.state, p.x, p.y)) return;
+      const spawn = this.pickSpawn();
+      p.x = spawn.x;
+      p.y = spawn.y;
+    });
   }
 
   private rateLimitInput(sessionId: string): boolean {
@@ -417,28 +431,17 @@ export class EscapeLunaRoom extends Room<EscapeLunaState> {
   }
 
   private pickSpawn(): { x: number; y: number } {
-    for (let attempt = 0; attempt < 16; attempt++) {
+    const maxR = maxLunaSpawnRadius(this.state);
+    const minR = Math.min(220, maxR * 0.35);
+    for (let attempt = 0; attempt < 24; attempt++) {
       const angle = Math.random() * Math.PI * 2;
-      const r = LUNA_ZONE_START_RADIUS * (0.5 + Math.random() * 0.35);
+      const r = minR + Math.random() * (maxR - minR);
       const x = Math.cos(angle) * r;
       const y = Math.sin(angle) * r;
-      let inside = false;
-      this.state.obstacles.forEach((o) => {
-        if (inside) return;
-        if (
-          x > o.x - o.w / 2 - 28 &&
-          x < o.x + o.w / 2 + 28 &&
-          y > o.y - o.h / 2 - 28 &&
-          y < o.y + o.h / 2 + 28
-        ) {
-          inside = true;
-        }
-      });
-      const distFromCenter = Math.hypot(x - this.state.zone.cx, y - this.state.zone.cy);
-      if (!inside && distFromCenter > 180) return { x, y };
+      if (isSafeLunaSpawnPoint(this.state, x, y)) return { x, y };
     }
     const angle = Math.random() * Math.PI * 2;
-    const r = LUNA_ZONE_START_RADIUS * 0.55;
+    const r = maxR * 0.55;
     return { x: Math.cos(angle) * r, y: Math.sin(angle) * r };
   }
 

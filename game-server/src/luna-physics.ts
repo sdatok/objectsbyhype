@@ -697,6 +697,51 @@ function killPlayerByFall(p: Player, nowMs: number) {
   p.deathAt = nowMs;
 }
 
+/** Furthest spawn distance that stays on the walkable floor (zone ∩ world square). */
+export function maxLunaSpawnRadius(state: EscapeLunaState): number {
+  const pad = PLAYER_RADIUS * 2 + 32;
+  const zoneLimit = state.zone.radius - pad;
+  const worldLimit = WORLD_HALF - pad;
+  return Math.max(160, Math.min(zoneLimit, worldLimit));
+}
+
+/** True when a player can stand here without instantly falling. */
+export function isSafeLunaSpawnPoint(
+  state: EscapeLunaState,
+  x: number,
+  y: number
+): boolean {
+  const radius = PLAYER_RADIUS;
+  if (Math.hypot(x - state.zone.cx, y - state.zone.cy) > state.zone.radius - radius * 0.5) {
+    return false;
+  }
+  if (Math.abs(x) > WORLD_HALF - radius * 0.5 || Math.abs(y) > WORLD_HALF - radius * 0.5) {
+    return false;
+  }
+  if (Math.hypot(x, y) < 180) return false;
+
+  for (let i = 0; i < state.obstacles.length; i++) {
+    const o = state.obstacles[i]!;
+    if (
+      x > o.x - o.w / 2 - radius - 8 &&
+      x < o.x + o.w / 2 + radius + 8 &&
+      y > o.y - o.h / 2 - radius - 8 &&
+      y < o.y + o.h / 2 + radius + 8
+    ) {
+      return false;
+    }
+  }
+
+  for (let i = 0; i < state.pits.length; i++) {
+    const pit = state.pits[i]!;
+    if (Math.hypot(x - pit.x, y - pit.y) < pit.radius + radius + 12) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 function tickLunaFalls(state: EscapeLunaState, nowMs: number) {
   state.players.forEach((p) => {
     if (!p.alive) return;
