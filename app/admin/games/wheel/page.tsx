@@ -8,6 +8,7 @@ import AddProMemberForm from "@/components/admin/wheel/AddProMemberForm";
 import ProMemberTable from "@/components/admin/wheel/ProMemberTable";
 import WheelPrizeTable from "@/components/admin/wheel/WheelPrizeTable";
 import WheelOddsBreakdown from "@/components/admin/wheel/WheelOddsBreakdown";
+import WheelEconomicsPanel from "@/components/admin/wheel/WheelEconomicsPanel";
 import RecentSpinsTable from "@/components/admin/wheel/RecentSpinsTable";
 
 export const dynamic = "force-dynamic";
@@ -104,6 +105,8 @@ export default async function AdminWheelPage() {
       </div>
 
       <WheelOddsBreakdown config={config} prizes={prizes} />
+
+      <WheelEconomicsPanel config={config} prizes={prizes} spinPrice={50} />
 
       <WheelPrizeTable
         prizes={prizes.map((p) => ({
