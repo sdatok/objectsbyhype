@@ -11,6 +11,10 @@ import MobileControls, {
 import RetroOverlay from "@/components/survivor/RetroOverlay";
 import { drawSlime } from "@/components/survivor/SlimeAvatar";
 import { drawLunaDog } from "@/components/luna/LunaDogSprite";
+import {
+  drawLunaObstacle,
+  preloadLunaObstacleSprites,
+} from "@/components/luna/lunaObstacleSprites";
 import { parseNameColor } from "@/lib/survivor-slime";
 
 const WORLD = 2800;
@@ -39,6 +43,10 @@ export default function LunaGameCanvas({ room, onLeave }: LunaGameCanvasProps) {
   const aimStickRef = useRef<VirtualStickState>(emptyStick());
   const mobileControls = useMobileControls();
   const [selfAlive, setSelfAlive] = useState(true);
+
+  useEffect(() => {
+    preloadLunaObstacleSprites();
+  }, []);
 
   useEffect(() => {
     const push = () => {
@@ -190,22 +198,7 @@ export default function LunaGameCanvas({ room, onLeave }: LunaGameCanvasProps) {
         h: number;
       }>;
       for (const o of obstacles) {
-        const p = toScreen(o.x, o.y);
-        ctx.fillStyle = o.kind === "rock" ? "#4a4a52" : "#2d241c";
-        ctx.strokeStyle = "#1a1510";
-        ctx.lineWidth = 2;
-        ctx.fillRect(
-          p.x - (o.w * scale) / 2,
-          p.y - (o.h * scale) / 2,
-          o.w * scale,
-          o.h * scale
-        );
-        ctx.strokeRect(
-          p.x - (o.w * scale) / 2,
-          p.y - (o.h * scale) / 2,
-          o.w * scale,
-          o.h * scale
-        );
+        drawLunaObstacle(ctx, toScreen, o, scale);
       }
 
       ctx.strokeStyle = "rgba(255,200,80,0.35)";

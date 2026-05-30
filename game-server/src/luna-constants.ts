@@ -35,9 +35,9 @@ export const LUNA_ZONE_DPS_END = 28;
 /** Luna the dog. */
 export const LUNA_RADIUS = 26;
 /** Starting chase speed (units/sec) — slow warm-up. */
-export const LUNA_SPEED_START = 120;
+export const LUNA_SPEED_START = 145;
 /** Max chase speed — always below PLAYER_SPEED (280). */
-export const LUNA_SPEED_MAX = 235;
+export const LUNA_SPEED_MAX = 258;
 /** How quickly Luna steers toward her target (higher = snappier tracking). */
 export const LUNA_STEER_RATE = 7.5;
 /** Lead prediction on moving targets (seconds). */

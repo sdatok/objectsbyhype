@@ -13,6 +13,8 @@ import {
   WALL_SEG_MIN,
   WALL_SEG_MAX,
   WALL_BEND_PROB,
+  TOWER_PLACEMENTS,
+  OBSTACLE_SIZES,
 } from "./constants";
 import {
   LUNA_CLIFF_CLUSTER_COUNT,
@@ -38,7 +40,7 @@ function clamp(v: number, lo: number, hi: number) {
 }
 
 interface ObstacleRect {
-  kind: "cliff" | "rock";
+  kind: string;
   x: number;
   y: number;
   w: number;
@@ -204,6 +206,21 @@ function generateExtraSegments(state: EscapeLunaState, placed: ObstacleRect[]) {
   }
 }
 
+/** Vendor towers — solid blockers scattered across the maze. */
+function generateVendorTowers(placed: ObstacleRect[]) {
+  for (const slot of TOWER_PLACEMENTS) {
+    const size = OBSTACLE_SIZES[slot.kind][0];
+    if (!size) continue;
+    placed.push({
+      kind: slot.kind,
+      x: slot.x,
+      y: slot.y,
+      w: size.w,
+      h: size.h,
+    });
+  }
+}
+
 export function generateLunaMaze(state: EscapeLunaState): void {
   state.obstacles.clear();
   const placed: ObstacleRect[] = [];
@@ -217,6 +234,7 @@ export function generateLunaMaze(state: EscapeLunaState): void {
   generateMazeSpokes(state, placed);
   generateRingWalls(state, placed);
   generateExtraSegments(state, placed);
+  generateVendorTowers(placed);
 
   for (const p of placed) {
     const o = new Obstacle();
@@ -228,7 +246,9 @@ export function generateLunaMaze(state: EscapeLunaState): void {
     state.obstacles.push(o);
   }
 
-  console.log(`[escape-luna] generateLunaMaze placed ${state.obstacles.length} segments`);
+  console.log(
+    `[escape-luna] generateLunaMaze placed ${state.obstacles.length} segments (incl. vendor towers)`
+  );
 }
 
 function resolveAgainstObstacles(
