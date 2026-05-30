@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Room } from "colyseus.js";
 import { startLunaInputLoop, type LunaInput } from "@/lib/luna-client";
 import MobileControls, {
@@ -38,6 +38,7 @@ export default function LunaGameCanvas({ room, onLeave }: LunaGameCanvasProps) {
   const moveStickRef = useRef<VirtualStickState>(emptyStick());
   const aimStickRef = useRef<VirtualStickState>(emptyStick());
   const mobileControls = useMobileControls();
+  const [selfAlive, setSelfAlive] = useState(true);
 
   useEffect(() => {
     const push = () => {
@@ -71,16 +72,28 @@ export default function LunaGameCanvas({ room, onLeave }: LunaGameCanvasProps) {
     const canvas = canvasRef.current;
     const container = containerRef.current;
     if (!canvas || !container) return;
+
     const resize = () => {
-      const dpr = window.devicePixelRatio || 1;
-      canvas.width = Math.floor(container.clientWidth * dpr);
-      canvas.height = Math.floor(container.clientHeight * dpr);
-      canvas.style.width = `${container.clientWidth}px`;
-      canvas.style.height = `${container.clientHeight}px`;
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const w = container.clientWidth;
+      const h = container.clientHeight;
+      canvas.width = Math.floor(w * dpr);
+      canvas.height = Math.floor(h * dpr);
+      canvas.style.width = `${w}px`;
+      canvas.style.height = `${h}px`;
     };
+
     resize();
+    const ro = new ResizeObserver(resize);
+    ro.observe(container);
     window.addEventListener("resize", resize);
-    return () => window.removeEventListener("resize", resize);
+    window.visualViewport?.addEventListener("resize", resize);
+
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", resize);
+      window.visualViewport?.removeEventListener("resize", resize);
+    };
   }, []);
 
   useEffect(() => {
@@ -150,6 +163,7 @@ export default function LunaGameCanvas({ room, onLeave }: LunaGameCanvasProps) {
         }
       >;
       const self = players[sessionIdRef.current];
+      if (self && self.alive !== selfAlive) setSelfAlive(self.alive);
       const camX = self?.x ?? 0;
       const camY = self?.y ?? 0;
       const scale = Math.min(w, h) / (WORLD * 0.55);
@@ -244,11 +258,16 @@ export default function LunaGameCanvas({ room, onLeave }: LunaGameCanvasProps) {
         );
       }
 
+      const hudPadTop = mobileControls ? 52 : 24;
       ctx.fillStyle = "rgba(255,255,255,0.85)";
-      ctx.font = "12px monospace";
+      ctx.font = `${Math.max(11, Math.round(w * 0.028))}px monospace`;
       ctx.textAlign = "left";
-      ctx.fillText("RUN FROM LUNA", 16, 24);
-      ctx.fillText(`Zone ${Math.round((Number(cur.zoneShrink01) || 0) * 100)}%`, 16, 42);
+      ctx.fillText("RUN FROM LUNA", 16, hudPadTop);
+      ctx.fillText(
+        `Zone ${Math.round((Number(cur.zoneShrink01) || 0) * 100)}%`,
+        16,
+        hudPadTop + 18
+      );
       if (self && !self.alive) {
         ctx.fillStyle = "rgba(240,80,80,0.9)";
         ctx.font = "bold 16px monospace";
@@ -260,21 +279,24 @@ export default function LunaGameCanvas({ room, onLeave }: LunaGameCanvasProps) {
     };
     raf = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(raf);
-  }, [moveStickRef]);
+  }, [moveStickRef, mobileControls]);
 
   return (
-    <div ref={containerRef} className="relative w-full h-[100dvh] bg-black overflow-hidden">
-      <canvas ref={canvasRef} className="block w-full h-full" />
+    <div
+      ref={containerRef}
+      className="flex-1 relative w-full min-h-0 overflow-hidden select-none touch-none overscroll-none bg-black"
+    >
+      <canvas ref={canvasRef} className="absolute inset-0 block h-full w-full" />
       <MobileControls
         moveStickRef={moveStickRef}
         aimStickRef={aimStickRef}
-        enabled={mobileControls}
+        enabled={mobileControls && selfAlive}
         aimEnabled={false}
       />
       <button
         type="button"
         onClick={onLeave}
-        className="absolute top-4 right-4 z-20 text-[10px] uppercase tracking-widest border border-white/30 px-3 py-1.5 text-white/80 hover:bg-white/10"
+        className="absolute top-[max(0.75rem,env(safe-area-inset-top))] right-[max(0.75rem,env(safe-area-inset-right))] z-20 min-h-[44px] px-3 py-2 text-[10px] uppercase tracking-widest border border-white/30 text-white/80 hover:bg-white/10 active:bg-white/20"
       >
         Leave
       </button>

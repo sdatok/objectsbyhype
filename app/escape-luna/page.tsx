@@ -8,7 +8,7 @@ export default async function EscapeLunaPage() {
 
   if (!state.enabled) {
     return (
-      <main className="min-h-[100dvh] flex items-center justify-center p-6 text-center">
+      <main className="flex-1 flex items-center justify-center p-6 text-center overflow-y-auto">
         <div className="max-w-md">
           <p className="text-xs uppercase tracking-[0.3em] text-amber-400">
             Escape Luna
