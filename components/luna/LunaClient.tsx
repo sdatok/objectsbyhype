@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import type { Room } from "colyseus.js";
 import type { PublicLunaState } from "@/lib/luna-config";
@@ -9,6 +9,7 @@ import LunaLobbyScene, {
   LunaLobbyCard,
   LunaLobbyPrimaryButton,
 } from "@/components/luna/LunaLobbyScene";
+import LunaStandbyPanel, { LunaCountdownBanner } from "@/components/luna/LunaStandbyPanel";
 import { SurvivorMusicProvider } from "@/components/survivor/SurvivorMusic";
 import SlimeAvatar from "@/components/survivor/SlimeAvatar";
 import {
@@ -21,6 +22,7 @@ import {
 
 const LunaGameCanvas = dynamic(() => import("./LunaGameCanvas"), { ssr: false });
 
+type RoomPhase = "WAITING" | "COUNTDOWN" | "PLAYING" | "ENDED";
 type Phase = "lobby" | "joining" | "connecting" | "inRoom" | "standby" | "noMatch";
 
 const inputClassName =
@@ -36,7 +38,9 @@ export default function LunaClient({ initialState }: { initialState: PublicLunaS
   const [slimeColor, setSlimeColor] = useState<SlimeColor>(DEFAULT_SLIME_COLOR);
   const [nameColor] = useState(DEFAULT_NAME_COLOR);
   const [error, setError] = useState<string | null>(null);
-  const [roomStatus, setRoomStatus] = useState<string>("WAITING");
+  const [roomStatus, setRoomStatus] = useState<RoomPhase>("WAITING");
+  const [countdownEndsAtMs, setCountdownEndsAtMs] = useState(0);
+  const [aliveInRoom, setAliveInRoom] = useState(0);
   const roomRef = useRef<Room | null>(null);
 
   useEffect(() => {
@@ -46,8 +50,11 @@ export default function LunaClient({ initialState }: { initialState: PublicLunaS
         if (!res.ok) return;
         const next = (await res.json()) as PublicLunaState;
         setServerState(next);
-        if (!next.currentMatch && phase !== "inRoom") setPhase("noMatch");
-        else if (phase === "noMatch" && next.currentMatch) setPhase("lobby");
+        if (!next.currentMatch && phase !== "inRoom" && phase !== "standby") {
+          setPhase("noMatch");
+        } else if (phase === "noMatch" && next.currentMatch) {
+          setPhase("lobby");
+        }
       } catch {
         /* ignore */
       }
@@ -55,23 +62,36 @@ export default function LunaClient({ initialState }: { initialState: PublicLunaS
     return () => window.clearInterval(id);
   }, [phase]);
 
-  useEffect(() => {
-    const room = roomRef.current;
-    if (!room) return;
-    const onChange = () => setRoomStatus(String(room.state.status ?? "WAITING"));
-    onChange();
-    room.onStateChange(onChange);
-    return () => {
-      const registry = room.onStateChange as unknown as {
-        remove?: (fn: typeof onChange) => void;
-      };
-      registry.remove?.(onChange);
+  const attachRoom = useCallback((room: Room) => {
+    const syncFromState = () => {
+      try {
+        const rs = room.state as unknown as {
+          status?: RoomPhase;
+          countdownEndsAtMs?: number;
+          players?: { forEach: (cb: (v: { alive: boolean }) => void) => void };
+        };
+        const status = (rs?.status ?? "WAITING") as RoomPhase;
+        setRoomStatus(status);
+        setCountdownEndsAtMs(Number(rs?.countdownEndsAtMs ?? 0));
+        let n = 0;
+        rs?.players?.forEach?.((p) => {
+          if (p?.alive) n++;
+        });
+        setAliveInRoom(n);
+        if (status === "PLAYING") setPhase("inRoom");
+        else if (status === "ENDED") {
+          roomRef.current = null;
+          setPhase("noMatch");
+        } else {
+          setPhase("standby");
+        }
+      } catch (e) {
+        console.warn("[luna] state read failed", e);
+      }
     };
-  }, [phase]);
-
-  useEffect(() => {
-    if (phase === "standby" && roomStatus === "PLAYING") setPhase("inRoom");
-  }, [phase, roomStatus]);
+    syncFromState();
+    room.onStateChange(syncFromState);
+  }, []);
 
   const join = async () => {
     setError(null);
@@ -99,8 +119,7 @@ export default function LunaClient({ initialState }: { initialState: PublicLunaS
         nameColor,
       });
       roomRef.current = room;
-      setRoomStatus(String(room.state.status ?? "WAITING"));
-      setPhase(room.state.status === "PLAYING" ? "inRoom" : "standby");
+      attachRoom(room);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Connection failed.");
       setPhase(serverState.currentMatch ? "lobby" : "noMatch");
@@ -113,6 +132,10 @@ export default function LunaClient({ initialState }: { initialState: PublicLunaS
     setPhase(serverState.currentMatch ? "lobby" : "noMatch");
   };
 
+  const lobbyCountdownMs = serverState.currentMatch?.countdownEndsAtMs ?? 0;
+  const lobbyCounting =
+    serverState.currentMatch?.status === "COUNTDOWN" && lobbyCountdownMs > 0;
+
   return (
     <SurvivorMusicProvider>
       <main className="flex-1 min-h-0 flex flex-col overflow-hidden">
@@ -120,6 +143,15 @@ export default function LunaClient({ initialState }: { initialState: PublicLunaS
           <div className="flex-1 min-h-0 flex flex-col relative">
             <LunaGameCanvas room={roomRef.current} onLeave={leave} />
           </div>
+        ) : phase === "standby" ? (
+          <LunaStandbyPanel
+            status={roomStatus}
+            countdownEndsAtMs={countdownEndsAtMs}
+            alive={aliveInRoom}
+            displayName={displayName}
+            slimeColor={slimeColor}
+            onLeave={leave}
+          />
         ) : (
           <LunaLobbyScene>
             <div className="w-full max-w-md space-y-4">
@@ -141,16 +173,22 @@ export default function LunaClient({ initialState }: { initialState: PublicLunaS
                 </LunaLobbyCard>
               ) : (
                 <>
+                  {lobbyCounting && (
+                    <LunaCountdownBanner countdownEndsAtMs={lobbyCountdownMs} />
+                  )}
+
                   <LunaLobbyCard>
                     <p className="text-[10px] uppercase tracking-widest text-amber-400">
                       Prize
                     </p>
                     <p className="text-lg font-bold mt-1">{serverState.prizeTitle}</p>
                     <p className="text-xs text-neutral-500 mt-2">
-                      {serverState.currentMatch?.participantCount ?? 0} in lobby ·{" "}
-                      {roomStatus === "COUNTDOWN"
-                        ? "Starting soon"
-                        : "Waiting for admin start"}
+                      {serverState.currentMatch?.participantCount ?? 0} registered ·{" "}
+                      {lobbyCounting
+                        ? "Countdown live"
+                        : serverState.currentMatch?.status === "PLAYING"
+                          ? "Match in progress"
+                          : "Waiting for admin start"}
                     </p>
                   </LunaLobbyCard>
 
@@ -197,9 +235,7 @@ export default function LunaClient({ initialState }: { initialState: PublicLunaS
                     >
                       {phase === "joining" || phase === "connecting"
                         ? "CONNECTING…"
-                        : phase === "standby"
-                          ? "IN LOBBY — WAITING"
-                          : "JOIN & RUN"}
+                        : "JOIN & RUN"}
                     </LunaLobbyPrimaryButton>
                   </LunaLobbyCard>
                 </>

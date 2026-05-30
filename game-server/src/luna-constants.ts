@@ -34,14 +34,18 @@ export const LUNA_ZONE_DPS_END = 28;
 
 /** Luna the dog. */
 export const LUNA_RADIUS = 26;
-/** Starting chase speed (units/sec) — slow warm-up. */
-export const LUNA_SPEED_START = 145;
-/** Max chase speed — always below PLAYER_SPEED (280). */
-export const LUNA_SPEED_MAX = 258;
+/** Obstacle sliding uses a slightly smaller radius so Luna navigates maze corners. */
+export const LUNA_NAV_RADIUS = 20;
+/** Starting chase speed (units/sec). */
+export const LUNA_SPEED_START = 200;
+/** Max chase speed — can exceed PLAYER_SPEED (280) late match. */
+export const LUNA_SPEED_MAX = 340;
 /** How quickly Luna steers toward her target (higher = snappier tracking). */
-export const LUNA_STEER_RATE = 7.5;
+export const LUNA_STEER_RATE = 13;
 /** Lead prediction on moving targets (seconds). */
-export const LUNA_PREDICT_SEC = 0.35;
+export const LUNA_PREDICT_SEC = 0.55;
+/** Extra speed boost when closing within this range. */
+export const LUNA_CLOSE_RANGE = 420;
 
 /** Maze density — more walls than Survivor island. */
 export const LUNA_CLIFF_CLUSTER_COUNT = 14;

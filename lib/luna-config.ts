@@ -24,11 +24,39 @@ export interface PublicLunaState {
 
 export interface PublicLunaMatchSummary {
   id: string;
-  status: SurvivorMatchStatus;
+  status: SurvivorMatchStatus | "COUNTDOWN";
   prizeTitle: string;
   startedAt: string | null;
   endedAt: string | null;
   participantCount: number;
+  countdownEndsAtMs: number | null;
+}
+
+async function fetchLiveLunaRoomSnapshot(): Promise<{
+  matchId?: string;
+  status?: string;
+  countdownEndsAtMs?: number;
+} | null> {
+  const baseUrl = process.env.SURVIVOR_GAME_SERVER_URL;
+  const secret = process.env.SURVIVOR_SECRET;
+  if (!baseUrl || !secret) return null;
+  try {
+    const res = await fetch(`${baseUrl.replace(/\/$/, "")}/admin/state`, {
+      headers: { "x-admin-secret": secret },
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    const json = (await res.json()) as {
+      luna?: {
+        matchId?: string;
+        status?: string;
+        countdownEndsAtMs?: number;
+      } | null;
+    };
+    return json.luna ?? null;
+  } catch {
+    return null;
+  }
 }
 
 export async function getOrCreateLunaConfig(): Promise<EscapeLunaConfig> {
@@ -71,13 +99,28 @@ export async function buildPublicLunaState(): Promise<PublicLunaState> {
     const participantCount = await prisma.escapeLunaParticipant.count({
       where: { matchId: current.id },
     });
+    const live = await fetchLiveLunaRoomSnapshot();
+    const liveStatus =
+      live?.matchId === current.id && live.status
+        ? live.status === "COUNTDOWN"
+          ? "COUNTDOWN"
+          : live.status === "PLAYING"
+            ? "PLAYING"
+            : live.status === "ENDED"
+              ? "ENDED"
+              : current.status
+        : current.status;
     currentMatch = {
       id: current.id,
-      status: current.status,
+      status: liveStatus,
       prizeTitle: current.prizeTitle,
       startedAt: current.startedAt?.toISOString() ?? null,
       endedAt: current.endedAt?.toISOString() ?? null,
       participantCount,
+      countdownEndsAtMs:
+        live?.matchId === current.id && live.countdownEndsAtMs
+          ? live.countdownEndsAtMs
+          : null,
     };
   }
 

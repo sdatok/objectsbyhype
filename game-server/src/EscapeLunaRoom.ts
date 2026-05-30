@@ -339,6 +339,7 @@ export class EscapeLunaRoom extends Room<EscapeLunaState> {
       status: this.state.status,
       matchId: this.state.matchId,
       prizeTitle: this.state.prizeTitle,
+      countdownEndsAtMs: this.state.countdownEndsAtMs,
       dog: {
         x: this.state.dog.x,
         y: this.state.dog.y,
