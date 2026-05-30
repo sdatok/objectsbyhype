@@ -54,16 +54,10 @@ export default function AdminLayout({
                 Promos
               </Link>
               <Link
-                href="/admin/game"
+                href="/admin/games/giveaway"
                 className="text-[10px] uppercase tracking-widest text-neutral-400 hover:text-white transition-colors"
               >
-                Game
-              </Link>
-              <Link
-                href="/admin/survivor"
-                className="text-[10px] uppercase tracking-widest text-neutral-400 hover:text-white transition-colors"
-              >
-                Survivor
+                Games
               </Link>
               <Link
                 href="/admin/stats"

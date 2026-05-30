@@ -399,3 +399,89 @@ model SurvivorParticipant {
   @@index([matchId])
   @@index([email])
 }
+
+// ---------- Wheel of Hype (pro-member monthly spin) ----------
+
+enum WheelPrizeTier {
+  COMMON
+  RARE
+  JACKPOT
+}
+
+/// Singleton row (id="default") for /wheelofhype settings.
+model WheelConfig {
+  id             String   @id @default("default")
+  enabled        Boolean  @default(true)
+  commonWeight   Int      @default(60)
+  rareWeight     Int      @default(30)
+  jackpotWeight  Int      @default(10)
+  updatedAt      DateTime @updatedAt
+}
+
+/// Pro membership tracked manually in admin (MRR reporting).
+model WheelProMember {
+  id           String          @id @default(cuid())
+  name         String
+  email        String
+  monthlyPrice Decimal         @db.Decimal(10, 2)
+  active       Boolean         @default(true)
+  notes        String?         @db.Text
+  codes        WheelPlayCode[]
+  spins        WheelSpin[]
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  @@index([email])
+  @@index([active])
+}
+
+model WheelPrize {
+  id                String         @id @default(cuid())
+  label             String
+  tier              WheelPrizeTier
+  quantityInitial   Int            @default(1)
+  quantityRemaining Int            @default(1)
+  sortOrder         Int            @default(0)
+  active            Boolean        @default(true)
+  spins             WheelSpin[]
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  @@index([tier, active])
+  @@index([sortOrder])
+}
+
+/// One unique play code per pro member per calendar month (YYYY-MM).
+model WheelPlayCode {
+  id          String         @id @default(cuid())
+  code        String         @unique
+  proMemberId String
+  proMember   WheelProMember @relation(fields: [proMemberId], references: [id], onDelete: Cascade)
+  monthKey    String
+  usedAt      DateTime?
+  spin        WheelSpin?
+  createdAt   DateTime       @default(now())
+
+  @@unique([proMemberId, monthKey])
+  @@index([monthKey])
+  @@index([usedAt])
+}
+
+model WheelSpin {
+  id          String         @id @default(cuid())
+  codeId      String         @unique
+  code        WheelPlayCode  @relation(fields: [codeId], references: [id], onDelete: Cascade)
+  proMemberId String
+  proMember   WheelProMember @relation(fields: [proMemberId], references: [id], onDelete: Cascade)
+  prizeId     String
+  prize       WheelPrize     @relation(fields: [prizeId], references: [id], onDelete: Restrict)
+  prizeLabel  String
+  tier        WheelPrizeTier
+  monthKey    String
+  ip          String?
+  createdAt   DateTime       @default(now())
+
+  @@index([monthKey])
+  @@index([proMemberId])
+  @@index([createdAt])
+}

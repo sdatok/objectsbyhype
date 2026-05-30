@@ -7,10 +7,9 @@ import AdminAddScoreForm from "@/components/admin/AdminAddScoreForm";
 
 export const dynamic = "force-dynamic";
 
-export default async function AdminGamePage() {
+export default async function AdminGiveawayGamePage() {
   const config = await getOrCreateGameConfig();
 
-  // Last 4 distinct windows for the leaderboard view.
   const distinctWindows = await prisma.gameScore.findMany({
     distinct: ["windowStartedAt"],
     orderBy: { windowStartedAt: "desc" },
@@ -29,8 +28,6 @@ export default async function AdminGamePage() {
           { secondsPlayed: "asc" },
           { createdAt: "asc" },
         ],
-        // Current window: show every player so admin can email all eligible
-        // entrants. Previous windows: cap at 25 to keep the page light.
         ...(isCurrent ? {} : { take: 25 }),
       });
       return { windowStartedAt: w.windowStartedAt, scores };
@@ -48,7 +45,7 @@ export default async function AdminGamePage() {
         >
           ← Admin home
         </Link>
-        <h1 className="text-[18px] font-bold mt-3">Giveaway Game</h1>
+        <h1 className="text-[18px] font-bold mt-3">List-Pack-Shoot</h1>
         <p className="text-[12px] text-neutral-500 mt-0.5">
           Settings for the home-page mini-game and the hourly giveaway window.
         </p>
