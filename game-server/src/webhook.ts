@@ -23,9 +23,22 @@ export interface ResultPayload {
 }
 
 export async function postMatchResult(payload: ResultPayload): Promise<void> {
-  const webhookUrl = process.env.WEBHOOK_URL;
+  await postResultToUrl(process.env.WEBHOOK_URL, payload);
+}
+
+export async function postLunaMatchResult(payload: ResultPayload): Promise<void> {
+  const url =
+    process.env.LUNA_WEBHOOK_URL ??
+    process.env.WEBHOOK_URL?.replace("/survivor/result", "/luna/result");
+  await postResultToUrl(url, payload);
+}
+
+async function postResultToUrl(
+  webhookUrl: string | undefined,
+  payload: ResultPayload
+): Promise<void> {
   if (!webhookUrl) {
-    console.warn("[webhook] WEBHOOK_URL not set; skipping match result POST");
+    console.warn("[webhook] webhook URL not set; skipping match result POST");
     return;
   }
 

@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 const TABS = [
   { href: "/admin/games/giveaway", label: "List-Pack-Shoot" },
   { href: "/admin/games/survivor", label: "Survivor" },
+  { href: "/admin/games/escape-luna", label: "Escape Luna" },
   { href: "/admin/games/wheel", label: "Wheel of Hype" },
 ] as const;
 

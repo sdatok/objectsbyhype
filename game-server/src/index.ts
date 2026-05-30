@@ -3,6 +3,7 @@ import express, { type Request, type Response } from "express";
 import { Server, matchMaker } from "@colyseus/core";
 import { WebSocketTransport } from "@colyseus/ws-transport";
 import { SurvivorRoom } from "./SurvivorRoom";
+import { EscapeLunaRoom } from "./EscapeLunaRoom";
 import {
   verifyAdminCommand,
   type AdminCommand,
@@ -18,7 +19,8 @@ import {
   MAX_PLAYERS,
 } from "./constants";
 
-const ROOM_NAME = "survivor";
+const SURVIVOR_ROOM = "survivor";
+const LUNA_ROOM = "escape-luna";
 
 const app = express();
 app.use(express.json({ limit: "32kb" }));
@@ -63,7 +65,8 @@ const gameServer = new Server({
   transport: new WebSocketTransport({ server: httpServer }),
 });
 
-gameServer.define(ROOM_NAME, SurvivorRoom);
+gameServer.define(SURVIVOR_ROOM, SurvivorRoom);
+gameServer.define(LUNA_ROOM, EscapeLunaRoom);
 
 // ---------- Liveness ----------
 
@@ -73,39 +76,61 @@ app.get("/healthz", (_req, res) => {
     ts: Date.now(),
     service: "objectsbyhype-survivor",
     gitSha: process.env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 7) ?? "unknown",
-    build: "island-v9.6",
-    features: ["obstacles", "island-maze", "zone-shrink", "mobile-sticks", "gorilla-flower", "reconnect", "sprite-key", "vendor-towers", "slime-avatars", "rocket-aoe", "flamethrower", "ice-bow", "schema-fix"],
+    build: "escape-luna-v1.0",
+    features: [
+      "survivor",
+      "escape-luna",
+      "luna-chase",
+      "maze-map",
+      "zone-shrink",
+    ],
   });
 });
 
 app.get("/version", (_req, res) => {
   res.json({
     ok: true,
-    build: "island-v9.6",
+    build: "escape-luna-v1.0",
     gitSha: process.env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 7) ?? "unknown",
   });
 });
 
 // ---------- Helpers ----------
 
-async function getRoom(): Promise<SurvivorRoom | null> {
-  // Discover an existing instance. We seed one lazily on first /admin/start
-  // if none exists.
-  const rooms = await matchMaker.query({ name: ROOM_NAME });
+async function getSurvivorRoom(): Promise<SurvivorRoom | null> {
+  const rooms = await matchMaker.query({ name: SURVIVOR_ROOM });
   if (rooms.length === 0) return null;
   const ref = rooms[0];
-  const local = matchMaker.getLocalRoomById(ref.roomId) as
-    | SurvivorRoom
-    | undefined;
-  return local ?? null;
+  return (
+    (matchMaker.getLocalRoomById(ref.roomId) as SurvivorRoom | undefined) ?? null
+  );
 }
 
-async function ensureRoom(): Promise<SurvivorRoom> {
-  let room = await getRoom();
+async function ensureSurvivorRoom(): Promise<SurvivorRoom> {
+  let room = await getSurvivorRoom();
   if (room) return room;
-  await matchMaker.createRoom(ROOM_NAME, {});
-  room = await getRoom();
+  await matchMaker.createRoom(SURVIVOR_ROOM, {});
+  room = await getSurvivorRoom();
   if (!room) throw new Error("Could not create SurvivorRoom");
+  return room;
+}
+
+async function getLunaRoom(): Promise<EscapeLunaRoom | null> {
+  const rooms = await matchMaker.query({ name: LUNA_ROOM });
+  if (rooms.length === 0) return null;
+  const ref = rooms[0];
+  return (
+    (matchMaker.getLocalRoomById(ref.roomId) as EscapeLunaRoom | undefined) ??
+    null
+  );
+}
+
+async function ensureLunaRoom(): Promise<EscapeLunaRoom> {
+  let room = await getLunaRoom();
+  if (room) return room;
+  await matchMaker.createRoom(LUNA_ROOM, {});
+  room = await getLunaRoom();
+  if (!room) throw new Error("Could not create EscapeLunaRoom");
   return room;
 }
 
@@ -149,7 +174,7 @@ app.post("/admin/start", async (req: Request, res: Response) => {
       res.status(auth.status).json({ error: auth.error });
       return;
     }
-    const room = await ensureRoom();
+    const room = await ensureSurvivorRoom();
     try {
       room.startMatch(matchId, prizeTitle, matchSeconds, lobbySeconds);
     } catch (err) {
@@ -203,7 +228,7 @@ app.post("/admin/rebind", async (req: Request, res: Response) => {
       res.status(auth.status).json({ error: auth.error });
       return;
     }
-    const room = await ensureRoom();
+    const room = await ensureSurvivorRoom();
     if (
       room.state.matchId &&
       room.state.matchId !== matchId &&
@@ -245,7 +270,7 @@ app.post("/admin/end", async (req: Request, res: Response) => {
       res.status(auth.status).json({ error: auth.error });
       return;
     }
-    const room = await getRoom();
+    const room = await getSurvivorRoom();
     if (!room) {
       res.json({ ok: true, note: "no room" });
       return;
@@ -270,12 +295,124 @@ app.get("/admin/state", async (req: Request, res: Response) => {
     res.status(401).json({ error: "unauthorized" });
     return;
   }
-  const room = await getRoom();
+  const room = await getSurvivorRoom();
   res.json({
     ok: true,
     room: room ? room.adminSnapshot() : null,
+    luna: (await getLunaRoom())?.adminSnapshot() ?? null,
     maxPlayers: MAX_PLAYERS,
   });
+});
+
+// ---------- Escape Luna admin ----------
+
+app.post("/admin/luna/start", async (req: Request, res: Response) => {
+  try {
+    const body = req.body ?? {};
+    const matchId = String(body.matchId ?? "");
+    const prizeTitle = String(body.prizeTitle ?? "Escape Luna Prize");
+    const matchSeconds = Math.max(
+      MIN_MATCH_SECONDS,
+      Math.min(MAX_MATCH_SECONDS, Number(body.matchSeconds) || DEFAULT_MATCH_SECONDS)
+    );
+    const lobbySeconds = Math.max(
+      MIN_LOBBY_SECONDS,
+      Math.min(MAX_LOBBY_SECONDS, Number(body.lobbySeconds) || DEFAULT_LOBBY_SECONDS)
+    );
+    if (!matchId) {
+      res.status(400).json({ error: "matchId required" });
+      return;
+    }
+    const auth = parseAdminAuth(req, "start", matchId);
+    if (!auth.ok) {
+      res.status(auth.status).json({ error: auth.error });
+      return;
+    }
+    const room = await ensureLunaRoom();
+    try {
+      room.startMatch(matchId, prizeTitle, matchSeconds, lobbySeconds);
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Could not start match";
+      res.status(409).json({ error: message });
+      return;
+    }
+    res.json({ ok: true, matchId, matchSeconds, lobbySeconds });
+  } catch (err) {
+    console.error("[/admin/luna/start]", err);
+    res.status(500).json({ error: "internal error" });
+  }
+});
+
+app.post("/admin/luna/rebind", async (req: Request, res: Response) => {
+  try {
+    const body = req.body ?? {};
+    const matchId = String(body.matchId ?? "");
+    const prizeTitle = String(body.prizeTitle ?? "Escape Luna Prize");
+    const matchSeconds = Math.max(
+      MIN_MATCH_SECONDS,
+      Math.min(MAX_MATCH_SECONDS, Number(body.matchSeconds) || DEFAULT_MATCH_SECONDS)
+    );
+    const lobbySeconds = Math.max(
+      MIN_LOBBY_SECONDS,
+      Math.min(MAX_LOBBY_SECONDS, Number(body.lobbySeconds) || DEFAULT_LOBBY_SECONDS)
+    );
+    const targetStatus = String(body.targetStatus ?? "COUNTDOWN") as
+      | "WAITING"
+      | "COUNTDOWN"
+      | "PLAYING";
+    const startedAtMs = Number(body.startedAtMs) || 0;
+    const matchEndsAtMs = Number(body.matchEndsAtMs) || 0;
+    if (!matchId) {
+      res.status(400).json({ error: "matchId required" });
+      return;
+    }
+    const auth = parseAdminAuth(req, "start", matchId);
+    if (!auth.ok) {
+      res.status(auth.status).json({ error: auth.error });
+      return;
+    }
+    const room = await ensureLunaRoom();
+    room.restoreMatch(
+      matchId,
+      prizeTitle,
+      matchSeconds,
+      lobbySeconds,
+      targetStatus,
+      startedAtMs,
+      matchEndsAtMs
+    );
+    res.json({ ok: true, rebound: true, matchId, targetStatus });
+  } catch (err) {
+    console.error("[/admin/luna/rebind]", err);
+    res.status(500).json({ error: "internal error" });
+  }
+});
+
+app.post("/admin/luna/end", async (req: Request, res: Response) => {
+  try {
+    const body = req.body ?? {};
+    const matchId = String(body.matchId ?? "");
+    if (!matchId) {
+      res.status(400).json({ error: "matchId required" });
+      return;
+    }
+    const auth = parseAdminAuth(req, "end", matchId);
+    if (!auth.ok) {
+      res.status(auth.status).json({ error: auth.error });
+      return;
+    }
+    const room = await getLunaRoom();
+    if (!room || room.state.matchId !== matchId) {
+      res.json({ ok: true, note: "no active match" });
+      return;
+    }
+    room.endMatch("admin");
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("[/admin/luna/end]", err);
+    res.status(500).json({ error: "internal error" });
+  }
 });
 
 // ---------- Boot ----------

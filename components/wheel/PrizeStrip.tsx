@@ -4,13 +4,16 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { WheelTier } from "@/lib/wheel-prize-icons";
 import PrizeCard from "./PrizeCard";
 
-/** Must match compact PrizeCard width + gap-4 (16px). */
+/** Must match compact PrizeCard width. gap-4 = 16px between cards. */
 export const STRIP_CARD_WIDTH = 220;
 const CARD_GAP = 16;
-const FALLBACK_STRIDE = STRIP_CARD_WIDTH + CARD_GAP;
 const SPIN_DURATION_MS = 10_000;
-const LEAD_ITEMS = 36;
-const TRAVEL_ITEMS = 52;
+/** Index of the winning card in the built strip. */
+const WINNER_INDEX = 55;
+/** How many card-widths the strip travels during the spin. */
+const TRAVEL_ITEMS = 42;
+/** Tail filler so cards still exist off-screen at the start offset. */
+const TRAIL_ITEMS = 50;
 
 export interface StripPrize {
   label: string;
@@ -27,9 +30,9 @@ export function buildStrip(pool: StripPrize[], winnerLabel: string): StripPrize[
     ({ label: winnerLabel, tier: "COMMON" as const } satisfies StripPrize);
 
   const strip: StripPrize[] = [];
-  for (let i = 0; i < LEAD_ITEMS; i++) strip.push(pickRandom(pool));
+  for (let i = 0; i < WINNER_INDEX; i++) strip.push(pickRandom(pool));
   strip.push(winner);
-  for (let i = 0; i < 4; i++) strip.push(pickRandom(pool));
+  for (let i = 0; i < TRAIL_ITEMS; i++) strip.push(pickRandom(pool));
   return strip;
 }
 
@@ -58,6 +61,10 @@ function spinEase(t: number) {
   return 1 - Math.pow(1 - t, 6);
 }
 
+function applyTransform(el: HTMLElement, px: number) {
+  el.style.transform = `translate3d(${px}px, 0, 0)`;
+}
+
 interface PrizeStripProps {
   prizes: StripPrize[];
   spinning: boolean;
@@ -73,10 +80,9 @@ export default function PrizeStrip({
 }: PrizeStripProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const stripRef = useRef<HTMLDivElement>(null);
-  const [offset, setOffset] = useState(0);
-  const [strip, setStrip] = useState<StripPrize[]>([]);
+  const offsetRef = useRef(0);
   const [landed, setLanded] = useState(false);
-  const [winnerIndex, setWinnerIndex] = useState(LEAD_ITEMS);
+  const [displayOffset, setDisplayOffset] = useState(0);
   const onCompleteRef = useRef(onSpinComplete);
   onCompleteRef.current = onSpinComplete;
 
@@ -93,73 +99,93 @@ export default function PrizeStrip({
     [pool]
   );
 
-  useLayoutEffect(() => {
-    if (!spinning || !targetLabel) return;
+  const spinStrip = useMemo(() => {
+    if (!spinning || !targetLabel) return null;
+    return buildStrip(pool, targetLabel);
+  }, [spinning, targetLabel, pool]);
 
-    const nextStrip = buildStrip(pool, targetLabel);
-    setStrip(nextStrip);
-    setWinnerIndex(LEAD_ITEMS);
+  const animating = spinning && !!targetLabel;
+  const showSpinStrip = animating || landed;
+  const visibleStrip =
+    showSpinStrip && spinStrip ? spinStrip : idleStrip;
+
+  useLayoutEffect(() => {
+    if (!spinStrip) return;
+
     setLanded(false);
 
     let measureRaf = 0;
     let animRaf = 0;
     let completeTimer = 0;
+    let cancelled = false;
 
+    // Two frames so every card is laid out before we measure stride.
     measureRaf = requestAnimationFrame(() => {
-      const stripEl = stripRef.current;
-      const viewportEl = viewportRef.current;
-      if (!stripEl || !viewportEl) {
-        onCompleteRef.current();
-        return;
-      }
+      measureRaf = requestAnimationFrame(() => {
+        if (cancelled) return;
 
-      const { cardWidth, stride } = measureStripMetrics(stripEl);
-      const vw = viewportEl.clientWidth;
-      const winIdx = LEAD_ITEMS;
-      const end = winnerOffset(winIdx, vw, cardWidth, stride);
-      const start = end - stride * TRAVEL_ITEMS;
-
-      setOffset(start);
-
-      const startMs = performance.now();
-
-      const tick = (now: number) => {
-        const t = Math.min(1, (now - startMs) / SPIN_DURATION_MS);
-        setOffset(start + (end - start) * spinEase(t));
-
-        if (t < 1) {
-          animRaf = requestAnimationFrame(tick);
-        } else {
-          setOffset(end);
-          setLanded(true);
-          completeTimer = window.setTimeout(() => onCompleteRef.current(), 500);
+        const stripEl = stripRef.current;
+        const viewportEl = viewportRef.current;
+        if (!stripEl || !viewportEl) {
+          onCompleteRef.current();
+          return;
         }
-      };
 
-      animRaf = requestAnimationFrame(tick);
+        const { cardWidth, stride } = measureStripMetrics(stripEl);
+        const vw = viewportEl.clientWidth;
+        const end = winnerOffset(WINNER_INDEX, vw, cardWidth, stride);
+        const start = end - stride * TRAVEL_ITEMS;
+
+        offsetRef.current = start;
+        applyTransform(stripEl, start);
+        setDisplayOffset(start);
+
+        const startMs = performance.now();
+
+        const tick = (now: number) => {
+          if (cancelled) return;
+
+          const t = Math.min(1, (now - startMs) / SPIN_DURATION_MS);
+          const px = start + (end - start) * spinEase(t);
+          offsetRef.current = px;
+          applyTransform(stripEl, px);
+
+          if (t < 1) {
+            animRaf = requestAnimationFrame(tick);
+          } else {
+            offsetRef.current = end;
+            applyTransform(stripEl, end);
+            setDisplayOffset(end);
+            setLanded(true);
+            completeTimer = window.setTimeout(() => onCompleteRef.current(), 500);
+          }
+        };
+
+        animRaf = requestAnimationFrame(tick);
+      });
     });
 
     return () => {
+      cancelled = true;
       cancelAnimationFrame(measureRaf);
       cancelAnimationFrame(animRaf);
       window.clearTimeout(completeTimer);
     };
-  }, [spinning, targetLabel, pool]);
-
-  const animating = spinning && !!targetLabel;
-  const [idleOffset, setIdleOffset] = useState(0);
+  }, [spinStrip]);
 
   useEffect(() => {
+    if (showSpinStrip) return;
     const viewportEl = viewportRef.current;
     const stripEl = stripRef.current;
-    if (!viewportEl || !stripEl || animating || landed) return;
+    if (!viewportEl || !stripEl) return;
 
     const { cardWidth, stride } = measureStripMetrics(stripEl);
-    setIdleOffset(winnerOffset(0, viewportEl.clientWidth, cardWidth, stride) - stride * 0.5);
-  }, [idleStrip, animating, landed]);
-
-  const displayOffset = animating || landed ? offset : idleOffset;
-  const visibleStrip = animating || landed ? strip : idleStrip;
+    const idle =
+      winnerOffset(0, viewportEl.clientWidth, cardWidth, stride) - stride * 0.5;
+    offsetRef.current = idle;
+    applyTransform(stripEl, idle);
+    setDisplayOffset(idle);
+  }, [idleStrip, showSpinStrip]);
 
   return (
     <div className="relative w-full max-w-lg">
@@ -186,20 +212,26 @@ export default function PrizeStrip({
       >
         <div
           ref={stripRef}
-          className={`absolute top-0 left-0 flex h-full items-center gap-4 will-change-transform ${
-            animating || landed ? "" : "opacity-50"
+          className={`absolute top-0 left-0 flex h-full items-center gap-4 ${
+            showSpinStrip ? "" : "opacity-50"
           }`}
           style={{
             transform: `translate3d(${displayOffset}px, 0, 0)`,
+            willChange: showSpinStrip ? "transform" : "auto",
+            backfaceVisibility: "hidden",
           }}
         >
           {visibleStrip.map((item, i) => (
             <PrizeCard
-              key={`${item.label}-${i}-${animating ? "spin" : "idle"}`}
+              key={
+                showSpinStrip
+                  ? `spin-${i}-${item.label}`
+                  : `idle-${i}-${item.label}`
+              }
               label={item.label}
               tier={item.tier}
               compact
-              glowing={landed && i === winnerIndex}
+              glowing={landed && i === WINNER_INDEX}
             />
           ))}
         </div>

@@ -400,6 +400,48 @@ model SurvivorParticipant {
   @@index([email])
 }
 
+// ---------- Escape Luna (run from the dog) ----------
+
+model EscapeLunaConfig {
+  id               String   @id @default("default")
+  enabled          Boolean  @default(false)
+  prizeTitle       String   @default("Escape Luna Prize")
+  prizeDescription String?  @db.Text
+  matchSeconds     Int      @default(420)
+  currentMatchId   String?
+  updatedAt        DateTime @updatedAt
+}
+
+model EscapeLunaMatch {
+  id           String              @id @default(cuid())
+  status       SurvivorMatchStatus @default(WAITING)
+  prizeTitle   String
+  startedAt    DateTime?
+  endedAt      DateTime?
+  winnerEmail  String?
+  participants EscapeLunaParticipant[]
+  createdAt    DateTime            @default(now())
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+model EscapeLunaParticipant {
+  id              String          @id @default(cuid())
+  matchId         String
+  match           EscapeLunaMatch @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  email           String
+  displayName     String
+  placement       Int?
+  survivedSeconds Int             @default(0)
+  joinedAt        DateTime        @default(now())
+  disconnectedAt  DateTime?
+
+  @@unique([matchId, email])
+  @@index([matchId])
+  @@index([email])
+}
+
 // ---------- Wheel of Hype (pro-member monthly spin) ----------
 
 enum WheelPrizeTier {

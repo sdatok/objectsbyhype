@@ -1,17 +1,17 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import {
-  getOrCreateSurvivorConfig,
-  getCurrentMatch,
-} from "@/lib/survivor-config";
-import SurvivorConfigForm from "@/components/admin/SurvivorConfigForm";
-import SurvivorMatchControls from "@/components/admin/SurvivorMatchControls";
+  getOrCreateLunaConfig,
+  getCurrentLunaMatch,
+} from "@/lib/luna-config";
+import LunaConfigForm from "@/components/admin/LunaConfigForm";
+import LunaMatchControls from "@/components/admin/LunaMatchControls";
 
 export const dynamic = "force-dynamic";
 
-export default async function AdminSurvivorPage() {
-  const config = await getOrCreateSurvivorConfig();
-  const current = await getCurrentMatch(config);
+export default async function AdminEscapeLunaPage() {
+  const config = await getOrCreateLunaConfig();
+  const current = await getCurrentLunaMatch(config);
 
   let serverHealth: {
     ok: boolean;
@@ -31,9 +31,9 @@ export default async function AdminSurvivorPage() {
         gitSha?: string;
         features?: string[];
       };
-      const hasSurvivor = body.features?.includes("survivor") ?? false;
+      const hasLuna = body.features?.includes("escape-luna") ?? false;
       serverHealth = {
-        ok: res.ok && hasSurvivor,
+        ok: res.ok && hasLuna,
         build: body.build,
         gitSha: body.gitSha,
       };
@@ -45,7 +45,7 @@ export default async function AdminSurvivorPage() {
     }
   }
 
-  const recent = await prisma.survivorMatch.findMany({
+  const recent = await prisma.escapeLunaMatch.findMany({
     orderBy: { createdAt: "desc" },
     take: 8,
     include: {
@@ -64,11 +64,11 @@ export default async function AdminSurvivorPage() {
         >
           ← Admin home
         </Link>
-        <h1 className="text-[18px] font-bold mt-3">Survivor (25-player shooter)</h1>
+        <h1 className="text-[18px] font-bold mt-3">Escape Luna</h1>
         <p className="text-[12px] text-neutral-500 mt-0.5">
-          Lobby + match controls for <code>/survivor</code>. The actual game
-          runs on Railway (Colyseus); this page just talks to it via signed
-          admin commands.
+          Lobby + match controls for <code>/escape-luna</code>. Luna the dog
+          chases players through a maze — last one standing wins. No guns, no
+          PvP.
         </p>
         {serverHealth && (
           <div
@@ -81,18 +81,19 @@ export default async function AdminSurvivorPage() {
             <strong>Game server (Railway):</strong>{" "}
             {serverHealth.ok ? (
               <>
-                survivor live · build{" "}
-                <code>{serverHealth.build ?? "?"}</code> · git{" "}
+                escape-luna live · git{" "}
                 <code>{serverHealth.gitSha ?? "?"}</code>
               </>
             ) : serverHealth.error ? (
-              <>unreachable — {serverHealth.error}. Check Railway root dir is{" "}
-                <code>game-server</code> and redeploy.</>
+              <>
+                unreachable — {serverHealth.error}. Check Railway root dir is{" "}
+                <code>game-server</code> and redeploy.
+              </>
             ) : (
               <>
                 outdated build (<code>{serverHealth.build ?? "unknown"}</code>
                 ). Railway must deploy latest <code>main</code> with root{" "}
-                <code>game-server</code> (expect <code>survivor</code> in
+                <code>game-server</code> (expect <code>escape-luna</code> in
                 features), then open a <strong>new</strong> match.
               </>
             )}
@@ -101,7 +102,7 @@ export default async function AdminSurvivorPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.2fr] gap-8">
-        <SurvivorConfigForm
+        <LunaConfigForm
           initialConfig={{
             enabled: config.enabled,
             prizeTitle: config.prizeTitle,
@@ -110,7 +111,7 @@ export default async function AdminSurvivorPage() {
           }}
         />
 
-        <SurvivorMatchControls
+        <LunaMatchControls
           initial={{
             hasActive: !!current && current.status !== "ENDED",
             currentMatchId: current?.id ?? null,
@@ -178,7 +179,7 @@ export default async function AdminSurvivorPage() {
                           </span>
                         </span>
                         <span className="font-mono tabular-nums text-right text-[11px] shrink-0 ml-3">
-                          {p.kills} kills · {p.survivedSeconds}s
+                          {p.survivedSeconds}s survived
                         </span>
                       </li>
                     ))}
