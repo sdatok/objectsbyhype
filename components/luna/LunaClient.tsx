@@ -6,6 +6,7 @@ import type { Room } from "colyseus.js";
 import type { PublicLunaState } from "@/lib/luna-config";
 import { joinLunaRoom } from "@/lib/luna-client";
 import LobbyScene, { LobbyCard, LobbyPrimaryButton } from "@/components/survivor/LobbyScene";
+import { SurvivorMusicProvider } from "@/components/survivor/SurvivorMusic";
 import SlimeAvatar from "@/components/survivor/SlimeAvatar";
 import {
   DEFAULT_NAME_COLOR,
@@ -107,10 +108,15 @@ export default function LunaClient({ initialState }: { initialState: PublicLunaS
   };
 
   if (phase === "inRoom" && roomRef.current) {
-    return <LunaGameCanvas room={roomRef.current} onLeave={leave} />;
+    return (
+      <SurvivorMusicProvider>
+        <LunaGameCanvas room={roomRef.current} onLeave={leave} />
+      </SurvivorMusicProvider>
+    );
   }
 
   return (
+    <SurvivorMusicProvider>
     <LobbyScene>
       <div className="w-full max-w-md space-y-4">
         <div className="text-center mb-2">
@@ -188,5 +194,6 @@ export default function LunaClient({ initialState }: { initialState: PublicLunaS
       )}
       </div>
     </LobbyScene>
+    </SurvivorMusicProvider>
   );
 }
