@@ -1,6 +1,6 @@
 import { Obstacle, Player } from "./state";
 import type { EscapeLunaState } from "./luna-state";
-import { LunaPit, LunaBullet } from "./luna-state";
+import { LunaBullet } from "./luna-state";
 import {
   WORLD_HALF,
   PLAYER_RADIUS,
@@ -33,10 +33,6 @@ import {
   LUNA_STUCK_MOVE_EPS,
   LUNA_PLAYER_PUSH_ITERATIONS,
   LUNA_PLAYER_PUSH_TRANSFER,
-  LUNA_PIT_COUNT,
-  LUNA_PIT_RADIUS_MIN,
-  LUNA_PIT_RADIUS_MAX,
-  LUNA_PIT_MIN_SPACING,
   LUNA_SPAWN_CLEAR_RADIUS,
   LUNA_PUPPY_RADIUS,
   LUNA_PUPPY_SPEED,
@@ -275,93 +271,11 @@ export function generateLunaMaze(state: EscapeLunaState): void {
     state.obstacles.push(o);
   }
 
-  generateLunaPits(state, placed);
+  state.pits.clear();
 
   console.log(
-    `[escape-luna] generateLunaMaze placed ${state.obstacles.length} segments, ${state.pits.length} pits`
+    `[escape-luna] generateLunaMaze placed ${state.obstacles.length} segments`
   );
-}
-
-interface PitCandidate {
-  x: number;
-  y: number;
-  radius: number;
-}
-
-function circleOverlapsRect(
-  cx: number,
-  cy: number,
-  radius: number,
-  r: ObstacleRect,
-  margin: number
-) {
-  const halfW = r.w / 2 + margin;
-  const halfH = r.h / 2 + margin;
-  const closestX = clamp(cx, r.x - halfW, r.x + halfW);
-  const closestY = clamp(cy, r.y - halfH, r.y + halfH);
-  const dx = cx - closestX;
-  const dy = cy - closestY;
-  return dx * dx + dy * dy < radius * radius;
-}
-
-function pitPlacementOk(
-  state: EscapeLunaState,
-  placedRects: ObstacleRect[],
-  placedPits: PitCandidate[],
-  candidate: PitCandidate
-) {
-  if (Math.hypot(candidate.x, candidate.y) < OBSTACLE_KEEP_OUT + 160) return false;
-  const edgeLimit = Math.max(120, state.zone.radius - candidate.radius - OBSTACLE_EDGE_INSET);
-  if (Math.hypot(candidate.x - state.zone.cx, candidate.y - state.zone.cy) > edgeLimit) {
-    return false;
-  }
-  for (const r of placedRects) {
-    if (circleOverlapsRect(candidate.x, candidate.y, candidate.radius + 24, r, 0)) {
-      return false;
-    }
-  }
-  for (const pit of placedPits) {
-    if (
-      Math.hypot(candidate.x - pit.x, candidate.y - pit.y) <
-      candidate.radius + pit.radius + LUNA_PIT_MIN_SPACING
-    ) {
-      return false;
-    }
-  }
-  return true;
-}
-
-function generateLunaPits(state: EscapeLunaState, placedRects: ObstacleRect[]) {
-  state.pits.clear();
-  const placedPits: PitCandidate[] = [];
-  let attempts = LUNA_PIT_COUNT * 40;
-
-  while (placedPits.length < LUNA_PIT_COUNT && attempts > 0) {
-    attempts--;
-    const radius =
-      LUNA_PIT_RADIUS_MIN +
-      Math.random() * (LUNA_PIT_RADIUS_MAX - LUNA_PIT_RADIUS_MIN);
-    const angle = Math.random() * Math.PI * 2;
-    const dist =
-      OBSTACLE_KEEP_OUT +
-      220 +
-      Math.random() * (state.zone.radius * 0.62 - OBSTACLE_KEEP_OUT);
-    const candidate: PitCandidate = {
-      x: Math.cos(angle) * dist,
-      y: Math.sin(angle) * dist,
-      radius,
-    };
-    if (!pitPlacementOk(state, placedRects, placedPits, candidate)) continue;
-    placedPits.push(candidate);
-  }
-
-  for (const pit of placedPits) {
-    const p = new LunaPit();
-    p.x = pit.x;
-    p.y = pit.y;
-    p.radius = pit.radius;
-    state.pits.push(p);
-  }
 }
 
 function resolveAgainstObstacles(
@@ -705,10 +619,6 @@ function resolveLunaPlayerBumps(
   }
 }
 
-function killPlayerByFall(p: Player, nowMs: number) {
-  eliminateToPuppy(p, nowMs);
-}
-
 /** Survivor eliminated — becomes a puppy at their current position. */
 export function eliminateToPuppy(p: Player, nowMs: number) {
   if (!p.alive || p.puppyMode) return;
@@ -795,42 +705,7 @@ export function isSafeLunaSpawnPoint(
     }
   }
 
-  for (let i = 0; i < state.pits.length; i++) {
-    const pit = state.pits[i]!;
-    if (Math.hypot(x - pit.x, y - pit.y) < pit.radius + radius + 12) {
-      return false;
-    }
-  }
-
   return true;
-}
-
-function tickLunaFalls(state: EscapeLunaState, nowMs: number) {
-  state.players.forEach((p) => {
-    if (!p.alive) return;
-    const radius = PLAYER_RADIUS * p.radiusScale;
-
-    for (let i = 0; i < state.pits.length; i++) {
-      const pit = state.pits[i]!;
-      if (Math.hypot(p.x - pit.x, p.y - pit.y) < pit.radius - radius * 0.35) {
-        killPlayerByFall(p, nowMs);
-        return;
-      }
-    }
-
-    const edgeDist = Math.hypot(p.x - state.zone.cx, p.y - state.zone.cy);
-    if (edgeDist > state.zone.radius - radius * 0.35) {
-      killPlayerByFall(p, nowMs);
-      return;
-    }
-
-    if (
-      Math.abs(p.x) > WORLD_HALF - radius * 0.45 ||
-      Math.abs(p.y) > WORLD_HALF - radius * 0.45
-    ) {
-      killPlayerByFall(p, nowMs);
-    }
-  });
 }
 
 export function tickLunaPlayers(
@@ -856,6 +731,8 @@ export function tickLunaPlayers(
     p.x = resolveAgainstObstacles(p.x, p.y, state.obstacles, "x", radius);
     p.y += dy;
     p.y = resolveAgainstObstacles(p.x, p.y, state.obstacles, "y", radius);
+    p.x = clamp(p.x, -WORLD_HALF + radius, WORLD_HALF - radius);
+    p.y = clamp(p.y, -WORLD_HALF + radius, WORLD_HALF - radius);
   });
 
   resolveLunaPlayerBumps(state, inputs);
@@ -865,9 +742,10 @@ export function tickLunaPlayers(
     const radius = PLAYER_RADIUS * p.radiusScale;
     p.x = resolveAgainstObstacles(p.x, p.y, state.obstacles, "x", radius);
     p.y = resolveAgainstObstacles(p.x, p.y, state.obstacles, "y", radius);
+    p.x = clamp(p.x, -WORLD_HALF + radius, WORLD_HALF - radius);
+    p.y = clamp(p.y, -WORLD_HALF + radius, WORLD_HALF - radius);
   });
 
-  tickLunaFalls(state, nowMs);
   tickLunaPuppies(state, inputs, dtSec, nowMs);
 }
 
@@ -986,7 +864,7 @@ export function tickLunaZone(
     const dx = p.x - state.zone.cx;
     const dy = p.y - state.zone.cy;
     const edgeDist = Math.hypot(dx, dy);
-    if (edgeDist <= state.zone.radius - radius * 0.35) return;
+    if (edgeDist <= state.zone.radius) return;
     p.hp -= dmg;
     if (p.hp <= 0) {
       p.hp = 0;

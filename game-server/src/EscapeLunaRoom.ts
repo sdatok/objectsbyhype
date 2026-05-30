@@ -468,7 +468,9 @@ export class EscapeLunaRoom extends Room<EscapeLunaState> {
   }
 
   private rankPlayers(): Player[] {
-    const all = Array.from(this.state.players.values());
+    const all = Array.from(this.state.players.values()).filter(
+      (p) => p.connected && (p.alive || p.puppyMode || p.deathAt > 0)
+    );
     all.sort((a, b) => {
       if (a.alive !== b.alive) return a.alive ? -1 : 1;
       if (a.alive && b.alive) return b.hp - a.hp;

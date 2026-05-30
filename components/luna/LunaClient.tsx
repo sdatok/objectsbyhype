@@ -80,8 +80,7 @@ export default function LunaClient({ initialState }: { initialState: PublicLunaS
         setAliveInRoom(n);
         if (status === "PLAYING") setPhase("inRoom");
         else if (status === "ENDED") {
-          roomRef.current = null;
-          setPhase("noMatch");
+          setPhase("inRoom");
         } else {
           setPhase("standby");
         }

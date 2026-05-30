@@ -13,10 +13,18 @@ import { drawSlime } from "@/components/survivor/SlimeAvatar";
 import { drawLunaDog, drawLunaPuppy } from "@/components/luna/LunaDogSprite";
 import {
   drawLunaObstacle,
-  drawLunaPit,
   preloadLunaObstacleSprites,
 } from "@/components/luna/lunaObstacleSprites";
-import { parseNameColor } from "@/lib/survivor-slime";
+import LunaMatchEndOverlay, {
+  type LunaEndSnapshot,
+} from "@/components/luna/LunaMatchEndOverlay";
+import {
+  DEFAULT_SLIME_COLOR,
+  parseNameColor,
+  parseSlimeColor,
+  parseSlimeFace,
+  parseSlimeAccessories,
+} from "@/lib/survivor-slime";
 
 const WORLD = 2800;
 const WORLD_HALF = WORLD / 2;
@@ -44,6 +52,76 @@ interface LunaPlayerSnap {
   hp: number;
   maxHp: number;
   aim?: number;
+  placement?: number;
+  deathAt?: number;
+}
+
+function snapshotLunaStatus(room: Room): LunaEndSnapshot & { status: string } {
+  const empty = {
+    status: "WAITING",
+    selfPlacement: 0,
+    selfDisplayName: "",
+    selfSlimeColor: DEFAULT_SLIME_COLOR,
+    selfSlimeFace: 0,
+    selfSlimeAccessories: 0,
+    selfNameColor: "#ffffff",
+    selfAlive: false,
+    selfPuppyMode: false,
+    prizeTitle: "",
+    survivedSeconds: 0,
+    playerCount: 0,
+  };
+  try {
+    const rs = room.state as unknown as {
+      status?: string;
+      prizeTitle?: string;
+      startedAtMs?: number;
+      endedAtMs?: number;
+      players?: {
+        forEach: (
+          cb: (p: LunaPlayerSnap, id: string) => void
+        ) => void;
+      };
+    };
+    if (!rs?.players?.forEach) return empty;
+
+    let playerCount = 0;
+    let me: LunaPlayerSnap | undefined;
+    rs.players.forEach((p: LunaPlayerSnap, id: string) => {
+      if (p.alive || p.puppyMode || (p.placement ?? 0) > 0) playerCount++;
+      if (id === room.sessionId) me = p;
+    });
+
+    const startedAtMs = Number(rs.startedAtMs ?? 0);
+    const endedAtMs = Number(rs.endedAtMs ?? 0);
+    let survivedSeconds = 0;
+    if (startedAtMs > 0) {
+      const endMs =
+        me?.deathAt && me.deathAt > 0
+          ? me.deathAt
+          : endedAtMs > 0
+            ? endedAtMs
+            : Date.now();
+      survivedSeconds = Math.max(0, Math.floor((endMs - startedAtMs) / 1000));
+    }
+
+    return {
+      status: rs.status ?? "WAITING",
+      selfPlacement: me?.placement ?? 0,
+      selfDisplayName: me?.displayName ?? "",
+      selfSlimeColor: parseSlimeColor(me?.slimeColor),
+      selfSlimeFace: parseSlimeFace(me?.slimeFace),
+      selfSlimeAccessories: parseSlimeAccessories(me?.slimeAccessories),
+      selfNameColor: parseNameColor(me?.nameColor),
+      selfAlive: me?.alive ?? false,
+      selfPuppyMode: me?.puppyMode ?? false,
+      prizeTitle: rs.prizeTitle ?? "",
+      survivedSeconds,
+      playerCount,
+    };
+  } catch {
+    return empty;
+  }
 }
 
 interface LunaGameCanvasProps {
@@ -68,6 +146,13 @@ export default function LunaGameCanvas({ room, onLeave }: LunaGameCanvasProps) {
   const mobileControls = useMobileControls();
   const spectatorCamRef = useRef({ x: 0, y: 0, ready: false });
   const [selfMode, setSelfMode] = useState<"runner" | "puppy" | "spectator">("runner");
+  const [endSnapshot, setEndSnapshot] = useState(() => snapshotLunaStatus(room));
+
+  useEffect(() => {
+    const sync = () => setEndSnapshot(snapshotLunaStatus(room));
+    sync();
+    room.onStateChange(sync);
+  }, [room]);
 
   useEffect(() => {
     preloadLunaObstacleSprites();
@@ -237,15 +322,6 @@ export default function LunaGameCanvas({ room, onLeave }: LunaGameCanvasProps) {
       ctx.beginPath();
       ctx.arc(zc.x, zc.y, zone.radius * scale, 0, Math.PI * 2);
       ctx.fill();
-
-      const pits = (cur.pits ?? []) as Array<{
-        x: number;
-        y: number;
-        radius: number;
-      }>;
-      for (const pit of pits) {
-        drawLunaPit(ctx, toScreen, pit, scale);
-      }
 
       const obstacles = (cur.obstacles ?? []) as Array<{
         kind: string;
@@ -444,6 +520,9 @@ export default function LunaGameCanvas({ room, onLeave }: LunaGameCanvasProps) {
         Leave
       </button>
       <RetroOverlay />
+      {endSnapshot.status === "ENDED" && (
+        <LunaMatchEndOverlay snapshot={endSnapshot} onLeave={onLeave} />
+      )}
     </div>
   );
 }
