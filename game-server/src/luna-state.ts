@@ -11,6 +11,15 @@ export class LunaDog extends Schema {
   @type("number") speed = 0;
   @type("string") targetSessionId = "";
   @type("number") catchAtMs = 0;
+  /** Server time when Luna last jumped over an obstacle (client VFX). */
+  @type("number") jumpAtMs = 0;
+}
+
+/** Circular pit — players fall through; Luna treats as solid. */
+export class LunaPit extends Schema {
+  @type("number") x = 0;
+  @type("number") y = 0;
+  @type("number") radius = 60;
 }
 
 export class EscapeLunaState extends Schema {
@@ -26,6 +35,7 @@ export class EscapeLunaState extends Schema {
 
   @type({ map: Player }) players = new MapSchema<Player>();
   @type([Obstacle]) obstacles = new ArraySchema<Obstacle>();
+  @type([LunaPit]) pits = new ArraySchema<LunaPit>();
   @type(Zone) zone = new Zone();
   @type(LunaDog) dog = new LunaDog();
 }

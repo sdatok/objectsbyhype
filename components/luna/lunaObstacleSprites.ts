@@ -90,3 +90,26 @@ export function drawLunaObstacle(
   ctx.fillRect(tl.x, tl.y, w, h);
   ctx.strokeRect(tl.x, tl.y, w, h);
 }
+
+export function drawLunaPit(
+  ctx: CanvasRenderingContext2D,
+  toScreen: (wx: number, wy: number) => { x: number; y: number },
+  pit: { x: number; y: number; radius: number },
+  scale: number
+) {
+  const c = toScreen(pit.x, pit.y);
+  const r = pit.radius * scale;
+  const grad = ctx.createRadialGradient(c.x, c.y, r * 0.08, c.x, c.y, r);
+  grad.addColorStop(0, "#020208");
+  grad.addColorStop(0.55, "#0a0812");
+  grad.addColorStop(1, "#1c1410");
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(c.x, c.y, r, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "rgba(60, 45, 30, 0.85)";
+  ctx.lineWidth = Math.max(2, r * 0.06);
+  ctx.beginPath();
+  ctx.arc(c.x, c.y, r, 0, Math.PI * 2);
+  ctx.stroke();
+}

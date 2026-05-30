@@ -13,6 +13,7 @@ import { drawSlime } from "@/components/survivor/SlimeAvatar";
 import { drawLunaDog } from "@/components/luna/LunaDogSprite";
 import {
   drawLunaObstacle,
+  drawLunaPit,
   preloadLunaObstacleSprites,
 } from "@/components/luna/lunaObstacleSprites";
 import { parseNameColor } from "@/lib/survivor-slime";
@@ -190,6 +191,15 @@ export default function LunaGameCanvas({ room, onLeave }: LunaGameCanvasProps) {
       ctx.arc(zc.x, zc.y, zone.radius * scale, 0, Math.PI * 2);
       ctx.fill();
 
+      const pits = (cur.pits ?? []) as Array<{
+        x: number;
+        y: number;
+        radius: number;
+      }>;
+      for (const pit of pits) {
+        drawLunaPit(ctx, toScreen, pit, scale);
+      }
+
       const obstacles = (cur.obstacles ?? []) as Array<{
         kind: string;
         x: number;
@@ -236,7 +246,14 @@ export default function LunaGameCanvas({ room, onLeave }: LunaGameCanvasProps) {
         ctx.fillText(p.displayName, sp.x, sp.y - PLAYER_R * scale * 2);
       }
 
-      const dog = cur.dog as { x: number; y: number; vx?: number; vy?: number; speed: number };
+      const dog = cur.dog as {
+        x: number;
+        y: number;
+        vx?: number;
+        vy?: number;
+        speed: number;
+        jumpAtMs?: number;
+      };
       if (dog) {
         const dp = toScreen(dog.x, dog.y);
         drawLunaDog(
@@ -247,7 +264,8 @@ export default function LunaGameCanvas({ room, onLeave }: LunaGameCanvasProps) {
           dog.vx ?? 0,
           dog.vy ?? 0,
           dog.speed ?? 0,
-          Date.now()
+          Date.now(),
+          dog.jumpAtMs ?? 0
         );
       }
 

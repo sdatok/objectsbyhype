@@ -37,15 +37,29 @@ export const LUNA_RADIUS = 26;
 /** Obstacle sliding uses a slightly smaller radius so Luna navigates maze corners. */
 export const LUNA_NAV_RADIUS = 20;
 /** Starting chase speed (units/sec). */
-export const LUNA_SPEED_START = 200;
-/** Max chase speed — can exceed PLAYER_SPEED (280) late match. */
-export const LUNA_SPEED_MAX = 340;
+export const LUNA_SPEED_START = 170;
+/** Max chase speed late match (slightly below player sprint). */
+export const LUNA_SPEED_MAX = 290;
 /** How quickly Luna steers toward her target (higher = snappier tracking). */
 export const LUNA_STEER_RATE = 13;
 /** Lead prediction on moving targets (seconds). */
 export const LUNA_PREDICT_SEC = 0.55;
 /** Extra speed boost when closing within this range. */
 export const LUNA_CLOSE_RANGE = 420;
+/** If Luna barely moves while chasing for this long, she leaps over the blocker. */
+export const LUNA_STUCK_JUMP_MS = 3000;
+/** Per-tick movement below this while chasing counts as stuck. */
+export const LUNA_STUCK_MOVE_EPS = 6;
+
+/** Player bump — overlap separation + shove from mover input. */
+export const LUNA_PLAYER_PUSH_ITERATIONS = 4;
+export const LUNA_PLAYER_PUSH_TRANSFER = 0.92;
+
+/** Fall-through pits scattered on the arena floor. */
+export const LUNA_PIT_COUNT = 10;
+export const LUNA_PIT_RADIUS_MIN = 48;
+export const LUNA_PIT_RADIUS_MAX = 82;
+export const LUNA_PIT_MIN_SPACING = 140;
 
 /** Maze density — more walls than Survivor island. */
 export const LUNA_CLIFF_CLUSTER_COUNT = 14;

@@ -364,7 +364,7 @@ export class EscapeLunaRoom extends Room<EscapeLunaState> {
     const dtSec = dtMs / 1000;
     if (this.state.status !== "PLAYING") return;
 
-    tickLunaPlayers(this.state, this.inputs, dtSec);
+    tickLunaPlayers(this.state, this.inputs, dtSec, now);
     tickLunaDog(this.state, this.inputs, dtSec, now);
     tickLunaZone(this.state, dtSec, now);
 
@@ -470,6 +470,7 @@ export class EscapeLunaRoom extends Room<EscapeLunaState> {
     }
     this.state.players.clear();
     this.state.obstacles.clear();
+    this.state.pits.clear();
     this.inputs.clear();
     this.inputCounters.clear();
     this.state.endedAtMs = 0;

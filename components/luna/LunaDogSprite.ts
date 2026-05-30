@@ -7,15 +7,19 @@ export function drawLunaDog(
   vx: number,
   vy: number,
   speed: number,
-  nowMs: number
+  nowMs: number,
+  jumpAtMs = 0
 ) {
   const angle =
     Math.hypot(vx, vy) > 8 ? Math.atan2(vy, vx) : 0;
   const pulse = 0.5 + 0.5 * Math.sin(nowMs * 0.012);
   const chase = Math.min(1, speed / 235);
+  const jumpAge = jumpAtMs > 0 ? nowMs - jumpAtMs : Infinity;
+  const jumpLift =
+    jumpAge < 520 ? Math.sin((jumpAge / 520) * Math.PI) * radius * 2.4 : 0;
 
   ctx.save();
-  ctx.translate(x, y);
+  ctx.translate(x, y - jumpLift);
   ctx.rotate(angle);
 
   // Menacing aura when she's closing in
@@ -30,10 +34,19 @@ export function drawLunaDog(
     ctx.fill();
   }
 
-  // Ground shadow
-  ctx.fillStyle = "rgba(0, 0, 0, 0.45)";
+  // Ground shadow — shrinks while airborne
+  const shadowScale = jumpLift > 0 ? Math.max(0.25, 1 - jumpLift / (radius * 2.4)) : 1;
+  ctx.fillStyle = `rgba(0, 0, 0, ${0.45 * shadowScale})`;
   ctx.beginPath();
-  ctx.ellipse(0, radius * 0.55, radius * 1.15, radius * 0.35, 0, 0, Math.PI * 2);
+  ctx.ellipse(
+    0,
+    radius * 0.55 + jumpLift * 0.35,
+    radius * 1.15 * shadowScale,
+    radius * 0.35 * shadowScale,
+    0,
+    0,
+    Math.PI * 2
+  );
   ctx.fill();
 
   // Tail — whip-like, animated
