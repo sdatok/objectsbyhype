@@ -4,11 +4,13 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { WheelTier } from "@/lib/wheel-prize-icons";
 import PrizeCard from "./PrizeCard";
 
-const CARD_WIDTH = 220;
+/** Must match compact PrizeCard width + gap-4 (16px). */
+export const STRIP_CARD_WIDTH = 220;
 const CARD_GAP = 16;
-const STRIDE = CARD_WIDTH + CARD_GAP;
-const SPIN_DURATION_MS = 4800;
-const LEAD_ITEMS = 32;
+const FALLBACK_STRIDE = STRIP_CARD_WIDTH + CARD_GAP;
+const SPIN_DURATION_MS = 10_000;
+const LEAD_ITEMS = 36;
+const TRAVEL_ITEMS = 52;
 
 export interface StripPrize {
   label: string;
@@ -19,7 +21,7 @@ function pickRandom(pool: StripPrize[]): StripPrize {
   return pool[Math.floor(Math.random() * pool.length)]!;
 }
 
-function buildStrip(pool: StripPrize[], winnerLabel: string): StripPrize[] {
+export function buildStrip(pool: StripPrize[], winnerLabel: string): StripPrize[] {
   const winner =
     pool.find((p) => p.label === winnerLabel) ??
     ({ label: winnerLabel, tier: "COMMON" as const } satisfies StripPrize);
@@ -31,8 +33,29 @@ function buildStrip(pool: StripPrize[], winnerLabel: string): StripPrize[] {
   return strip;
 }
 
-function targetOffset(winnerIndex: number, viewportWidth: number) {
-  return -(winnerIndex * STRIDE) + (viewportWidth / 2 - CARD_WIDTH / 2);
+export function measureStripMetrics(stripEl: HTMLElement) {
+  const first = stripEl.children[0] as HTMLElement | undefined;
+  const second = stripEl.children[1] as HTMLElement | undefined;
+  const cardWidth = first?.offsetWidth ?? STRIP_CARD_WIDTH;
+  const stride =
+    first && second
+      ? second.offsetLeft - first.offsetLeft
+      : cardWidth + CARD_GAP;
+  return { cardWidth, stride };
+}
+
+export function winnerOffset(
+  winnerIndex: number,
+  viewportWidth: number,
+  cardWidth: number,
+  stride: number
+) {
+  return -(winnerIndex * stride) + (viewportWidth / 2 - cardWidth / 2);
+}
+
+/** Fast early travel, long ease-out at the end. */
+function spinEase(t: number) {
+  return 1 - Math.pow(1 - t, 6);
 }
 
 interface PrizeStripProps {
@@ -49,10 +72,11 @@ export default function PrizeStrip({
   onSpinComplete,
 }: PrizeStripProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
+  const stripRef = useRef<HTMLDivElement>(null);
   const [offset, setOffset] = useState(0);
   const [strip, setStrip] = useState<StripPrize[]>([]);
   const [landed, setLanded] = useState(false);
-  const [viewportWidth, setViewportWidth] = useState(400);
+  const [winnerIndex, setWinnerIndex] = useState(LEAD_ITEMS);
   const onCompleteRef = useRef(onSpinComplete);
   onCompleteRef.current = onSpinComplete;
 
@@ -69,50 +93,71 @@ export default function PrizeStrip({
     [pool]
   );
 
-  useEffect(() => {
-    const el = viewportRef.current;
-    if (!el) return;
-    const update = () => setViewportWidth(el.clientWidth);
-    update();
-    const ro = new ResizeObserver(update);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-
   useLayoutEffect(() => {
     if (!spinning || !targetLabel) return;
 
     const nextStrip = buildStrip(pool, targetLabel);
-    const winnerIndex = LEAD_ITEMS;
-    const end = targetOffset(winnerIndex, viewportWidth);
-    const start = end - STRIDE * 18;
-
     setStrip(nextStrip);
+    setWinnerIndex(LEAD_ITEMS);
     setLanded(false);
-    setOffset(start);
 
-    const startMs = performance.now();
-    let raf = 0;
+    let measureRaf = 0;
+    let animRaf = 0;
+    let completeTimer = 0;
 
-    const tick = (now: number) => {
-      const t = Math.min(1, (now - startMs) / SPIN_DURATION_MS);
-      const ease = 1 - Math.pow(1 - t, 5);
-      setOffset(start + (end - start) * ease);
-
-      if (t < 1) {
-        raf = requestAnimationFrame(tick);
-      } else {
-        setLanded(true);
-        window.setTimeout(() => onCompleteRef.current(), 450);
+    measureRaf = requestAnimationFrame(() => {
+      const stripEl = stripRef.current;
+      const viewportEl = viewportRef.current;
+      if (!stripEl || !viewportEl) {
+        onCompleteRef.current();
+        return;
       }
-    };
 
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [spinning, targetLabel, pool, viewportWidth]);
+      const { cardWidth, stride } = measureStripMetrics(stripEl);
+      const vw = viewportEl.clientWidth;
+      const winIdx = LEAD_ITEMS;
+      const end = winnerOffset(winIdx, vw, cardWidth, stride);
+      const start = end - stride * TRAVEL_ITEMS;
+
+      setOffset(start);
+
+      const startMs = performance.now();
+
+      const tick = (now: number) => {
+        const t = Math.min(1, (now - startMs) / SPIN_DURATION_MS);
+        setOffset(start + (end - start) * spinEase(t));
+
+        if (t < 1) {
+          animRaf = requestAnimationFrame(tick);
+        } else {
+          setOffset(end);
+          setLanded(true);
+          completeTimer = window.setTimeout(() => onCompleteRef.current(), 500);
+        }
+      };
+
+      animRaf = requestAnimationFrame(tick);
+    });
+
+    return () => {
+      cancelAnimationFrame(measureRaf);
+      cancelAnimationFrame(animRaf);
+      window.clearTimeout(completeTimer);
+    };
+  }, [spinning, targetLabel, pool]);
 
   const animating = spinning && !!targetLabel;
-  const idleOffset = viewportWidth / 2 - CARD_WIDTH / 2 - STRIDE * 0.5;
+  const [idleOffset, setIdleOffset] = useState(0);
+
+  useEffect(() => {
+    const viewportEl = viewportRef.current;
+    const stripEl = stripRef.current;
+    if (!viewportEl || !stripEl || animating || landed) return;
+
+    const { cardWidth, stride } = measureStripMetrics(stripEl);
+    setIdleOffset(winnerOffset(0, viewportEl.clientWidth, cardWidth, stride) - stride * 0.5);
+  }, [idleStrip, animating, landed]);
+
   const displayOffset = animating || landed ? offset : idleOffset;
   const visibleStrip = animating || landed ? strip : idleStrip;
 
@@ -140,12 +185,12 @@ export default function PrizeStrip({
         style={{ boxShadow: "inset 0 0 40px rgba(124,58,237,0.15)" }}
       >
         <div
+          ref={stripRef}
           className={`absolute top-0 left-0 flex h-full items-center gap-4 will-change-transform ${
-            animating ? "" : "opacity-50"
+            animating || landed ? "" : "opacity-50"
           }`}
           style={{
-            transform: `translateX(${displayOffset}px)`,
-            transition: landed ? "transform 120ms ease-out" : undefined,
+            transform: `translate3d(${displayOffset}px, 0, 0)`,
           }}
         >
           {visibleStrip.map((item, i) => (
@@ -154,7 +199,7 @@ export default function PrizeStrip({
               label={item.label}
               tier={item.tier}
               compact
-              glowing={landed && i === LEAD_ITEMS}
+              glowing={landed && i === winnerIndex}
             />
           ))}
         </div>

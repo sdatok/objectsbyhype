@@ -18,7 +18,7 @@ export default function PrizeCard({
   return (
     <div
       className={`flex-shrink-0 flex items-center gap-3 border-2 bg-black/80 text-left transition-shadow ${
-        compact ? "px-3 py-2 min-w-[180px]" : "px-4 py-3 min-w-[220px]"
+        compact ? "px-3 py-2 w-[220px]" : "px-4 py-3 w-[260px]"
       } ${glowing ? "animate-pulse" : ""}`}
       style={{
         borderColor: style.color,
