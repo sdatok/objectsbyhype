@@ -1,6 +1,6 @@
 import { Obstacle, Player } from "./state";
 import type { EscapeLunaState } from "./luna-state";
-import { LunaPit } from "./luna-state";
+import { LunaPit, LunaBullet } from "./luna-state";
 import {
   WORLD_HALF,
   PLAYER_RADIUS,
@@ -37,6 +37,21 @@ import {
   LUNA_PIT_RADIUS_MIN,
   LUNA_PIT_RADIUS_MAX,
   LUNA_PIT_MIN_SPACING,
+  LUNA_SPAWN_CLEAR_RADIUS,
+  LUNA_PUPPY_RADIUS,
+  LUNA_PUPPY_SPEED,
+  LUNA_PUPPY_CATCH_PAD,
+  LUNA_INFECTED_SPEED_BONUS,
+  LUNA_LAST_SURVIVOR_SPEED_BONUS,
+  LUNA_SURVIVOR_SPEED_CAP,
+  LUNA_SHOOT_INTERVAL_MS,
+  LUNA_SHOOT_DURATION_MS,
+  LUNA_SHOOT_BULLET_INTERVAL_MS,
+  LUNA_BULLET_SPEED,
+  LUNA_BULLET_RADIUS,
+  LUNA_BULLET_TTL_MS,
+  LUNA_BULLET_SPREAD_RAD,
+  LUNA_BULLET_MAX,
   LUNA_ZONE_DPS_END,
   LUNA_ZONE_DPS_START,
   LUNA_ZONE_END_RADIUS,
@@ -691,10 +706,54 @@ function resolveLunaPlayerBumps(
 }
 
 function killPlayerByFall(p: Player, nowMs: number) {
-  if (!p.alive) return;
+  eliminateToPuppy(p, nowMs);
+}
+
+/** Survivor eliminated — becomes a puppy at their current position. */
+export function eliminateToPuppy(p: Player, nowMs: number) {
+  if (!p.alive || p.puppyMode) return;
   p.alive = false;
   p.hp = 0;
   p.deathAt = nowMs;
+  p.puppyMode = true;
+  p.radiusScale = LUNA_PUPPY_RADIUS / PLAYER_RADIUS;
+  p.speedScale = LUNA_PUPPY_SPEED / PLAYER_SPEED;
+}
+
+function tickLunaPuppies(
+  state: EscapeLunaState,
+  inputs: Map<string, PlayerInput>,
+  dtSec: number,
+  nowMs: number
+) {
+  state.players.forEach((p, sessionId) => {
+    if (!p.puppyMode || p.alive) return;
+    const inp = inputs.get(sessionId);
+    if (!inp) return;
+
+    p.aim = inp.aim;
+    const speed = LUNA_PUPPY_SPEED;
+    const radius = LUNA_PUPPY_RADIUS;
+    const dx = inp.moveX * speed * dtSec;
+    const dy = inp.moveY * speed * dtSec;
+
+    p.x += dx;
+    p.x = resolveAgainstObstacles(p.x, p.y, state.obstacles, "x", radius);
+    p.y += dy;
+    p.y = resolveAgainstObstacles(p.x, p.y, state.obstacles, "y", radius);
+  });
+
+  state.players.forEach((puppy) => {
+    if (!puppy.puppyMode || puppy.alive) return;
+    state.players.forEach((target) => {
+      if (!target.alive || target.puppyMode) return;
+      const catchR =
+        LUNA_PUPPY_RADIUS + PLAYER_RADIUS * target.radiusScale * LUNA_PUPPY_CATCH_PAD;
+      if (Math.hypot(target.x - puppy.x, target.y - puppy.y) <= catchR) {
+        eliminateToPuppy(target, nowMs);
+      }
+    });
+  });
 }
 
 /** Furthest spawn distance that stays on the walkable floor (zone ∩ world square). */
@@ -719,6 +778,10 @@ export function isSafeLunaSpawnPoint(
     return false;
   }
   if (Math.hypot(x, y) < 180) return false;
+
+  const lunaDx = x - state.dog.x;
+  const lunaDy = y - state.dog.y;
+  if (Math.hypot(lunaDx, lunaDy) < LUNA_SPAWN_CLEAR_RADIUS) return false;
 
   for (let i = 0; i < state.obstacles.length; i++) {
     const o = state.obstacles[i]!;
@@ -776,13 +839,15 @@ export function tickLunaPlayers(
   dtSec: number,
   nowMs: number
 ) {
+  const infectedMult = infectedSurvivorSpeedMult(state);
+
   state.players.forEach((p, sessionId) => {
     if (!p.alive) return;
     const inp = inputs.get(sessionId);
     if (!inp) return;
 
     p.aim = inp.aim;
-    const speed = PLAYER_SPEED * p.speedScale;
+    const speed = PLAYER_SPEED * infectedMult;
     const radius = PLAYER_RADIUS * p.radiusScale;
     const dx = inp.moveX * speed * dtSec;
     const dy = inp.moveY * speed * dtSec;
@@ -803,6 +868,98 @@ export function tickLunaPlayers(
   });
 
   tickLunaFalls(state, nowMs);
+  tickLunaPuppies(state, inputs, dtSec, nowMs);
+}
+
+export function countLunaPuppies(state: EscapeLunaState): number {
+  let n = 0;
+  state.players.forEach((p) => {
+    if (p.puppyMode && !p.alive) n++;
+  });
+  return n;
+}
+
+export function countLunaSurvivors(state: EscapeLunaState): number {
+  let n = 0;
+  state.players.forEach((p) => {
+    if (p.alive) n++;
+  });
+  return n;
+}
+
+/** Faster survivors as the puppy swarm grows; big boost for the last runner. */
+export function infectedSurvivorSpeedMult(state: EscapeLunaState): number {
+  const survivors = countLunaSurvivors(state);
+  if (survivors === 0) return 1;
+  const puppies = countLunaPuppies(state);
+  if (puppies === 0) return 1;
+  const infection01 = puppies / (puppies + survivors);
+  let mult = 1 + infection01 * LUNA_INFECTED_SPEED_BONUS;
+  if (survivors === 1) {
+    mult += LUNA_LAST_SURVIVOR_SPEED_BONUS;
+  }
+  return Math.min(LUNA_SURVIVOR_SPEED_CAP, mult);
+}
+
+function spawnLunaBullet(
+  state: EscapeLunaState,
+  x: number,
+  y: number,
+  angle: number,
+  nowMs: number
+) {
+  while (state.bullets.length >= LUNA_BULLET_MAX) {
+    state.bullets.shift();
+  }
+  const spread = (Math.random() - 0.5) * LUNA_BULLET_SPREAD_RAD;
+  const a = angle + spread;
+  const muzzle = LUNA_RADIUS + 10;
+  const b = new LunaBullet();
+  b.x = x + Math.cos(a) * muzzle;
+  b.y = y + Math.sin(a) * muzzle;
+  b.vx = Math.cos(a) * LUNA_BULLET_SPEED;
+  b.vy = Math.sin(a) * LUNA_BULLET_SPEED;
+  b.spawnedAtMs = nowMs;
+  state.bullets.push(b);
+}
+
+export function tickLunaBullets(
+  state: EscapeLunaState,
+  dtSec: number,
+  nowMs: number
+) {
+  if (state.status !== "PLAYING") return;
+
+  for (let i = state.bullets.length - 1; i >= 0; i--) {
+    const b = state.bullets[i]!;
+    b.x += b.vx * dtSec;
+    b.y += b.vy * dtSec;
+
+    if (nowMs - b.spawnedAtMs > LUNA_BULLET_TTL_MS) {
+      state.bullets.splice(i, 1);
+      continue;
+    }
+    if (
+      Math.abs(b.x) > WORLD_HALF + 80 ||
+      Math.abs(b.y) > WORLD_HALF + 80
+    ) {
+      state.bullets.splice(i, 1);
+      continue;
+    }
+
+    let hit = false;
+    state.players.forEach((p) => {
+      if (hit || !p.alive) return;
+      const r = PLAYER_RADIUS * p.radiusScale + LUNA_BULLET_RADIUS;
+      if (Math.hypot(p.x - b.x, p.y - b.y) <= r) {
+        eliminateToPuppy(p, nowMs);
+        hit = true;
+      }
+    });
+    if (hit) {
+      state.bullets.splice(i, 1);
+    }
+  }
 }
 
 export function tickLunaZone(
@@ -833,8 +990,7 @@ export function tickLunaZone(
     p.hp -= dmg;
     if (p.hp <= 0) {
       p.hp = 0;
-      p.alive = false;
-      p.deathAt = nowMs;
+      eliminateToPuppy(p, nowMs);
     }
   });
 }
@@ -862,7 +1018,70 @@ export function spawnLunaDog(state: EscapeLunaState) {
   dog.targetSessionId = "";
   dog.catchAtMs = 0;
   dog.jumpAtMs = 0;
+  dog.shootUntilMs = 0;
+  dog.aimAngle = 0;
+  dog.lastBulletAtMs = 0;
+  dog.nextBarrageAtMs = 0;
   lunaDogStuckSinceMs = 0;
+  state.bullets.clear();
+}
+
+function findNearestSurvivor(
+  state: EscapeLunaState,
+  fromX: number,
+  fromY: number
+): Player | null {
+  let best: Player | null = null;
+  let bestDist = Infinity;
+  state.players.forEach((p) => {
+    if (!p.alive) return;
+    const d = Math.hypot(p.x - fromX, p.y - fromY);
+    if (d < bestDist) {
+      bestDist = d;
+      best = p;
+    }
+  });
+  return best;
+}
+
+function tickLunaShooting(
+  state: EscapeLunaState,
+  nowMs: number
+): boolean {
+  const dog = state.dog;
+  if (state.startedAtMs <= 0) return false;
+
+  if (dog.nextBarrageAtMs <= 0) {
+    dog.nextBarrageAtMs = state.startedAtMs + LUNA_SHOOT_INTERVAL_MS;
+  }
+
+  if (nowMs >= dog.nextBarrageAtMs && nowMs >= dog.shootUntilMs) {
+    dog.shootUntilMs = nowMs + LUNA_SHOOT_DURATION_MS;
+    dog.nextBarrageAtMs = nowMs + LUNA_SHOOT_INTERVAL_MS;
+    dog.lastBulletAtMs = 0;
+  }
+
+  if (nowMs >= dog.shootUntilMs) return false;
+
+  dog.vx = 0;
+  dog.vy = 0;
+  lunaDogStuckSinceMs = 0;
+
+  const target = findNearestSurvivor(state, dog.x, dog.y);
+  if (target) {
+    dog.aimAngle = Math.atan2(target.y - dog.y, target.x - dog.x);
+  }
+
+  if (
+    dog.lastBulletAtMs <= 0 ||
+    nowMs - dog.lastBulletAtMs >= LUNA_SHOOT_BULLET_INTERVAL_MS
+  ) {
+    spawnLunaBullet(state, dog.x, dog.y, dog.aimAngle, nowMs);
+    dog.lastBulletAtMs = nowMs;
+  }
+
+  resolveDogAgainstObstacles(state, LUNA_NAV_RADIUS);
+  return true;
 }
 
 export function tickLunaDog(
@@ -873,6 +1092,11 @@ export function tickLunaDog(
 ) {
   if (state.status !== "PLAYING") return;
   const dog = state.dog;
+
+  if (tickLunaShooting(state, nowMs)) {
+    return;
+  }
+
   const total = state.matchEndsAtMs - state.startedAtMs;
   if (total <= 0) return;
   const t = clamp((nowMs - state.startedAtMs) / total, 0, 1);
@@ -971,12 +1195,11 @@ export function tickLunaDog(
     }
   }
 
-  const catchRadius = LUNA_RADIUS + PLAYER_RADIUS * 0.95;
+  const catchRadius = LUNA_RADIUS + PLAYER_RADIUS * 0.82;
   state.players.forEach((p) => {
     if (!p.alive) return;
     if (Math.hypot(p.x - dog.x, p.y - dog.y) <= catchRadius) {
-      p.alive = false;
-      p.deathAt = nowMs;
+      eliminateToPuppy(p, nowMs);
       dog.catchAtMs = nowMs;
     }
   });

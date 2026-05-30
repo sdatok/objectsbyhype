@@ -39,9 +39,10 @@ export async function POST(request: Request) {
     if (current.status === "ENDED") {
       return NextResponse.json({ error: "This match has already ended." }, { status: 409 });
     }
-    if (current.status === "PLAYING") {
+    const spectate = body.spectate === true;
+    if (current.status === "PLAYING" && !spectate) {
       return NextResponse.json(
-        { error: "Match in progress — reconnect or wait for the next one." },
+        { error: "Match in progress — spectate live or wait for the next one." },
         { status: 409 }
       );
     }
@@ -52,19 +53,26 @@ export async function POST(request: Request) {
 
     await ensureLunaGameServerMatchBound(current, config);
 
-    if (!existing) {
-      const count = await prisma.escapeLunaParticipant.count({
-        where: { matchId: current.id },
-      });
-      if (count >= 50) {
-        return NextResponse.json({ error: "Lobby is full." }, { status: 409 });
+    if (!spectate) {
+      if (!existing) {
+        const count = await prisma.escapeLunaParticipant.count({
+          where: { matchId: current.id },
+        });
+        if (count >= 50) {
+          return NextResponse.json({ error: "Lobby is full." }, { status: 409 });
+        }
+        await prisma.escapeLunaParticipant.create({
+          data: { matchId: current.id, email, displayName },
+        });
+      } else if (existing.displayName !== displayName) {
+        return NextResponse.json(
+          { error: `You're already in as "${existing.displayName}".` },
+          { status: 409 }
+        );
       }
-      await prisma.escapeLunaParticipant.create({
-        data: { matchId: current.id, email, displayName },
-      });
-    } else if (existing.displayName !== displayName) {
+    } else if (existing && existing.displayName !== displayName) {
       return NextResponse.json(
-        { error: `You're already in as "${existing.displayName}".` },
+        { error: `You're already registered as "${existing.displayName}".` },
         { status: 409 }
       );
     }

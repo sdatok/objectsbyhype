@@ -13,6 +13,23 @@ export class LunaDog extends Schema {
   @type("number") catchAtMs = 0;
   /** Server time when Luna last jumped over an obstacle (client VFX). */
   @type("number") jumpAtMs = 0;
+  /** While now < shootUntilMs, Luna stands still and fires. */
+  @type("number") shootUntilMs = 0;
+  /** Gun aim (radians) during shoot phase. */
+  @type("number") aimAngle = 0;
+  /** Server time of last bullet spawned this barrage. */
+  @type("number") lastBulletAtMs = 0;
+  /** When the next stand-still barrage begins. */
+  @type("number") nextBarrageAtMs = 0;
+}
+
+/** Luna's piercing shots — pass through obstacles. */
+export class LunaBullet extends Schema {
+  @type("number") x = 0;
+  @type("number") y = 0;
+  @type("number") vx = 0;
+  @type("number") vy = 0;
+  @type("number") spawnedAtMs = 0;
 }
 
 /** Circular pit — players fall through; Luna treats as solid. */
@@ -36,6 +53,7 @@ export class EscapeLunaState extends Schema {
   @type({ map: Player }) players = new MapSchema<Player>();
   @type([Obstacle]) obstacles = new ArraySchema<Obstacle>();
   @type([LunaPit]) pits = new ArraySchema<LunaPit>();
+  @type([LunaBullet]) bullets = new ArraySchema<LunaBullet>();
   @type(Zone) zone = new Zone();
   @type(LunaDog) dog = new LunaDog();
 }

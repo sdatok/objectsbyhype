@@ -68,6 +68,8 @@ export class Player extends Schema {
   @type("number") slimeAccessories = 0;
   /** Display name tag colour (hex). */
   @type("string") nameColor = "#ffffff";
+  /** Escape Luna: eliminated runner hunting survivors as a small puppy. */
+  @type("boolean") puppyMode = false;
 }
 
 export class Bullet extends Schema {

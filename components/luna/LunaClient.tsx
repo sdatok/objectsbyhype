@@ -93,14 +93,14 @@ export default function LunaClient({ initialState }: { initialState: PublicLunaS
     room.onStateChange(syncFromState);
   }, []);
 
-  const join = async () => {
+  const join = async (spectate = false) => {
     setError(null);
     setPhase("joining");
     try {
       const tokenRes = await fetch("/api/luna/match-token", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, displayName }),
+        body: JSON.stringify({ email, displayName, spectate }),
       });
       const tokenData = await tokenRes.json().catch(() => ({}));
       if (!tokenRes.ok) throw new Error(tokenData.error || "Could not join lobby.");
@@ -135,6 +135,7 @@ export default function LunaClient({ initialState }: { initialState: PublicLunaS
   const lobbyCountdownMs = serverState.currentMatch?.countdownEndsAtMs ?? 0;
   const lobbyCounting =
     serverState.currentMatch?.status === "COUNTDOWN" && lobbyCountdownMs > 0;
+  const matchLive = serverState.currentMatch?.status === "PLAYING";
 
   return (
     <SurvivorMusicProvider>
@@ -229,14 +230,25 @@ export default function LunaClient({ initialState }: { initialState: PublicLunaS
                       ))}
                     </div>
                     {error && <p className="text-sm text-rose-400 mb-3">{error}</p>}
-                    <LunaLobbyPrimaryButton
-                      onClick={join}
-                      disabled={phase === "joining" || phase === "connecting"}
-                    >
-                      {phase === "joining" || phase === "connecting"
-                        ? "CONNECTING…"
-                        : "JOIN & RUN"}
-                    </LunaLobbyPrimaryButton>
+                    {matchLive ? (
+                      <LunaLobbyPrimaryButton
+                        onClick={() => join(true)}
+                        disabled={phase === "joining" || phase === "connecting"}
+                      >
+                        {phase === "joining" || phase === "connecting"
+                          ? "CONNECTING…"
+                          : "WATCH LIVE"}
+                      </LunaLobbyPrimaryButton>
+                    ) : (
+                      <LunaLobbyPrimaryButton
+                        onClick={() => join(false)}
+                        disabled={phase === "joining" || phase === "connecting"}
+                      >
+                        {phase === "joining" || phase === "connecting"
+                          ? "CONNECTING…"
+                          : "JOIN & RUN"}
+                      </LunaLobbyPrimaryButton>
+                    )}
                   </LunaLobbyCard>
                 </>
               )}

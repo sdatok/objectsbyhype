@@ -8,10 +8,13 @@ export function drawLunaDog(
   vy: number,
   speed: number,
   nowMs: number,
-  jumpAtMs = 0
+  jumpAtMs = 0,
+  shooting = false,
+  shootAim = 0
 ) {
-  const angle =
+  const movingAngle =
     Math.hypot(vx, vy) > 8 ? Math.atan2(vy, vx) : 0;
+  const angle = shooting ? shootAim : movingAngle;
   const pulse = 0.5 + 0.5 * Math.sin(nowMs * 0.012);
   const chase = Math.min(1, speed / 235);
   const jumpAge = jumpAtMs > 0 ? nowMs - jumpAtMs : Infinity;
@@ -22,8 +25,22 @@ export function drawLunaDog(
   ctx.translate(x, y - jumpLift);
   ctx.rotate(angle);
 
+  if (shooting) {
+    const telegraph = 0.55 + 0.45 * Math.sin(nowMs * 0.02);
+    ctx.strokeStyle = `rgba(255, 60, 40, ${0.25 + telegraph * 0.2})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(Math.cos(0) * radius * 5.5, Math.sin(0) * radius * 5.5);
+    ctx.stroke();
+    ctx.fillStyle = `rgba(255, 40, 30, ${0.35 + telegraph * 0.25})`;
+    ctx.beginPath();
+    ctx.arc(radius * 1.35, 0, radius * 0.22, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
   // Menacing aura when she's closing in
-  if (chase > 0.35) {
+  if (chase > 0.35 && !shooting) {
     const auraR = radius * (2.2 + chase * 0.5 + pulse * 0.08);
     const grad = ctx.createRadialGradient(0, 0, radius * 0.4, 0, 0, auraR);
     grad.addColorStop(0, `rgba(180, 0, 0, ${0.12 + chase * 0.18})`);
@@ -170,5 +187,90 @@ export function drawLunaDog(
   ctx.font = `bold ${Math.max(9, radius * 0.38)}px monospace`;
   ctx.textAlign = "center";
   ctx.fillText("LUNA", x, y + radius * 1.75);
+  ctx.restore();
+}
+
+/** Small puppy — eliminated players hunt survivors. */
+export function drawLunaPuppy(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  radius: number,
+  vx: number,
+  vy: number,
+  nowMs: number,
+  displayName: string
+) {
+  const angle = Math.hypot(vx, vy) > 6 ? Math.atan2(vy, vx) : 0;
+  const wag = Math.sin(nowMs * 0.024) * radius * 0.15;
+
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(angle);
+
+  ctx.fillStyle = "rgba(0, 0, 0, 0.35)";
+  ctx.beginPath();
+  ctx.ellipse(0, radius * 0.5, radius * 1.1, radius * 0.28, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = "#1a1a1a";
+  ctx.lineWidth = radius * 0.18;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(-radius * 0.85, 0);
+  ctx.quadraticCurveTo(
+    -radius * 1.35,
+    wag,
+    -radius * 1.55,
+    wag * 1.4
+  );
+  ctx.stroke();
+
+  ctx.fillStyle = "#2a1810";
+  ctx.strokeStyle = "#0a0a0a";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, radius * 1.12, radius * 0.85, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = "#1a1008";
+  ctx.beginPath();
+  ctx.moveTo(radius * 0.5, -radius * 0.45);
+  ctx.lineTo(radius * 1.15, -radius * 0.05);
+  ctx.lineTo(radius * 1.05, radius * 0.35);
+  ctx.lineTo(radius * 0.4, radius * 0.28);
+  ctx.closePath();
+  ctx.fill();
+
+  for (const side of [-1, 1]) {
+    ctx.fillStyle = "#140c06";
+    ctx.beginPath();
+    ctx.moveTo(radius * 0.65, side * radius * 0.15);
+    ctx.lineTo(radius * 0.82, side * radius * 0.72);
+    ctx.lineTo(radius * 0.35, side * radius * 0.42);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  ctx.fillStyle = "#050505";
+  ctx.beginPath();
+  ctx.arc(radius * 0.95, radius * 0.02, radius * 0.07, 0, Math.PI * 2);
+  ctx.fill();
+
+  for (const side of [-1, 1]) {
+    ctx.fillStyle = "#553311";
+    ctx.beginPath();
+    ctx.arc(radius * 0.72, side * radius * 0.22, radius * 0.08, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.restore();
+
+  ctx.save();
+  ctx.fillStyle = "#c9a227";
+  ctx.font = `bold ${Math.max(8, radius * 0.42)}px monospace`;
+  ctx.textAlign = "center";
+  ctx.fillText(displayName.slice(0, 12), x, y + radius * 1.65);
   ctx.restore();
 }

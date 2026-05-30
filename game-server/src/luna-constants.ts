@@ -33,9 +33,9 @@ export const LUNA_ZONE_DPS_START = 4;
 export const LUNA_ZONE_DPS_END = 28;
 
 /** Luna the dog. */
-export const LUNA_RADIUS = 26;
+export const LUNA_RADIUS = 18;
 /** Obstacle sliding uses a slightly smaller radius so Luna navigates maze corners. */
-export const LUNA_NAV_RADIUS = 20;
+export const LUNA_NAV_RADIUS = 14;
 /** Starting chase speed (units/sec). */
 export const LUNA_SPEED_START = 170;
 /** Max chase speed late match (slightly below player sprint). */
@@ -56,10 +56,33 @@ export const LUNA_PLAYER_PUSH_ITERATIONS = 4;
 export const LUNA_PLAYER_PUSH_TRANSFER = 0.92;
 
 /** Fall-through pits scattered on the arena floor. */
-export const LUNA_PIT_COUNT = 10;
-export const LUNA_PIT_RADIUS_MIN = 48;
-export const LUNA_PIT_RADIUS_MAX = 82;
-export const LUNA_PIT_MIN_SPACING = 140;
+export const LUNA_PIT_COUNT = 5;
+export const LUNA_PIT_RADIUS_MIN = 88;
+export const LUNA_PIT_RADIUS_MAX = 128;
+export const LUNA_PIT_MIN_SPACING = 200;
+
+/** Keep runner spawns away from Luna at match start. */
+export const LUNA_SPAWN_CLEAR_RADIUS = 340;
+
+/** Eliminated runners become puppies that can tag survivors. */
+export const LUNA_PUPPY_RADIUS = 11;
+export const LUNA_PUPPY_SPEED = 248;
+export const LUNA_PUPPY_CATCH_PAD = 0.88;
+
+/** Survivors speed up as the puppy swarm grows; last runner gets a big boost. */
+export const LUNA_INFECTED_SPEED_BONUS = 0.72;
+export const LUNA_LAST_SURVIVOR_SPEED_BONUS = 0.48;
+export const LUNA_SURVIVOR_SPEED_CAP = 2.08;
+
+/** Every 30s Luna stops to fire piercing shots (dodgeable). */
+export const LUNA_SHOOT_INTERVAL_MS = 30000;
+export const LUNA_SHOOT_DURATION_MS = 2800;
+export const LUNA_SHOOT_BULLET_INTERVAL_MS = 480;
+export const LUNA_BULLET_SPEED = 460;
+export const LUNA_BULLET_RADIUS = 5;
+export const LUNA_BULLET_TTL_MS = 4500;
+export const LUNA_BULLET_SPREAD_RAD = 0.11;
+export const LUNA_BULLET_MAX = 28;
 
 /** Maze density — more walls than Survivor island. */
 export const LUNA_CLIFF_CLUSTER_COUNT = 14;

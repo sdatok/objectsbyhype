@@ -24,6 +24,7 @@ import {
   tickLunaDog,
   tickLunaPlayers,
   tickLunaZone,
+  tickLunaBullets,
   maxLunaSpawnRadius,
   isSafeLunaSpawnPoint,
   type PlayerInput,
@@ -54,8 +55,10 @@ export class EscapeLunaRoom extends Room<EscapeLunaState> {
       const inp = sanitizeInput(raw);
       if (!inp) return;
       const player = this.state.players.get(client.sessionId);
-      if (!player?.alive) return;
-      this.inputs.set(client.sessionId, inp);
+      if (!player) return;
+      if (player.alive || player.puppyMode) {
+        this.inputs.set(client.sessionId, inp);
+      }
     });
 
     this.setSimulationInterval((dtMs) => this.tick(dtMs), TICK_MS);
@@ -106,17 +109,29 @@ export class EscapeLunaRoom extends Room<EscapeLunaState> {
 
     if (this.state.status === "PLAYING") {
       if (!existingEntry) {
-        throw new Error("Match already in progress — wait for the next one.");
+        return {
+          email,
+          displayName,
+          matchId,
+          isSpectator: true,
+          slimeColor: parseSlimeColor(options.slimeColor),
+          slimeFace: parseSlimeFace(options.slimeFace),
+          slimeAccessories: parseSlimeAccessories(options.slimeAccessories),
+          nameColor: parseNameColor(options.nameColor),
+        };
       }
       const [, existingPlayer] = existingEntry;
       if (existingPlayer.connected) {
         throw new Error("You are already in this match in another tab.");
       }
-      throw new Error(
-        existingPlayer.alive
-          ? "Reconnect window expired — you can't re-enter this match."
-          : "You were caught — wait for the next match."
-      );
+      if (existingPlayer.alive || existingPlayer.puppyMode) {
+        throw new Error(
+          existingPlayer.alive
+            ? "Reconnect window expired — you can't re-enter this match."
+            : "Reconnect as your puppy to keep hunting."
+        );
+      }
+      throw new Error("You were eliminated — wait for the next match.");
     }
     if (this.state.status === "ENDED") {
       throw new Error("This match has ended — wait for the next one.");
@@ -178,6 +193,9 @@ export class EscapeLunaRoom extends Room<EscapeLunaState> {
     if (auth.isSpectator) {
       p.alive = false;
       p.hp = 0;
+      p.puppyMode = false;
+      p.x = this.state.zone.cx;
+      p.y = this.state.zone.cy;
     } else {
       const spawn = this.pickSpawn();
       p.x = spawn.x;
@@ -185,6 +203,9 @@ export class EscapeLunaRoom extends Room<EscapeLunaState> {
       p.hp = PLAYER_MAX_HP;
       p.maxHp = PLAYER_MAX_HP;
       p.alive = true;
+      p.puppyMode = false;
+      p.radiusScale = 1;
+      p.speedScale = 1;
     }
     this.state.players.set(client.sessionId, p);
     this.inputs.set(client.sessionId, emptyInput());
@@ -367,6 +388,7 @@ export class EscapeLunaRoom extends Room<EscapeLunaState> {
     if (this.state.status !== "PLAYING") return;
 
     tickLunaPlayers(this.state, this.inputs, dtSec, now);
+    tickLunaBullets(this.state, dtSec, now);
     tickLunaDog(this.state, this.inputs, dtSec, now);
     tickLunaZone(this.state, dtSec, now);
 
@@ -395,8 +417,8 @@ export class EscapeLunaRoom extends Room<EscapeLunaState> {
     this.state.zone.targetRadius = LUNA_ZONE_START_RADIUS;
     this.state.countdownEndsAtMs = 0;
     this.playersAtMatchStart = this.countAlive();
-    this.relocatePlayersToSafeSpawns();
     spawnLunaDog(this.state);
+    this.relocatePlayersToSafeSpawns();
     console.log("[EscapeLunaRoom] PLAYING — Luna is loose");
   }
 
@@ -474,6 +496,7 @@ export class EscapeLunaRoom extends Room<EscapeLunaState> {
     this.state.players.clear();
     this.state.obstacles.clear();
     this.state.pits.clear();
+    this.state.bullets.clear();
     this.inputs.clear();
     this.inputCounters.clear();
     this.state.endedAtMs = 0;
