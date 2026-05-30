@@ -7,6 +7,8 @@ import WheelConfigForm from "@/components/admin/wheel/WheelConfigForm";
 import AddProMemberForm from "@/components/admin/wheel/AddProMemberForm";
 import ProMemberTable from "@/components/admin/wheel/ProMemberTable";
 import WheelPrizeTable from "@/components/admin/wheel/WheelPrizeTable";
+import WheelOddsBreakdown from "@/components/admin/wheel/WheelOddsBreakdown";
+import RecentSpinsTable from "@/components/admin/wheel/RecentSpinsTable";
 
 export const dynamic = "force-dynamic";
 
@@ -101,6 +103,8 @@ export default async function AdminWheelPage() {
         />
       </div>
 
+      <WheelOddsBreakdown config={config} prizes={prizes} />
+
       <WheelPrizeTable
         prizes={prizes.map((p) => ({
           id: p.id,
@@ -116,41 +120,15 @@ export default async function AdminWheelPage() {
         <h2 className="text-[11px] uppercase tracking-widest font-bold mb-4">
           Recent spins · {formatMonthKey(monthKey)}
         </h2>
-        {spins.length === 0 ? (
-          <p className="text-[12px] text-neutral-400 italic">No spins yet.</p>
-        ) : (
-          <div className="bg-white border border-neutral-200 rounded overflow-hidden">
-            <table className="w-full text-left text-[12px]">
-              <thead className="border-b border-neutral-200 text-[10px] uppercase tracking-widest text-neutral-500">
-                <tr>
-                  <th className="px-4 py-3">Member</th>
-                  <th className="px-4 py-3">Prize</th>
-                  <th className="px-4 py-3">Tier</th>
-                  <th className="px-4 py-3">When</th>
-                </tr>
-              </thead>
-              <tbody>
-                {spins.map((s) => (
-                  <tr key={s.id} className="border-b border-neutral-100">
-                    <td className="px-4 py-3">
-                      <span className="font-medium">{s.proMember.name}</span>
-                      <span className="text-neutral-500 text-[11px] ml-2">
-                        {s.proMember.email}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 font-medium">{s.prizeLabel}</td>
-                    <td className="px-4 py-3 text-[10px] uppercase tracking-widest">
-                      {s.tier}
-                    </td>
-                    <td className="px-4 py-3 text-[11px] text-neutral-500">
-                      {s.createdAt.toLocaleString()}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+        <RecentSpinsTable
+          spins={spins.map((s) => ({
+            id: s.id,
+            prizeLabel: s.prizeLabel,
+            tier: s.tier,
+            createdAt: s.createdAt.toISOString(),
+            proMember: s.proMember,
+          }))}
+        />
       </section>
     </div>
   );

@@ -264,6 +264,31 @@ export async function buildPublicWheelState() {
   };
 }
 
+/** Undo a spin: restore prize stock, free the code, delete the spin row. */
+export async function revertWheelSpin(spinId: string) {
+  return prisma.$transaction(async (tx) => {
+    const spin = await tx.wheelSpin.findUnique({
+      where: { id: spinId },
+      select: { id: true, codeId: true, prizeId: true },
+    });
+    if (!spin) {
+      throw new WheelSpinError("INVALID_CODE", "Spin not found.");
+    }
+
+    await tx.wheelPrize.update({
+      where: { id: spin.prizeId },
+      data: { quantityRemaining: { increment: 1 } },
+    });
+
+    await tx.wheelPlayCode.update({
+      where: { id: spin.codeId },
+      data: { usedAt: null },
+    });
+
+    await tx.wheelSpin.delete({ where: { id: spinId } });
+  });
+}
+
 export async function buildWheelAdminStats(monthKey = currentMonthKey()) {
   const [activeMembers, mrrAgg, codesIssued, codesUsed, spinsThisMonth, prizes] =
     await Promise.all([

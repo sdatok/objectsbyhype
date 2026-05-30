@@ -36,3 +36,31 @@ export async function PATCH(
     return NextResponse.json({ error: "Update failed" }, { status: 500 });
   }
 }
+
+export async function DELETE(
+  _request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  if (!(await getAdminSession())) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  try {
+    const { id } = await params;
+    const spinCount = await prisma.wheelSpin.count({ where: { prizeId: id } });
+
+    if (spinCount > 0) {
+      const updated = await prisma.wheelPrize.update({
+        where: { id },
+        data: { active: false, quantityRemaining: 0 },
+      });
+      return NextResponse.json({ removed: "deactivated", prize: updated });
+    }
+
+    await prisma.wheelPrize.delete({ where: { id } });
+    return NextResponse.json({ removed: "deleted" });
+  } catch (err) {
+    console.error("[DELETE /api/admin/wheel/prizes/[id]]", err);
+    return NextResponse.json({ error: "Remove failed" }, { status: 500 });
+  }
+}
