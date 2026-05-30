@@ -1,0 +1,48 @@
+import { prizeIconType, TIER_STYLES, type WheelTier } from "@/lib/wheel-prize-icons";
+import PrizeIcon from "./PrizeIcon";
+
+export default function PrizeCard({
+  label,
+  tier,
+  compact = false,
+  glowing = false,
+}: {
+  label: string;
+  tier: WheelTier;
+  compact?: boolean;
+  glowing?: boolean;
+}) {
+  const style = TIER_STYLES[tier];
+  const iconType = prizeIconType(label);
+
+  return (
+    <div
+      className={`flex-shrink-0 flex items-center gap-3 border-2 bg-black/80 text-left transition-shadow ${
+        compact ? "px-3 py-2 min-w-[180px]" : "px-4 py-3 min-w-[220px]"
+      } ${glowing ? "animate-pulse" : ""}`}
+      style={{
+        borderColor: style.color,
+        boxShadow: glowing
+          ? `0 0 30px ${style.color}66, inset 0 0 20px ${style.color}22`
+          : `0 0 12px ${style.color}33, inset 0 0 12px ${style.color}11`,
+      }}
+    >
+      <PrizeIcon type={iconType} size={compact ? 32 : 40} />
+      <div className="min-w-0 flex-1">
+        <p
+          className="font-pixel text-[7px] tracking-[0.2em]"
+          style={{ color: style.color }}
+        >
+          {style.headline}
+        </p>
+        <p
+          className={`font-pixel text-white leading-snug mt-1 ${
+            compact ? "text-[8px]" : "text-[9px] sm:text-[10px]"
+          }`}
+        >
+          {label}
+        </p>
+      </div>
+    </div>
+  );
+}

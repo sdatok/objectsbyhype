@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import RetroOverlay from "@/components/survivor/RetroOverlay";
-import WheelCanvas from "./WheelCanvas";
+import PrizeStrip from "./PrizeStrip";
 import WheelWinOverlay from "./WheelWinOverlay";
+import type { WheelTier } from "@/lib/wheel-prize-icons";
 
 export interface PublicWheelState {
   enabled: boolean;
@@ -11,6 +12,7 @@ export interface PublicWheelState {
   remainingByTier: { COMMON: number; RARE: number; JACKPOT: number };
   totalRemaining: number;
   tierWeights: { common: number; rare: number; jackpot: number };
+  prizes: Array<{ label: string; tier: WheelTier }>;
 }
 
 type Phase = "idle" | "spinning" | "won" | "error";
@@ -35,12 +37,11 @@ export default function WheelClient({
   const [memberName, setMemberName] = useState<string | null>(null);
   const [result, setResult] = useState<{
     prizeLabel: string;
-    tier: "COMMON" | "RARE" | "JACKPOT";
+    tier: WheelTier;
+    demo: boolean;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [spinTarget, setSpinTarget] = useState<"COMMON" | "RARE" | "JACKPOT">(
-    "COMMON"
-  );
+  const [targetLabel, setTargetLabel] = useState<string | null>(null);
   const spinResolveRef = useRef<(() => void) | null>(null);
 
   const onSpinComplete = useCallback(() => {
@@ -48,17 +49,32 @@ export default function WheelClient({
     spinResolveRef.current = null;
   }, []);
 
+  const dismissDemo = useCallback(() => {
+    setResult(null);
+    setTargetLabel(null);
+    setPhase("idle");
+  }, []);
+
   const spin = async () => {
     if (phase === "spinning") return;
     setError(null);
+    setTargetLabel(null);
     setPhase("spinning");
 
+    const trimmedCode = code.trim();
+    const isRealSpin = trimmedCode.length >= 8;
+
     try {
-      const res = await fetch("/api/wheel/spin", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code }),
-      });
+      const res = await fetch(
+        isRealSpin ? "/api/wheel/spin" : "/api/wheel/demo-spin",
+        isRealSpin
+          ? {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ code: trimmedCode }),
+            }
+          : { method: "POST" }
+      );
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         const msg =
@@ -70,12 +86,16 @@ export default function WheelClient({
         return;
       }
 
-      setSpinTarget(data.tier);
+      setTargetLabel(data.prizeLabel);
       await new Promise<void>((resolve) => {
         spinResolveRef.current = resolve;
       });
 
-      setResult({ prizeLabel: data.prizeLabel, tier: data.tier });
+      setResult({
+        prizeLabel: data.prizeLabel,
+        tier: data.tier,
+        demo: !isRealSpin,
+      });
       setPhase("won");
     } catch {
       setError("Network error. Try again.");
@@ -105,6 +125,8 @@ export default function WheelClient({
     return () => window.clearTimeout(t);
   }, [code]);
 
+  const hasCode = code.trim().length >= 8;
+
   return (
     <main className="relative min-h-[100dvh] flex flex-col items-center justify-center px-4 py-10 overflow-hidden">
       <div
@@ -117,7 +139,13 @@ export default function WheelClient({
       />
 
       <header className="relative z-10 text-center mb-6 sm:mb-8">
-        <p className="font-pixel text-[8px] sm:text-[10px] text-fuchsia-400 tracking-[0.35em] animate-pulse">
+        <p
+          className="font-pixel text-[11px] sm:text-sm md:text-base text-fuchsia-400 tracking-[0.35em] animate-pulse"
+          style={{
+            textShadow:
+              "0 0 16px rgba(232,121,249,0.95), 0 0 32px rgba(192,38,211,0.7), 0 0 48px rgba(124,58,237,0.45)",
+          }}
+        >
           OBJECTSBYHYPE PRO
         </p>
         <h1
@@ -135,9 +163,10 @@ export default function WheelClient({
       </header>
 
       <div className="relative z-10 w-full max-w-lg flex flex-col items-center gap-8">
-        <WheelCanvas
+        <PrizeStrip
+          prizes={state.prizes}
           spinning={phase === "spinning"}
-          targetTier={spinTarget}
+          targetLabel={targetLabel}
           onSpinComplete={onSpinComplete}
         />
 
@@ -145,7 +174,7 @@ export default function WheelClient({
           <div className="w-full max-w-md space-y-4">
             <label className="block">
               <span className="font-pixel text-[8px] text-fuchsia-300 tracking-widest">
-                PRO CODE
+                PRO CODE <span className="text-neutral-500">(optional for preview)</span>
               </span>
               <input
                 value={code}
@@ -160,6 +189,11 @@ export default function WheelClient({
                 Welcome, {memberName}
               </p>
             )}
+            {!hasCode && phase !== "spinning" && (
+              <p className="font-pixel-body text-base text-center text-neutral-500">
+                No code? Spin anyway to preview — add your pro code to claim for real.
+              </p>
+            )}
             {error && (
               <p className="font-pixel-body text-lg text-center text-rose-400">
                 {error}
@@ -168,7 +202,7 @@ export default function WheelClient({
             <button
               type="button"
               onClick={spin}
-              disabled={phase === "spinning" || code.trim().length < 8}
+              disabled={phase === "spinning"}
               className="w-full font-pixel text-[10px] sm:text-xs py-4 border-2 border-white text-white disabled:opacity-40 hover:bg-fuchsia-600 hover:border-fuchsia-400 transition-colors"
               style={{
                 background:
@@ -178,7 +212,11 @@ export default function WheelClient({
                 boxShadow: "4px 4px 0 rgba(255,255,255,0.85)",
               }}
             >
-              {phase === "spinning" ? "SPINNING…" : "SPIN"}
+              {phase === "spinning"
+                ? "SPINNING…"
+                : hasCode
+                  ? "SPIN"
+                  : "PREVIEW SPIN"}
             </button>
             <p className="font-pixel-body text-base text-center text-neutral-500">
               {state.totalRemaining} prizes left · Common {state.remainingByTier.COMMON} · Rare{" "}
@@ -193,6 +231,8 @@ export default function WheelClient({
           prizeLabel={result.prizeLabel}
           tier={result.tier}
           monthKey={state.monthKey}
+          demo={result.demo}
+          onDismiss={result.demo ? dismissDemo : undefined}
         />
       )}
 

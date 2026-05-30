@@ -54,14 +54,58 @@ function pickWeightedTier(
   return weights[weights.length - 1]!.tier;
 }
 
-function pickPrizeInTier(prizes: WheelPrize[], tier: WheelPrizeTier): WheelPrize {
-  const pool = prizes.filter(
-    (p) => p.tier === tier && p.active && p.quantityRemaining > 0
-  );
-  if (pool.length === 0) {
-    throw new WheelSpinError("POOL_EMPTY", "No prizes left in that tier.");
+function pickRandomPrize(
+  config: WheelConfig,
+  prizes: WheelPrize[]
+): WheelPrize {
+  if (prizes.length === 0) {
+    throw new WheelSpinError("POOL_EMPTY", "All prizes have been claimed.");
   }
-  return pool[Math.floor(Math.random() * pool.length)]!;
+
+  const availableTiers = new Set<WheelPrizeTier>();
+  for (const p of prizes) {
+    if (p.quantityRemaining > 0) availableTiers.add(p.tier);
+  }
+
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const tier = pickWeightedTier(config, availableTiers);
+    const pool = prizes.filter(
+      (p) => p.tier === tier && p.active && p.quantityRemaining > 0
+    );
+    if (pool.length === 0) {
+      availableTiers.delete(tier);
+      continue;
+    }
+    return pool[Math.floor(Math.random() * pool.length)]!;
+  }
+
+  throw new WheelSpinError("POOL_EMPTY", "No prizes available to win.");
+}
+
+export interface WheelDemoSpinResult {
+  prizeLabel: string;
+  tier: WheelPrizeTier;
+  demo: true;
+}
+
+/** Preview spin — same odds as real spins, but nothing is claimed. */
+export async function executeDemoWheelSpin(): Promise<WheelDemoSpinResult> {
+  await ensureWheelPrizesSeeded();
+  const config = await getOrCreateWheelConfig();
+  if (!config.enabled) {
+    throw new WheelSpinError("DISABLED", "Wheel of Hype is offline right now.");
+  }
+
+  const prizes = await prisma.wheelPrize.findMany({
+    where: { active: true, quantityRemaining: { gt: 0 } },
+  });
+  const chosen = pickRandomPrize(config, prizes);
+
+  return {
+    prizeLabel: chosen.label,
+    tier: chosen.tier,
+    demo: true,
+  };
 }
 
 export async function executeWheelSpin(
@@ -109,31 +153,8 @@ export async function executeWheelSpin(
     const prizes = await tx.wheelPrize.findMany({
       where: { active: true, quantityRemaining: { gt: 0 } },
     });
-    if (prizes.length === 0) {
-      throw new WheelSpinError("POOL_EMPTY", "All prizes have been claimed.");
-    }
 
-    const availableTiers = new Set<WheelPrizeTier>();
-    for (const p of prizes) {
-      if (p.quantityRemaining > 0) availableTiers.add(p.tier);
-    }
-
-    let chosen: WheelPrize | null = null;
-    for (let attempt = 0; attempt < 8; attempt++) {
-      const tier = pickWeightedTier(config, availableTiers);
-      const pool = prizes.filter(
-        (p) => p.tier === tier && p.active && p.quantityRemaining > 0
-      );
-      if (pool.length === 0) {
-        availableTiers.delete(tier);
-        continue;
-      }
-      chosen = pool[Math.floor(Math.random() * pool.length)]!;
-      break;
-    }
-    if (!chosen) {
-      throw new WheelSpinError("POOL_EMPTY", "No prizes available to win.");
-    }
+    const chosen = pickRandomPrize(config, prizes);
 
     const updatedPrize = await tx.wheelPrize.updateMany({
       where: {
@@ -216,7 +237,8 @@ export async function buildPublicWheelState() {
 
   const prizes = await prisma.wheelPrize.findMany({
     where: { active: true, quantityRemaining: { gt: 0 } },
-    select: { tier: true, quantityRemaining: true },
+    select: { label: true, tier: true, quantityRemaining: true },
+    orderBy: { sortOrder: "asc" },
   });
 
   const remainingByTier = {
@@ -238,6 +260,7 @@ export async function buildPublicWheelState() {
       rare: config.rareWeight,
       jackpot: config.jackpotWeight,
     },
+    prizes: prizes.map((p) => ({ label: p.label, tier: p.tier })),
   };
 }
 
