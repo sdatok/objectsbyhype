@@ -5,6 +5,10 @@ import RetroOverlay from "@/components/survivor/RetroOverlay";
 import PrizeStrip from "./PrizeStrip";
 import WheelWinOverlay from "./WheelWinOverlay";
 import type { WheelTier } from "@/lib/wheel-prize-icons";
+import {
+  WHEEL_DISCORD_URL,
+  WHEEL_EXTRA_SPIN_PRICE,
+} from "@/lib/wheel-config";
 
 export interface PublicWheelState {
   enabled: boolean;
@@ -160,6 +164,36 @@ export default function WheelClient({
         <p className="font-pixel-body text-xl sm:text-2xl text-neutral-300 mt-2">
           One spin · {state.monthKey}
         </p>
+        <div className="mt-5 max-w-md mx-auto border border-fuchsia-500/35 bg-black/50 px-4 py-3 text-left space-y-2">
+          <p className="font-pixel text-[8px] text-fuchsia-300 tracking-widest">
+            HOW TO SPIN
+          </p>
+          <p className="font-pixel-body text-sm sm:text-base text-neutral-200 leading-relaxed">
+            <span className="text-fuchsia-200">PRO members</span> — enter your
+            monthly code below for your included spin.
+          </p>
+          <p className="font-pixel-body text-sm sm:text-base text-neutral-300 leading-relaxed">
+            Want another spin?{" "}
+            <span className="text-white font-medium">
+              ${WHEEL_EXTRA_SPIN_PRICE} per spin.
+            </span>{" "}
+            {WHEEL_DISCORD_URL ? (
+              <>
+                <a
+                  href={WHEEL_DISCORD_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-fuchsia-300 underline underline-offset-2 hover:text-fuchsia-200"
+                >
+                  Open a ticket on Discord
+                </a>{" "}
+                to purchase.
+              </>
+            ) : (
+              <>Open a ticket on Discord to purchase.</>
+            )}
+          </p>
+        </div>
       </header>
 
       <div className="relative z-10 w-full max-w-lg flex flex-col items-center gap-8">
@@ -174,7 +208,7 @@ export default function WheelClient({
           <div className="w-full max-w-md space-y-4">
             <label className="block">
               <span className="font-pixel text-[8px] text-fuchsia-300 tracking-widest">
-                PRO CODE <span className="text-neutral-500">(optional for preview)</span>
+                PRO CODE
               </span>
               <input
                 value={code}
@@ -190,8 +224,9 @@ export default function WheelClient({
               </p>
             )}
             {!hasCode && phase !== "spinning" && (
-              <p className="font-pixel-body text-base text-center text-neutral-500">
-                No code? Spin anyway to preview — add your pro code to claim for real.
+              <p className="font-pixel-body text-sm text-center text-neutral-500 leading-relaxed">
+                No code yet? Preview the wheel below — spins without a valid PRO
+                code are demos only and do not claim a prize.
               </p>
             )}
             {error && (

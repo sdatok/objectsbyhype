@@ -4,6 +4,13 @@ export const WHEEL_CONFIG_ID = "default";
 
 export const WHEEL_DEFAULT_QUANTITY = 5;
 
+/** Public price for non-PRO / extra spins (USD). */
+export const WHEEL_EXTRA_SPIN_PRICE = 50;
+
+/** Optional invite link — set NEXT_PUBLIC_DISCORD_URL in env. */
+export const WHEEL_DISCORD_URL =
+  process.env.NEXT_PUBLIC_DISCORD_URL?.trim() ?? "";
+
 /** Bump when prize catalog changes so existing DBs re-sync once. */
 export const WHEEL_CATALOG_VERSION = 3;
 

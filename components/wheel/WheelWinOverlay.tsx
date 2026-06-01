@@ -3,6 +3,7 @@
 import { formatMonthKey } from "@/lib/wheel-config";
 import { TIER_STYLES, type WheelTier } from "@/lib/wheel-prize-icons";
 import PrizeCard from "./PrizeCard";
+import WheelConfetti, { WheelWinPop } from "./WheelConfetti";
 
 export default function WheelWinOverlay({
   prizeLabel,
@@ -20,14 +21,32 @@ export default function WheelWinOverlay({
   const style = TIER_STYLES[tier];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center px-4 bg-black/85 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex items-center justify-center px-4 bg-black/85 backdrop-blur-sm overflow-hidden">
+      <WheelConfetti tier={tier} intense={!demo || tier === "JACKPOT"} />
+      <WheelWinPop>
       <div className="max-w-md w-full space-y-6 text-center">
+        <p
+          className="font-pixel text-[9px] sm:text-[10px] tracking-[0.35em]"
+          style={{
+            color: style.color,
+            textShadow: `0 0 20px ${style.color}99`,
+          }}
+        >
+          {demo ? "PREVIEW SPIN" : style.headline}
+        </p>
         {demo && (
-          <p className="font-pixel text-[8px] sm:text-[9px] tracking-[0.25em] text-amber-300">
-            PREVIEW SPIN · NO CODE
+          <p className="font-pixel text-[8px] sm:text-[9px] tracking-[0.25em] text-amber-300 -mt-4">
+            NO CODE · DEMO ONLY
           </p>
         )}
-        <PrizeCard label={prizeLabel} tier={tier} glowing />
+        <div
+          className="relative"
+          style={{
+            filter: `drop-shadow(0 0 28px ${style.color}55)`,
+          }}
+        >
+          <PrizeCard label={prizeLabel} tier={tier} glowing />
+        </div>
         <div
           className="border-2 px-6 py-5"
           style={{
@@ -71,6 +90,7 @@ export default function WheelWinOverlay({
           </button>
         )}
       </div>
+      </WheelWinPop>
     </div>
   );
 }

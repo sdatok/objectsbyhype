@@ -1,6 +1,7 @@
 export type PrizeIconType =
   | "hat"
   | "cash"
+  | "dollar"
   | "hoodie"
   | "pants"
   | "glasses"
@@ -8,12 +9,17 @@ export type PrizeIconType =
   | "shorts"
   | "shirt"
   | "jewelry"
-  | "gift";
+  | "gift"
+  | "flower"
+  | "package";
 
 /** Map prize label text to a small 8-bit icon category. */
 export function prizeIconType(label: string): PrizeIconType {
   const l = label.toLowerCase();
-  if (/\$|cash|credit/.test(l)) return "cash";
+  if (/murakami|plushie/.test(l)) return "flower";
+  if (/bundle/.test(l)) return "package";
+  if (/store credit/.test(l)) return "dollar";
+  if (/\bcash\b/.test(l) || /^\$\d/.test(l.trim())) return "dollar";
   if (/beanie|hat|ski mask|cap/.test(l)) return "hat";
   if (/hoodie/.test(l)) return "hoodie";
   if (/jeans|sweats/.test(l)) return "pants";
