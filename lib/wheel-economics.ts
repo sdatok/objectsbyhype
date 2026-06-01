@@ -19,7 +19,8 @@ export const WHEEL_PRIZE_COST_ESTIMATE: Record<string, number> = {
   "Designer Superclone Shirt": 25,
   "Streetwear Superclone Item": 25,
   "Goyard Passport Holder": 25,
-  "Goyard Card Holder": 25,
+  "Goyard Card Holder": 10,
+  "Takashi Murakami Pin Plushie": 12,
   "Gucci x Palace Skateboards Hat": 25,
   "Hellstar Ski Mask": 25,
   "Random SC Jewelry Piece": 25,
@@ -33,9 +34,6 @@ export const WHEEL_PRIZE_COST_ESTIMATE: Record<string, number> = {
   "$200 OBH Bundle": 200,
   "AMIRI Jeans": 37.5,
   "Louis Vuitton Wallet": 37.5,
-  "Goyard Wallet": 37.5,
-  "$100 Cash": 100,
-  "$75 Cash": 75,
 };
 
 const DEFAULT_COMMON_COST = 10;
@@ -43,6 +41,9 @@ const DEFAULT_RARE_COST = 25;
 const DEFAULT_JACKPOT_COST = 37.5;
 
 export function estimatePrizeCost(prize: Pick<WheelPrize, "label" | "tier">): number {
+  if (prize.label === "$100 Store Credit" && prize.tier === "RARE") {
+    return 100;
+  }
   if (prize.label === "$100 Store Credit" && prize.tier === "JACKPOT") {
     return DEFAULT_JACKPOT_COST;
   }

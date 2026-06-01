@@ -3,6 +3,8 @@ import {
   WHEEL_CONFIG_ID,
   WHEEL_SEED_PRIZES,
   WHEEL_DEFAULT_QUANTITY,
+  WHEEL_CATALOG_VERSION,
+  WHEEL_RETIRED_PRIZE_LABELS,
   DEFAULT_TIER_WEIGHTS,
 } from "@/lib/wheel-config";
 
@@ -37,140 +39,148 @@ export async function ensureWheelPrizesSeeded() {
   });
 }
 
-async function catalogNeedsSync(): Promise<boolean> {
-  const [chrome, bundle, jackpotCredit, commonCredit] = await Promise.all([
-    prisma.wheelPrize.findFirst({
-      where: { label: "Chrome Hearts Glasses" },
-      select: { tier: true },
-    }),
-    prisma.wheelPrize.findFirst({
-      where: { label: "$100 OBH Bundle" },
-      select: { id: true },
-    }),
-    prisma.wheelPrize.findFirst({
-      where: { label: "$100 Store Credit", tier: "JACKPOT" },
-      select: { id: true },
-    }),
-    prisma.wheelPrize.findFirst({
-      where: { label: "$25 Store Credit", tier: "COMMON" },
-      select: { id: true },
-    }),
-  ]);
-
-  return (
-    chrome?.tier === "JACKPOT" ||
-    !bundle ||
-    !jackpotCredit ||
-    !!commonCredit
-  );
+async function readCatalogVersion(): Promise<number> {
+  const row = await prisma.wheelPrize.findFirst({
+    where: { label: "__wheel_catalog_version__" },
+    select: { sortOrder: true },
+  });
+  return row?.sortOrder ?? 0;
 }
 
-/** Idempotent catalog refresh — tiers, new prizes, stock = 5. */
+async function writeCatalogVersion(version: number) {
+  const existing = await prisma.wheelPrize.findFirst({
+    where: { label: "__wheel_catalog_version__" },
+  });
+  if (existing) {
+    await prisma.wheelPrize.update({
+      where: { id: existing.id },
+      data: { sortOrder: version, active: false, quantityRemaining: 0 },
+    });
+    return;
+  }
+  await prisma.wheelPrize.create({
+    data: {
+      label: "__wheel_catalog_version__",
+      tier: "COMMON",
+      sortOrder: version,
+      quantityInitial: 0,
+      quantityRemaining: 0,
+      active: false,
+    },
+  });
+}
+
+function catalogKey(label: string, tier: string) {
+  return `${label}\0${tier}`;
+}
+
+/** Idempotent catalog refresh from WHEEL_SEED_PRIZES. Preserves stock counts. */
 export async function syncWheelPrizeCatalog() {
   await ensureWheelPrizesSeeded();
-  if (!(await catalogNeedsSync())) return;
+
+  const applied = await readCatalogVersion();
+  if (applied >= WHEEL_CATALOG_VERSION) return;
+
+  const catalogKeys = new Set(
+    WHEEL_SEED_PRIZES.map((p) => catalogKey(p.label, p.tier))
+  );
 
   await prisma.$transaction(async (tx) => {
     await tx.wheelPrize.updateMany({
-      where: { label: "Chrome Hearts Glasses" },
-      data: { tier: "RARE", active: true },
+      where: { label: { in: [...WHEEL_RETIRED_PRIZE_LABELS] } },
+      data: { active: false, quantityRemaining: 0 },
     });
 
-    await tx.wheelPrize.updateMany({
-      where: {
-        label: {
-          in: [
-            "$100 Store Credit",
-            "$75 Store Credit",
-            "$50 Store Credit",
-            "$25 Store Credit",
-          ],
-        },
-        tier: "COMMON",
-      },
-      data: { tier: "RARE", active: true },
-    });
+    const claimedIds = new Set<string>();
 
-    const jackpotStoreCredit = await tx.wheelPrize.findFirst({
-      where: { label: "$100 Store Credit", tier: "JACKPOT" },
+    const jackpotSc = await tx.wheelPrize.findFirst({
+      where: { label: "$100 Store Credit", tier: "JACKPOT", active: true },
     });
-    if (!jackpotStoreCredit) {
-      await tx.wheelPrize.create({
-        data: {
-          label: "$100 Store Credit",
-          tier: "JACKPOT",
-          sortOrder: 6,
-          quantityInitial: WHEEL_DEFAULT_QUANTITY,
-          quantityRemaining: WHEEL_DEFAULT_QUANTITY,
-          active: true,
-        },
+    const rareSc = await tx.wheelPrize.findFirst({
+      where: { label: "$100 Store Credit", tier: "RARE", active: true },
+    });
+    if (jackpotSc && rareSc) {
+      await tx.wheelPrize.update({
+        where: { id: jackpotSc.id },
+        data: { tier: "RARE", sortOrder: 7 },
       });
-    }
-
-    for (const item of [
-      { label: "$100 OBH Bundle", sortOrder: 24 },
-      { label: "$150 OBH Bundle", sortOrder: 25 },
-      { label: "$200 OBH Bundle", sortOrder: 26 },
-    ]) {
-      const existing = await tx.wheelPrize.findFirst({
-        where: { label: item.label },
+      await tx.wheelPrize.update({
+        where: { id: rareSc.id },
+        data: { tier: "JACKPOT", sortOrder: 3 },
       });
-      if (existing) {
-        await tx.wheelPrize.update({
-          where: { id: existing.id },
-          data: {
-            tier: "RARE",
-            sortOrder: item.sortOrder,
-            active: true,
-          },
-        });
-      } else {
-        await tx.wheelPrize.create({
-          data: {
-            label: item.label,
-            tier: "RARE",
-            sortOrder: item.sortOrder,
-            quantityInitial: WHEEL_DEFAULT_QUANTITY,
-            quantityRemaining: WHEEL_DEFAULT_QUANTITY,
-            active: true,
-          },
-        });
-      }
+      claimedIds.add(jackpotSc.id);
+      claimedIds.add(rareSc.id);
     }
 
     for (const item of WHEEL_SEED_PRIZES) {
-      const rows = await tx.wheelPrize.findMany({
+      let row = await tx.wheelPrize.findFirst({
         where: { label: item.label, tier: item.tier },
       });
-      if (rows.length === 0) continue;
 
-      const keep = rows.sort((a, b) => a.sortOrder - b.sortOrder)[0]!;
-      await tx.wheelPrize.update({
-        where: { id: keep.id },
-        data: {
-          sortOrder: item.sortOrder,
-          quantityInitial: WHEEL_DEFAULT_QUANTITY,
-          quantityRemaining: WHEEL_DEFAULT_QUANTITY,
-          active: true,
-        },
-      });
-
-      for (const dup of rows.slice(1)) {
+      if (row && claimedIds.has(row.id)) {
         await tx.wheelPrize.update({
-          where: { id: dup.id },
+          where: { id: row.id },
+          data: { sortOrder: item.sortOrder, active: true },
+        });
+        continue;
+      }
+
+      if (!row) {
+        const candidate = await tx.wheelPrize.findFirst({
+          where: {
+            label: item.label,
+            active: true,
+            id: { notIn: [...claimedIds] },
+          },
+          orderBy: { sortOrder: "asc" },
+        });
+
+        if (candidate) {
+          row = await tx.wheelPrize.update({
+            where: { id: candidate.id },
+            data: {
+              tier: item.tier,
+              sortOrder: item.sortOrder,
+              active: true,
+            },
+          });
+        } else {
+          row = await tx.wheelPrize.create({
+            data: {
+              label: item.label,
+              tier: item.tier,
+              sortOrder: item.sortOrder,
+              quantityInitial: WHEEL_DEFAULT_QUANTITY,
+              quantityRemaining: WHEEL_DEFAULT_QUANTITY,
+              active: true,
+            },
+          });
+        }
+      } else {
+        row = await tx.wheelPrize.update({
+          where: { id: row.id },
+          data: { sortOrder: item.sortOrder, active: true },
+        });
+      }
+
+      claimedIds.add(row.id);
+    }
+
+    const activeRows = await tx.wheelPrize.findMany({
+      where: { active: true },
+    });
+    for (const row of activeRows) {
+      if (row.label === "__wheel_catalog_version__") continue;
+      if (!catalogKeys.has(catalogKey(row.label, row.tier))) {
+        await tx.wheelPrize.update({
+          where: { id: row.id },
           data: { active: false, quantityRemaining: 0 },
         });
       }
     }
-
-    await tx.wheelPrize.updateMany({
-      where: { active: true },
-      data: {
-        quantityInitial: WHEEL_DEFAULT_QUANTITY,
-        quantityRemaining: WHEEL_DEFAULT_QUANTITY,
-      },
-    });
   });
+
+  await writeCatalogVersion(WHEEL_CATALOG_VERSION);
 }
 
 export async function initWheelData() {
