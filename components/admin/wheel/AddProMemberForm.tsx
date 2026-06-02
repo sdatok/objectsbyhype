@@ -23,7 +23,7 @@ export default function AddProMemberForm() {
         body: JSON.stringify({
           name,
           email: email.trim() || undefined,
-          monthlyPrice: Number(monthlyPrice),
+          monthlyPrice: monthlyPrice === "" ? 0 : Number(monthlyPrice),
           notes: notes || undefined,
         }),
       });
@@ -62,11 +62,10 @@ export default function AddProMemberForm() {
           className="border border-neutral-300 px-3 py-2 text-[12px]"
         />
         <input
-          required
           type="number"
           min={0}
           step="0.01"
-          placeholder="Monthly price ($)"
+          placeholder="Monthly price ($, optional)"
           value={monthlyPrice}
           onChange={(e) => setMonthlyPrice(e.target.value)}
           className="border border-neutral-300 px-3 py-2 text-[12px]"

@@ -29,7 +29,7 @@ export async function PATCH(
     }
     if (body.email !== undefined) {
       const t = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
-      data.email = t ? t.slice(0, 200) : null;
+      data.email = t ? t.slice(0, 200) : "";
     }
     if (typeof body.monthlyPrice === "number" && body.monthlyPrice >= 0) {
       data.monthlyPrice = body.monthlyPrice;

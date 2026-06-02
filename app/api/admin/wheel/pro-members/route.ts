@@ -54,7 +54,7 @@ export async function POST(request: Request) {
 
     const name = body.name?.trim();
     const emailRaw = body.email?.trim().toLowerCase();
-    const email = emailRaw ? emailRaw.slice(0, 200) : null;
+    const email = emailRaw ? emailRaw.slice(0, 200) : "";
     const monthlyPrice = Number(body.monthlyPrice);
 
     if (!name) {
@@ -82,6 +82,13 @@ export async function POST(request: Request) {
     });
   } catch (err) {
     console.error("[POST /api/admin/wheel/pro-members]", err);
-    return NextResponse.json({ error: "Create failed" }, { status: 500 });
+    const detail =
+      err instanceof Error && err.message.includes("WheelProMember")
+        ? err.message
+        : null;
+    return NextResponse.json(
+      { error: detail ?? "Create failed. Check server logs." },
+      { status: 500 }
+    );
   }
 }
