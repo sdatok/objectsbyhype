@@ -27,9 +27,9 @@ export async function PATCH(
       const t = body.name.trim();
       if (t) data.name = t.slice(0, 80);
     }
-    if (typeof body.email === "string") {
-      const t = body.email.trim().toLowerCase();
-      if (t) data.email = t.slice(0, 200);
+    if (body.email !== undefined) {
+      const t = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
+      data.email = t ? t.slice(0, 200) : null;
     }
     if (typeof body.monthlyPrice === "number" && body.monthlyPrice >= 0) {
       data.monthlyPrice = body.monthlyPrice;

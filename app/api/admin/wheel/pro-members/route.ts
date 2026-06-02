@@ -53,14 +53,12 @@ export async function POST(request: Request) {
     };
 
     const name = body.name?.trim();
-    const email = body.email?.trim().toLowerCase();
+    const emailRaw = body.email?.trim().toLowerCase();
+    const email = emailRaw ? emailRaw.slice(0, 200) : null;
     const monthlyPrice = Number(body.monthlyPrice);
 
-    if (!name || !email) {
-      return NextResponse.json(
-        { error: "Name and email are required" },
-        { status: 400 }
-      );
+    if (!name) {
+      return NextResponse.json({ error: "Name is required" }, { status: 400 });
     }
     if (!Number.isFinite(monthlyPrice) || monthlyPrice < 0) {
       return NextResponse.json(
@@ -72,7 +70,7 @@ export async function POST(request: Request) {
     const member = await prisma.wheelProMember.create({
       data: {
         name: name.slice(0, 80),
-        email: email.slice(0, 200),
+        email,
         monthlyPrice,
         notes: body.notes?.trim().slice(0, 500) || null,
       },

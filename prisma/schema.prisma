@@ -464,7 +464,7 @@ model WheelConfig {
 model WheelProMember {
   id           String          @id @default(cuid())
   name         String
-  email        String
+  email        String?
   monthlyPrice Decimal         @db.Decimal(10, 2)
   active       Boolean         @default(true)
   notes        String?         @db.Text

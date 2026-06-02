@@ -71,7 +71,7 @@ export async function GET(request: Request) {
     .map((r) => {
       const cols = [
         r.proMember.name,
-        r.proMember.email,
+        r.proMember.email ?? "",
         r.code,
         r.monthKey,
         r.usedAt ? "yes" : "no",

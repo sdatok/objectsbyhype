@@ -8,7 +8,7 @@ export interface SpinRow {
   prizeLabel: string;
   tier: string;
   createdAt: string;
-  proMember: { name: string; email: string };
+  proMember: { name: string; email: string | null };
 }
 
 export default function RecentSpinsTable({ spins }: { spins: SpinRow[] }) {
@@ -70,9 +70,11 @@ export default function RecentSpinsTable({ spins }: { spins: SpinRow[] }) {
               <tr key={s.id} className="border-b border-neutral-100">
                 <td className="px-4 py-3">
                   <span className="font-medium">{s.proMember.name}</span>
-                  <span className="text-neutral-500 text-[11px] ml-2">
-                    {s.proMember.email}
-                  </span>
+                  {s.proMember.email && (
+                    <span className="text-neutral-500 text-[11px] ml-2">
+                      {s.proMember.email}
+                    </span>
+                  )}
                 </td>
                 <td className="px-4 py-3 font-medium">{s.prizeLabel}</td>
                 <td className="px-4 py-3 text-[10px] uppercase tracking-widest">

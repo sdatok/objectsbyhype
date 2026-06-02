@@ -22,7 +22,7 @@ export default function AddProMemberForm() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name,
-          email,
+          email: email.trim() || undefined,
           monthlyPrice: Number(monthlyPrice),
           notes: notes || undefined,
         }),
@@ -55,9 +55,8 @@ export default function AddProMemberForm() {
           className="border border-neutral-300 px-3 py-2 text-[12px]"
         />
         <input
-          required
           type="email"
-          placeholder="Email"
+          placeholder="Email (optional)"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           className="border border-neutral-300 px-3 py-2 text-[12px]"

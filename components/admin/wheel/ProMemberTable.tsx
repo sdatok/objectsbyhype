@@ -6,7 +6,7 @@ import { useState } from "react";
 export interface ProMemberRow {
   id: string;
   name: string;
-  email: string;
+  email: string | null;
   monthlyPrice: number;
   active: boolean;
   notes: string | null;
@@ -124,7 +124,9 @@ export default function ProMemberTable({
                   <p className={`font-medium ${!m.active ? "text-neutral-400 line-through" : ""}`}>
                     {m.name}
                   </p>
-                  <p className="text-[11px] text-neutral-500">{m.email}</p>
+                  {m.email && (
+                    <p className="text-[11px] text-neutral-500">{m.email}</p>
+                  )}
                 </td>
                 <td className="px-4 py-3 font-mono tabular-nums">
                   ${m.monthlyPrice.toFixed(2)}
