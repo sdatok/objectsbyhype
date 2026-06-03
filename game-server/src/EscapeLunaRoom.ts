@@ -149,7 +149,7 @@ export class EscapeLunaRoom extends Room<EscapeLunaState> {
 
     const alivePlayers = this.countAlive();
     if (inLobby && alivePlayers >= MAX_PLAYERS) {
-      throw new Error("Match is full (25 players).");
+      throw new Error(`Match is full (${MAX_PLAYERS} players).`);
     }
     const isSpectator = !(inLobby && alivePlayers < MAX_PLAYERS);
 

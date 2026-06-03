@@ -2,8 +2,9 @@ import { Room, Client } from "@colyseus/core";
 import { SurvivorState, Player } from "./state";
 import {
   TICK_MS,
+  LOBBY_PATCH_MS,
   PLAYER_MAX_HP,
-  MAX_PLAYERS,
+  SURVIVOR_MAX_PLAYERS,
   DEFAULT_LOBBY_SECONDS,
   ZONE_START_RADIUS,
   MAX_INPUTS_PER_SEC,
@@ -54,7 +55,7 @@ import { postMatchResult, type ResultParticipant } from "./webhook";
  * during PLAYING clients must reconnect with their Colyseus token.
  */
 export class SurvivorRoom extends Room<SurvivorState> {
-  maxClients = 200; // generous; spectators can fill above MAX_PLAYERS
+  maxClients = 200; // generous; spectators can fill above SURVIVOR_MAX_PLAYERS
   // Never auto-dispose; we keep one persistent room across matches so admin
   // calls always have a target. Colyseus would otherwise drop the room as
   // soon as the lobby goes empty.
@@ -109,10 +110,7 @@ export class SurvivorRoom extends Room<SurvivorState> {
     });
 
     this.setSimulationInterval((dtMs) => this.tick(dtMs), TICK_MS);
-    // Send state patches every simulation tick instead of the default 50ms,
-    // so the client gets a fresh snapshot pair every ~33ms and interpolation
-    // looks smoother (especially noticeable on player movement).
-    this.setPatchRate(TICK_MS);
+    this.syncPatchRate();
 
     console.log("[SurvivorRoom] created");
   }
@@ -206,9 +204,9 @@ export class SurvivorRoom extends Room<SurvivorState> {
     }
 
     const alivePlayers = this.countAlive();
-    const canJoinActive = inLobby && alivePlayers < MAX_PLAYERS;
-    if (inLobby && alivePlayers >= MAX_PLAYERS) {
-      throw new Error("Match is full (25 players).");
+    const canJoinActive = inLobby && alivePlayers < SURVIVOR_MAX_PLAYERS;
+    if (inLobby && alivePlayers >= SURVIVOR_MAX_PLAYERS) {
+      throw new Error(`Match is full (${SURVIVOR_MAX_PLAYERS} players).`);
     }
     const isSpectator = !canJoinActive;
     const slimeColor = parseSlimeColor(options.slimeColor);
@@ -374,6 +372,7 @@ export class SurvivorRoom extends Room<SurvivorState> {
     this.state.matchEndsAtMs =
       this.state.countdownEndsAtMs + matchSeconds * 1000;
     this.matchPrize = prizeTitle;
+    this.syncPatchRate();
 
     console.log(
       `[SurvivorRoom] startMatch matchId=${matchId} lobby=${lobbySeconds}s match=${matchSeconds}s obstacles=${this.state.obstacles.length}`
@@ -432,12 +431,14 @@ export class SurvivorRoom extends Room<SurvivorState> {
       console.log(
         `[SurvivorRoom] restoreMatch PLAYING matchId=${matchId} obstacles=${this.state.obstacles.length}`
       );
+      this.syncPatchRate();
       return;
     }
 
     this.state.status = "COUNTDOWN";
     this.state.countdownEndsAtMs = now + lobbySeconds * 1000;
     this.state.matchEndsAtMs = this.state.countdownEndsAtMs + matchSeconds * 1000;
+    this.syncPatchRate();
     this.clock.setTimeout(() => {
       this.beginPlaying();
     }, lobbySeconds * 1000);
@@ -453,6 +454,7 @@ export class SurvivorRoom extends Room<SurvivorState> {
     const now = Date.now();
     this.state.status = "ENDED";
     this.state.endedAtMs = now;
+    this.syncPatchRate();
 
     const ranked = this.rankPlayers();
     ranked.forEach((p, idx) => {
@@ -597,6 +599,7 @@ export class SurvivorRoom extends Room<SurvivorState> {
     if (this.state.status !== "COUNTDOWN") return;
     const now = Date.now();
     this.state.status = "PLAYING";
+    this.syncPatchRate();
     this.state.startedAtMs = now;
     this.startedAtServerMs = now;
     this.state.zoneShrink01 = 0;
@@ -632,6 +635,13 @@ export class SurvivorRoom extends Room<SurvivorState> {
       if (p.alive && p.connected) n++;
     });
     return n;
+  }
+
+  /** 30Hz patches during combat; slower in lobby so 50 joiners don't spam diffs. */
+  private syncPatchRate(): void {
+    this.setPatchRate(
+      this.state.status === "PLAYING" ? TICK_MS : LOBBY_PATCH_MS
+    );
   }
 
   /**

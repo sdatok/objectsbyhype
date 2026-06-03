@@ -1,8 +1,8 @@
 # objectsbyhype-survivor-server
 
-Authoritative Colyseus game server for the `/survivor` 25-player top-down shooter on objectsbyhype.com.
+Authoritative Colyseus game server for the `/survivor` 50-player top-down shooter on objectsbyhype.com.
 
-Deployed separately from the Next.js storefront (which runs on Vercel) because Vercel Functions can't host a persistent WebSocket process. This server runs on **Railway** (Hobby tier is sufficient for one 25-player room).
+Deployed separately from the Next.js storefront (which runs on Vercel) because Vercel Functions can't host a persistent WebSocket process. This server runs on **Railway** (Hobby tier is sufficient for one 50-player room).
 
 ## What it does
 

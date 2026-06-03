@@ -1532,6 +1532,24 @@ function computeWorldScale(cssW: number, cssH: number): number {
   return Math.min(cssW, cssH) / viewSpan;
 }
 
+/** Skip draw calls for entities far outside the camera (50-player perf). */
+const VIEW_CULL_MARGIN = 140;
+
+function worldInView(
+  camX: number,
+  camY: number,
+  cssW: number,
+  cssH: number,
+  scale: number,
+  x: number,
+  y: number,
+  radius = 0
+): boolean {
+  const halfW = cssW / scale / 2 + VIEW_CULL_MARGIN + radius;
+  const halfH = cssH / scale / 2 + VIEW_CULL_MARGIN + radius;
+  return Math.abs(x - camX) <= halfW && Math.abs(y - camY) <= halfH;
+}
+
 interface RenderCtx {
   playerBuf: PlayerBuffer;
   bulletBuf: BulletBuffer;
@@ -1680,6 +1698,8 @@ function renderFrame(
   drawGrid(ctx, w2s, scale, cssW, cssH, camX, camY, zoneVisual);
 
   iterateSchemaArray<ServerObstacle>(rs.obstacles, (o) => {
+    const pad = Math.max(o.w, o.h) * 0.6;
+    if (!worldInView(camX, camY, cssW, cssH, scale, o.x, o.y, pad)) return;
     drawObstacle(
       ctx,
       o,
@@ -1698,11 +1718,12 @@ function renderFrame(
     (rs.pickups as unknown as {
       forEach: (cb: (p: ServerPickup) => void) => void;
     }).forEach((pu) => {
+      if (!worldInView(camX, camY, cssW, cssH, scale, pu.x, pu.y, 40)) return;
       drawPickup(ctx, pu, w2s, scale, now);
     });
   }
 
-  drawBullets(ctx, w2s, scale, now, rctx.bulletBuf);
+  drawBullets(ctx, w2s, scale, now, rctx.bulletBuf, camX, camY, cssW, cssH);
   drawMeteorFx(ctx, w2s, scale, now, rctx.meteors);
   drawBossTrails(ctx, w2s, scale, now, rctx.bossTrails);
   drawExplosions(ctx, w2s, scale, now, rctx.explosions);
@@ -1714,14 +1735,23 @@ function renderFrame(
   }
 
   forEachPlayer(rs, (p, sessionId) => {
+    const isSelf = sessionId === selfId;
+    const px = p.x ?? 0;
+    const py = p.y ?? 0;
+    if (
+      !isSelf &&
+      !worldInView(camX, camY, cssW, cssH, scale, px, py, 48)
+    ) {
+      return;
+    }
     const buf = rctx.playerBuf.get(sessionId);
     const lerp =
       interpPlayer(buf) ?? {
-        x: p.x ?? 0,
-        y: p.y ?? 0,
+        x: px,
+        y: py,
         aim: p.aim ?? 0,
       };
-    drawPlayer(ctx, p, sessionId === selfId, lerp, w2s, scale, now);
+    drawPlayer(ctx, p, isSelf, lerp, w2s, scale, now);
   });
 
   ctx.restore();
@@ -1987,7 +2017,11 @@ function drawBullets(
   w2s: (x: number, y: number) => { sx: number; sy: number },
   scale: number,
   now: number,
-  buf: BulletBuffer
+  buf: BulletBuffer,
+  camX: number,
+  camY: number,
+  cssW: number,
+  cssH: number
 ) {
   if (!buf || buf.size === 0) return;
   ctx.save();
@@ -1996,6 +2030,7 @@ function drawBullets(
     const dt = (now - b.t) / 1000;
     const x = b.x + b.vx * dt;
     const y = b.y + b.vy * dt;
+    if (!worldInView(camX, camY, cssW, cssH, scale, x, y, 24)) return;
     const pos = w2s(x, y);
     const color = WEAPON_COLORS[b.kind] ?? WEAPON_COLORS.pistol;
     const innerR = Math.max(2, BULLET_R * scale);

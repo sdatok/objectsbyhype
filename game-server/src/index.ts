@@ -16,7 +16,7 @@ import {
   MAX_LOBBY_SECONDS,
   MIN_MATCH_SECONDS,
   MAX_MATCH_SECONDS,
-  MAX_PLAYERS,
+  SURVIVOR_MAX_PLAYERS,
 } from "./constants";
 
 const SURVIVOR_ROOM = "survivor";
@@ -300,7 +300,7 @@ app.get("/admin/state", async (req: Request, res: Response) => {
     ok: true,
     room: room ? room.adminSnapshot() : null,
     luna: (await getLunaRoom())?.adminSnapshot() ?? null,
-    maxPlayers: MAX_PLAYERS,
+    maxPlayers: SURVIVOR_MAX_PLAYERS,
   });
 });
 

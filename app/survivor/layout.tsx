@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
   title: "Survivor — OBJECTSBYHYPE",
   description:
-    "25-player top-down arena. Last alive wins. Free to play. Open lobbies announced on Instagram.",
+    "50-player top-down arena. Last alive wins. Free to play. Open lobbies announced on Instagram.",
 };
 
 /**

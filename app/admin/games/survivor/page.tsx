@@ -64,7 +64,7 @@ export default async function AdminSurvivorPage() {
         >
           ← Admin home
         </Link>
-        <h1 className="text-[18px] font-bold mt-3">Survivor (25-player shooter)</h1>
+        <h1 className="text-[18px] font-bold mt-3">Survivor (50-player shooter)</h1>
         <p className="text-[12px] text-neutral-500 mt-0.5">
           Lobby + match controls for <code>/survivor</code>. The actual game
           runs on Railway (Colyseus); this page just talks to it via signed

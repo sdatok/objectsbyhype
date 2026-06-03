@@ -4,6 +4,7 @@ import { signMatchToken } from "@/lib/survivor-hmac";
 import {
   getOrCreateSurvivorConfig,
   getCurrentMatch,
+  SURVIVOR_MAX_LOBBY_PARTICIPANTS,
 } from "@/lib/survivor-config";
 import { ensureGameServerMatchBound } from "@/lib/survivor-game-server-sync";
 
@@ -59,7 +60,7 @@ export async function POST(request: Request) {
     }
 
     // Best-effort source for logs; the Colyseus server enforces per-email
-    // dedupe and 25-player active cap.
+    // dedupe and the active fighter cap.
     void getRequestIp(request);
 
     const config = await getOrCreateSurvivorConfig();
@@ -102,12 +103,11 @@ export async function POST(request: Request) {
     await ensureGameServerMatchBound(current, config);
 
     if (!existing) {
-      // Cap participants at 50 (25 active + room for spectators); the game
-      // server is the final authority on the 25-active limit.
+      // Cap DB rows before the game server rejects the 50-fighter limit.
       const count = await prisma.survivorParticipant.count({
         where: { matchId: current.id },
       });
-      if (count >= 50) {
+      if (count >= SURVIVOR_MAX_LOBBY_PARTICIPANTS) {
         return NextResponse.json(
           { error: "Lobby is full." },
           { status: 409 }

@@ -3,7 +3,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import type { Client, Room } from "colyseus.js";
-import type { PublicSurvivorState } from "@/lib/survivor-config";
+import {
+  type PublicSurvivorState,
+  SURVIVOR_MAX_PLAYERS,
+} from "@/lib/survivor-config";
 import {
   clearSurvivorReconnectSession,
   joinSurvivorRoom,
@@ -520,7 +523,7 @@ function Header({ serverState }: { serverState: PublicSurvivorState }) {
         )}
       </div>
       <p className="text-[10px] uppercase tracking-[0.25em] text-neutral-500">
-        25 players · last alive wins
+        {SURVIVOR_MAX_PLAYERS} players · last alive wins
       </p>
     </header>
   );
@@ -887,7 +890,7 @@ function StandbyPanel({
 
         <div className="text-xs text-neutral-400 border-t border-white/10 pt-4 space-y-1">
           <p>
-            <span className="text-white">{alive}</span> / 25 player
+            <span className="text-white">{alive}</span> / {SURVIVOR_MAX_PLAYERS} player
             {alive === 1 ? "" : "s"} in the arena
           </p>
           <p className="text-[10px] text-neutral-500 leading-relaxed">

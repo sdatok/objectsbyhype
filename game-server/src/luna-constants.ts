@@ -9,7 +9,7 @@ export {
   PLAYER_RADIUS,
   PLAYER_MAX_HP,
   PLAYER_SPEED,
-  MAX_PLAYERS,
+  LUNA_MAX_PLAYERS,
   DEFAULT_LOBBY_SECONDS,
   MIN_LOBBY_SECONDS,
   MAX_LOBBY_SECONDS,
@@ -25,6 +25,9 @@ export {
   parseSlimeAccessories,
   parseNameColor,
 } from "./constants";
+
+/** Re-export under the name Luna rooms expect. */
+export { LUNA_MAX_PLAYERS as MAX_PLAYERS } from "./constants";
 
 /** Safe zone — same scale as Survivor island. */
 export const LUNA_ZONE_START_RADIUS = 1900;

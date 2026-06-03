@@ -8,6 +8,9 @@ import type {
 const SINGLETON_ID = "default";
 
 /** Shared admin timing bounds (also mirrored in game-server/src/constants.ts). */
+export const SURVIVOR_MAX_PLAYERS = 50;
+/** Token route cap: fighters plus spectator headroom before Colyseus rejects. */
+export const SURVIVOR_MAX_LOBBY_PARTICIPANTS = 75;
 export const SURVIVOR_MIN_LOBBY_SECONDS = 1;
 export const SURVIVOR_MAX_LOBBY_SECONDS = 600;
 export const SURVIVOR_MIN_MATCH_SECONDS = 10;

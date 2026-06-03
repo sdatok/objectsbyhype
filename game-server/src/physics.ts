@@ -16,6 +16,7 @@ import {
   PICKUP_MAX_ACTIVE,
   PICKUP_ZONE_MARGIN,
   PICKUP_WEIGHTS,
+  SURVIVOR_MAX_BULLETS,
   HEALTH_PACK_AMOUNT,
   MYSTERY_PICKUP_KIND,
   POWERUP_LABELS,
@@ -416,8 +417,10 @@ export function tickShooting(
   _events: TickEvents
 ): number {
   let spawned = 0;
+  if (state.bullets.length >= SURVIVOR_MAX_BULLETS) return spawned;
   state.players.forEach((p, sessionId) => {
     if (!p.alive) return;
+    if (state.bullets.length >= SURVIVOR_MAX_BULLETS) return;
     const inp = inputs.get(sessionId);
     if (!inp?.shooting) return;
 
@@ -430,6 +433,7 @@ export function tickShooting(
     const base = pellets > 1 ? p.aim - spec.spreadRad / 2 : p.aim;
 
     for (let i = 0; i < pellets; i++) {
+      if (state.bullets.length >= SURVIVOR_MAX_BULLETS) break;
       const angle = base + step * i;
       const b = new BulletCtor();
       b.ownerId = sessionId;
@@ -446,6 +450,20 @@ export function tickShooting(
     p.lastShotAt = nowMs;
   });
   return spawned;
+}
+
+function countAliveFighters(state: SurvivorState): number {
+  let n = 0;
+  state.players.forEach((p) => {
+    if (p.alive) n++;
+  });
+  return n;
+}
+
+/** Fewer pickups in small lobbies; cap rises with headcount up to PICKUP_MAX_ACTIVE. */
+function pickupCapForState(state: SurvivorState): number {
+  const alive = countAliveFighters(state);
+  return Math.min(PICKUP_MAX_ACTIVE, 10 + Math.floor(alive * 0.24));
 }
 
 function detonateRocket(
@@ -676,9 +694,10 @@ export function tickPickups(
 
   // Spawn one new pickup if interval elapsed and we're under the cap.
   let nextSpawnAtMs = ctx.nextSpawnAtMs;
+  const pickupCap = pickupCapForState(state);
   if (
     nowMs >= nextSpawnAtMs &&
-    state.pickups.length < PICKUP_MAX_ACTIVE
+    state.pickups.length < pickupCap
   ) {
     const pos = randomPointInsideZone(state);
     if (pos) {

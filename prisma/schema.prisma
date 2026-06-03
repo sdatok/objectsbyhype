@@ -333,7 +333,7 @@ model GameSession {
   @@index([usedAt])
 }
 
-/// Singleton row (id="default") holding settings for the /survivor 25-player
+/// Singleton row (id="default") holding settings for the /survivor 50-player
 /// shooter. Edited from /admin/survivor. Match lifecycle itself lives in the
 /// authoritative Colyseus server; this model just stores what the lobby/admin
 /// UI needs.

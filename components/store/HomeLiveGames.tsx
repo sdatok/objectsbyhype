@@ -37,7 +37,7 @@ export default async function HomeLiveGames() {
             >
               Play Survivor
               <span className="block mt-1 text-[10px] font-normal tracking-widest text-white/80 normal-case">
-                25-player arena · last alive wins
+                50-player arena · last alive wins
               </span>
             </Link>
           )}

@@ -149,8 +149,8 @@ export const PICKUP_RADIUS = 14;
 export const PICKUP_SPAWN_INTERVAL_MS = 5_000;
 /** A pickup vanishes if uncollected this long. */
 export const PICKUP_TTL_MS = 25_000;
-/** Hard cap on concurrent map pickups. */
-export const PICKUP_MAX_ACTIVE = 14;
+/** Hard cap on concurrent map pickups (scales down for small lobbies). */
+export const PICKUP_MAX_ACTIVE = 22;
 /** Inset from current zone radius so pickups don't spawn on the deadly edge. */
 export const PICKUP_ZONE_MARGIN = 120;
 /** Health pack restore amount, capped at PLAYER_MAX_HP. */
@@ -444,7 +444,16 @@ export const MIN_LOBBY_SECONDS = 1;
 export const MAX_LOBBY_SECONDS = 600;
 export const MIN_MATCH_SECONDS = 10;
 export const MAX_MATCH_SECONDS = 3600;
-export const MAX_PLAYERS = 25;
+/** Active fighters allowed in Survivor lobby / match. */
+export const SURVIVOR_MAX_PLAYERS = 50;
+/** Escape Luna stays smaller for tighter chase gameplay. */
+export const LUNA_MAX_PLAYERS = 25;
+/** @deprecated Prefer SURVIVOR_MAX_PLAYERS in Survivor code paths. */
+export const MAX_PLAYERS = SURVIVOR_MAX_PLAYERS;
+/** Global bullet cap — prevents runaway sim + patch size with 50 shooters. */
+export const SURVIVOR_MAX_BULLETS = 160;
+/** Slower state patches in lobby (join churn only); PLAYING uses TICK_MS. */
+export const LOBBY_PATCH_MS = 250;
 
 // ---------- Anti-cheat ----------
 /** Max input messages per second; anything above is dropped silently. */
