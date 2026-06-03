@@ -217,13 +217,17 @@ export const BOSS_EVENT_INTERVAL_MS = 60_000;
 export const BOSS_EVENT_OFFSET_MS = 30_000;
 export const BOSS_RADIUS = 72;
 export const BOSS_MAX_HP = 900;
-export const BOSS_JUMP_INTERVAL_MS = 2_200;
-export const BOSS_JUMP_DISTANCE_MIN = 200;
-export const BOSS_JUMP_DISTANCE_MAX = 460;
+/** Chase speed toward the nearest player (world units / sec). */
+export const BOSS_SPEED = 118;
+/** Leave a damaging slime trail while walking. */
+export const BOSS_TRAIL_DEPOSIT_MS = 850;
+export const BOSS_TRAIL_MIN_DIST = 36;
 export const BOSS_CONTACT_DPS = 42;
 export const BOSS_TRAIL_RADIUS = 40;
 export const BOSS_TRAIL_LINGER_MS = 6_000;
 export const BOSS_TRAIL_DPS = 24;
+/** Max extra lives a Survivor player can bank from boss kills. */
+export const SURVIVOR_MAX_EXTRA_LIVES = 5;
 
 // ---------- Slime avatars ----------
 export const SLIME_COLORS = [
@@ -242,7 +246,29 @@ export const SLIME_COLORS = [
 ] as const;
 
 export const DEFAULT_SLIME_COLOR = "#22d3ee";
-export const SLIME_FACE_COUNT = 4;
+export const SLIME_FACE_COUNT = 8;
+
+export const SLIME_HEAD_NONE = 0;
+export const SLIME_HEAD_GUCCI = 1;
+export const SLIME_HEAD_SUNGLASSES = 2;
+export const SLIME_HEAD_CROWN = 3;
+export const SLIME_HEAD_BANDANA = 4;
+export const SLIME_HEAD_HEADPHONES = 5;
+
+export const SLIME_BODY_NONE = 0;
+export const SLIME_BODY_CHAIN = 1;
+export const SLIME_BODY_CAPE = 2;
+export const SLIME_BODY_BACKPACK = 3;
+export const SLIME_BODY_DRIP = 4;
+
+export const NAME_OUTLINE_DEFAULT = 0;
+export const NAME_OUTLINE_GLOW = 1;
+export const NAME_OUTLINE_HEAVY = 2;
+
+export const NAME_BADGE_NONE = 0;
+export const NAME_BADGE_STAR = 1;
+export const NAME_BADGE_SKULL = 2;
+export const NAME_BADGE_FLAME = 3;
 
 export function parseSlimeColor(raw: unknown): string {
   const v = String(raw ?? "").trim().toLowerCase();
@@ -276,6 +302,48 @@ export function parseSlimeAccessories(raw: unknown): number {
   const n = Math.floor(Number(raw));
   if (!Number.isFinite(n)) return 0;
   return n & (SLIME_ACCESSORY_GUCCI_HAT | SLIME_ACCESSORY_SUNGLASSES);
+}
+
+function migrateLegacyAccessories(mask: number): {
+  head: number;
+  body: number;
+} {
+  let head = SLIME_HEAD_NONE;
+  if (mask & SLIME_ACCESSORY_GUCCI_HAT) head = SLIME_HEAD_GUCCI;
+  if (mask & SLIME_ACCESSORY_SUNGLASSES) head = SLIME_HEAD_SUNGLASSES;
+  return { head, body: SLIME_BODY_NONE };
+}
+
+export function parseSlimeHeadAccessory(
+  raw: unknown,
+  legacyMask?: number
+): number {
+  const n = Math.floor(Number(raw));
+  if (Number.isFinite(n) && n >= 0 && n <= SLIME_HEAD_HEADPHONES) return n;
+  if (legacyMask !== undefined) return migrateLegacyAccessories(legacyMask).head;
+  return SLIME_HEAD_NONE;
+}
+
+export function parseSlimeBodyAccessory(
+  raw: unknown,
+  legacyMask?: number
+): number {
+  const n = Math.floor(Number(raw));
+  if (Number.isFinite(n) && n >= 0 && n <= SLIME_BODY_DRIP) return n;
+  if (legacyMask !== undefined) return migrateLegacyAccessories(legacyMask).body;
+  return SLIME_BODY_NONE;
+}
+
+export function parseNameOutline(raw: unknown): number {
+  const n = Math.floor(Number(raw));
+  if (!Number.isFinite(n)) return NAME_OUTLINE_DEFAULT;
+  return Math.max(NAME_OUTLINE_DEFAULT, Math.min(NAME_OUTLINE_HEAVY, n));
+}
+
+export function parseNameBadge(raw: unknown): number {
+  const n = Math.floor(Number(raw));
+  if (!Number.isFinite(n)) return NAME_BADGE_NONE;
+  return Math.max(NAME_BADGE_NONE, Math.min(NAME_BADGE_FLAME, n));
 }
 
 export function parseNameColor(raw: unknown): string {

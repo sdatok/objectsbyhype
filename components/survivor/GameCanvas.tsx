@@ -12,7 +12,7 @@ import MobileControls, {
 import RetroOverlay from "./RetroOverlay";
 import { MusicMuteButton } from "./SurvivorMusic";
 import SlimeAvatar, { drawSlime } from "./SlimeAvatar";
-import { DEFAULT_NAME_COLOR, DEFAULT_SLIME_COLOR, parseNameColor } from "@/lib/survivor-slime";
+import { DEFAULT_NAME_COLOR, DEFAULT_SLIME_COLOR, parseNameColor, parseNameBadge, parseNameOutline, parseSlimeFace, parseSlimeHeadAccessory, parseSlimeBodyAccessory, NAME_BADGES, NAME_OUTLINE_GLOW, NAME_OUTLINE_HEAVY } from "@/lib/survivor-slime";
 
 /**
  * Top-down 2D Survivor game. The server simulates at 30Hz; this client
@@ -58,9 +58,14 @@ interface ServerPlayer {
   slimeColor: string;
   slimeFace: number;
   slimeAccessories: number;
+  slimeHeadAccessory: number;
+  slimeBodyAccessory: number;
   nameColor: string;
+  nameOutline: number;
+  nameBadge: number;
   towerBuffExpiresAtMs: number;
   towerBuffKind: string;
+  extraLives: number;
 }
 
 interface ServerBullet {
@@ -108,6 +113,7 @@ interface ServerBoss {
   slimeFace: number;
   nextJumpAtMs: number;
   jumpLandAtMs: number;
+  aim: number;
 }
 
 interface ServerState {
@@ -354,6 +360,11 @@ export default function GameCanvas({ room, onLeave }: GameCanvasProps) {
     message: string;
     expiresAt: number;
   } | null>(null);
+  const [lifeToast, setLifeToast] = useState<{
+    title: string;
+    message: string;
+    expiresAt: number;
+  } | null>(null);
   const meteorFxRef = useRef<
     Array<{
       x: number;
@@ -556,7 +567,9 @@ export default function GameCanvas({ room, onLeave }: GameCanvasProps) {
     const onBossSpawn = (payload: { message?: string }) => {
       const now = Date.now();
       setBossAnnouncement({
-        message: payload.message ?? "Giant slimes are hopping across the island!",
+        message:
+          payload.message ??
+          "Giant slimes are stalking the island — slay one for an extra life!",
         expiresAt: now + 6500,
       });
     };
@@ -580,6 +593,24 @@ export default function GameCanvas({ room, onLeave }: GameCanvasProps) {
     room.onMessage("event:volcano-eruption", onVolcanoEruption);
     room.onMessage("event:boss-spawn", onBossSpawn);
     room.onMessage("event:boss-trails", onBossTrails);
+    room.onMessage("event:extra-life", (payload: { message?: string }) => {
+      const now = Date.now();
+      setLifeToast({
+        title: "Extra life",
+        message: payload.message ?? "Extra life earned!",
+        expiresAt: now + 4500,
+      });
+      shakeRef.current = { amount: 6, until: now + 180 };
+    });
+    room.onMessage("event:respawn", (payload: { message?: string }) => {
+      const now = Date.now();
+      setLifeToast({
+        title: "Respawn",
+        message: payload.message ?? "Extra life used — you're back in!",
+        expiresAt: now + 4500,
+      });
+      shakeRef.current = { amount: 10, until: now + 260 };
+    });
     room.onMessage("event:explosions", onExplosions);
     return () => {
       // colyseus.js cleans listeners on room.leave; nothing to undo here.
@@ -595,6 +626,7 @@ export default function GameCanvas({ room, onLeave }: GameCanvasProps) {
       setTowerAnnouncement((a) => (a && a.expiresAt > now ? a : null));
       setVolcanoAnnouncement((a) => (a && a.expiresAt > now ? a : null));
       setBossAnnouncement((a) => (a && a.expiresAt > now ? a : null));
+      setLifeToast((t) => (t && t.expiresAt > now ? t : null));
       explosionsRef.current = explosionsRef.current.filter((e) => e.expiresAt > now);
       meteorFxRef.current = meteorFxRef.current.filter(
         (m) => m.craterUntilMs > now
@@ -855,6 +887,7 @@ export default function GameCanvas({ room, onLeave }: GameCanvasProps) {
         towerAnnouncement={towerAnnouncement}
         volcanoAnnouncement={volcanoAnnouncement}
         bossAnnouncement={bossAnnouncement}
+        lifeToast={lifeToast}
         onLeave={onLeave}
         compact={mobileControls}
       />
@@ -886,10 +919,15 @@ function Hud(props: {
     message: string;
     expiresAt: number;
   } | null;
+  lifeToast: {
+    title: string;
+    message: string;
+    expiresAt: number;
+  } | null;
   onLeave: () => void;
   compact?: boolean;
 }) {
-  const { snapshot, killFeed, pickupToast, towerAnnouncement, volcanoAnnouncement, bossAnnouncement, onLeave, compact } =
+  const { snapshot, killFeed, pickupToast, towerAnnouncement, volcanoAnnouncement, bossAnnouncement, lifeToast, onLeave, compact } =
     props;
   const [, forceTick] = useState(0);
   useEffect(() => {
@@ -1030,6 +1068,13 @@ function Hud(props: {
             />
           )}
           <StatPill label="K" value={snapshot.selfKills.toString()} tone="ok" />
+          {snapshot.selfExtraLives > 0 && (
+            <StatPill
+              label="LIFE"
+              value={snapshot.selfExtraLives.toString()}
+              tone="warn"
+            />
+          )}
           <StatPill
             label="LIVE"
             value={snapshot.aliveCount.toString()}
@@ -1120,6 +1165,26 @@ function Hud(props: {
           </div>
         )}
       </div>
+
+      {lifeToast && (
+        <div
+          className={`absolute inset-x-0 flex justify-center pointer-events-none ${
+            compact ? "bottom-52" : "bottom-28"
+          }`}
+        >
+          <div
+            className="border-2 px-4 py-2 bg-black/85 backdrop-blur-sm border-lime-400/80"
+            style={{ fontFamily: MONO_FONT }}
+          >
+            <p className="text-[9px] tracking-[0.35em] uppercase text-lime-300/80">
+              ▸ {lifeToast.title}
+            </p>
+            <p className="text-sm font-bold tracking-[0.12em] uppercase text-lime-200 mt-1">
+              {lifeToast.message}
+            </p>
+          </div>
+        </div>
+      )}
 
       {pickupToast && (
         <div
@@ -1446,6 +1511,7 @@ function snapshotStatus(room: Room) {
     selfSlimeFace: 0,
     selfSlimeAccessories: 0,
     selfNameColor: DEFAULT_NAME_COLOR,
+    selfExtraLives: 0,
     matchEndsAtMs: 0,
     countdownEndsAtMs: 0,
     startedAtMs: 0,
@@ -1484,6 +1550,10 @@ function snapshotStatus(room: Room) {
       selfSlimeAccessories:
         typeof self?.slimeAccessories === "number" ? self.slimeAccessories : 0,
       selfNameColor: parseNameColor(self?.nameColor),
+      selfExtraLives:
+        typeof self?.extraLives === "number" && self.extraLives > 0
+          ? self.extraLives
+          : 0,
       matchEndsAtMs: rs.matchEndsAtMs ?? 0,
       countdownEndsAtMs: rs.countdownEndsAtMs ?? 0,
       startedAtMs: rs.startedAtMs ?? 0,
@@ -2625,17 +2695,16 @@ function drawBoss(
   now: number
 ) {
   const screen = w2s(boss.x, boss.y);
-  const landAge = now - (boss.jumpLandAtMs ?? 0);
-  const squash =
-    landAge >= 0 && landAge < 320
-      ? 1 + 0.22 * Math.sin((landAge / 320) * Math.PI)
-      : 1;
-  const r = Math.max(24, boss.radius * scale) * squash;
+  const bob = 1 + 0.05 * Math.sin(now / 420 + boss.x * 0.003);
+  const r = Math.max(24, boss.radius * scale) * bob;
   const slimeColor = boss.slimeColor || "#a3e635";
   const slimeFace =
-    typeof boss.slimeFace === "number" ? Math.max(0, Math.min(3, boss.slimeFace)) : 0;
+    typeof boss.slimeFace === "number" ? parseSlimeFace(boss.slimeFace) : 0;
   const maxHp = boss.maxHp > 0 ? boss.maxHp : 900;
-  const aim = Math.sin(now / 900 + boss.x * 0.002) * 0.4;
+  const aim =
+    typeof boss.aim === "number" && Number.isFinite(boss.aim)
+      ? boss.aim
+      : Math.sin(now / 900 + boss.x * 0.002) * 0.4;
 
   ctx.save();
   ctx.shadowColor = slimeColor;
@@ -2651,6 +2720,7 @@ function drawBoss(
     false,
     true,
     now,
+    0,
     0
   );
   ctx.shadowBlur = 0;
@@ -2754,10 +2824,20 @@ function drawPlayer(
   const burning = (p.burnUntilMs ?? 0) > now;
   const slimeColor = p.slimeColor || DEFAULT_SLIME_COLOR;
   const slimeFace =
-    typeof p.slimeFace === "number" ? Math.max(0, Math.min(3, p.slimeFace)) : 0;
-  const slimeAccessories =
-    typeof p.slimeAccessories === "number" ? p.slimeAccessories : 0;
+    typeof p.slimeFace === "number"
+      ? parseSlimeFace(p.slimeFace)
+      : 0;
+  const slimeHeadAccessory = parseSlimeHeadAccessory(
+    p.slimeHeadAccessory,
+    typeof p.slimeAccessories === "number" ? p.slimeAccessories : 0
+  );
+  const slimeBodyAccessory = parseSlimeBodyAccessory(
+    p.slimeBodyAccessory,
+    typeof p.slimeAccessories === "number" ? p.slimeAccessories : 0
+  );
   const nameColor = parseNameColor(p.nameColor);
+  const nameOutline = parseNameOutline(p.nameOutline);
+  const nameBadge = parseNameBadge(p.nameBadge);
 
   ctx.save();
   if (!p.alive) ctx.globalAlpha = 0.28;
@@ -2773,7 +2853,8 @@ function drawPlayer(
     frozen,
     burning,
     now,
-    slimeAccessories
+    slimeHeadAccessory,
+    slimeBodyAccessory
   );
 
   if (p.alive) {
@@ -2879,19 +2960,49 @@ function drawPlayer(
     ctx.restore();
   }
 
-  // Display name — larger, customizable colour.
+  // Display name — colour, outline, optional badge.
   const nameSize = Math.max(13, 15 * Math.min(1.6, scale));
   const nameY = screen.sy - r - 22;
+  const label = p.displayName.toUpperCase();
+  const badge =
+    NAME_BADGES.find((b) => b.id === nameBadge)?.glyph ?? "";
   ctx.globalAlpha = p.alive ? 0.95 : 0.4;
   ctx.font = `bold ${nameSize}px ${MONO_FONT}`;
   ctx.textAlign = "center";
   ctx.textBaseline = "bottom";
-  ctx.strokeStyle = "rgba(0,0,0,0.75)";
-  ctx.lineWidth = Math.max(2, nameSize * 0.14);
-  ctx.lineJoin = "round";
-  ctx.strokeText(p.displayName.toUpperCase(), screen.sx, nameY);
+
+  const nameW = ctx.measureText(label).width;
+  const badgeGap = badge ? nameSize * 0.45 : 0;
+  const totalW = nameW + badgeGap;
+  const textX = badge ? screen.sx + badgeGap * 0.35 : screen.sx;
+
+  if (badge) {
+    ctx.font = `${nameSize * 0.95}px ${MONO_FONT}`;
+    ctx.fillStyle = nameColor;
+    ctx.fillText(badge, screen.sx - totalW / 2 + nameSize * 0.35, nameY);
+    ctx.font = `bold ${nameSize}px ${MONO_FONT}`;
+  }
+
+  if (nameOutline === NAME_OUTLINE_GLOW) {
+    ctx.shadowColor = "rgba(255,255,255,0.95)";
+    ctx.shadowBlur = Math.max(4, nameSize * 0.35);
+  } else {
+    ctx.shadowBlur = 0;
+  }
+
+  if (nameOutline === NAME_OUTLINE_HEAVY || nameOutline === 0) {
+    ctx.strokeStyle =
+      nameOutline === NAME_OUTLINE_HEAVY
+        ? "rgba(0,0,0,0.95)"
+        : "rgba(0,0,0,0.75)";
+    ctx.lineWidth = Math.max(2, nameSize * (nameOutline === NAME_OUTLINE_HEAVY ? 0.18 : 0.14));
+    ctx.lineJoin = "round";
+    ctx.strokeText(label, textX, nameY);
+  }
+
+  ctx.shadowBlur = 0;
   ctx.fillStyle = nameColor;
-  ctx.fillText(p.displayName.toUpperCase(), screen.sx, nameY);
+  ctx.fillText(label, textX, nameY);
 
   ctx.restore();
 }

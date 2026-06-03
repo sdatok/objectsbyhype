@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import dynamic from "next/dynamic";
 import type { Client, Room } from "colyseus.js";
 import {
@@ -20,19 +20,15 @@ import SlimeAvatar from "./SlimeAvatar";
 import {
   DEFAULT_NAME_COLOR,
   DEFAULT_SLIME_COLOR,
-  NAME_COLOR_KEY,
+  loadSlimeCustomizationFromStorage,
+  NAME_BADGES,
   NAME_COLORS,
-  parseNameColor,
-  parseSlimeAccessories,
-  parseSlimeColor,
-  parseSlimeFace,
-  SLIME_ACCESSORIES,
-  SLIME_ACCESSORIES_KEY,
-  SLIME_COLOR_KEY,
+  NAME_OUTLINES,
+  saveSlimeCustomizationToStorage,
+  SLIME_BODY_ACCESSORIES,
   SLIME_COLORS,
-  SLIME_FACE_COUNT,
-  SLIME_FACE_KEY,
-  toggleAccessory,
+  SLIME_FACE_LABELS,
+  SLIME_HEAD_ACCESSORIES,
   type NameColor,
   type SlimeColor,
 } from "@/lib/survivor-slime";
@@ -73,8 +69,11 @@ export default function SurvivorClient({ initialState }: SurvivorClientProps) {
   const [email, setEmail] = useState("");
   const [slimeColor, setSlimeColor] = useState<SlimeColor>(DEFAULT_SLIME_COLOR);
   const [slimeFace, setSlimeFace] = useState(0);
-  const [slimeAccessories, setSlimeAccessories] = useState(0);
+  const [slimeHeadAccessory, setSlimeHeadAccessory] = useState(0);
+  const [slimeBodyAccessory, setSlimeBodyAccessory] = useState(0);
   const [nameColor, setNameColor] = useState<NameColor>(DEFAULT_NAME_COLOR);
+  const [nameOutline, setNameOutline] = useState(0);
+  const [nameBadge, setNameBadge] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [roomReady, setRoomReady] = useState(false);
   const [roomStatus, setRoomStatus] = useState<RoomPhase>("WAITING");
@@ -110,12 +109,14 @@ export default function SurvivorClient({ initialState }: SurvivorClientProps) {
     try {
       setDisplayName(localStorage.getItem(NAME_KEY) ?? "");
       setEmail(localStorage.getItem(EMAIL_KEY) ?? "");
-      setSlimeColor(parseSlimeColor(localStorage.getItem(SLIME_COLOR_KEY)));
-      setSlimeFace(parseSlimeFace(localStorage.getItem(SLIME_FACE_KEY)));
-      setSlimeAccessories(
-        parseSlimeAccessories(localStorage.getItem(SLIME_ACCESSORIES_KEY))
-      );
-      setNameColor(parseNameColor(localStorage.getItem(NAME_COLOR_KEY)));
+      const saved = loadSlimeCustomizationFromStorage();
+      setSlimeColor(saved.slimeColor);
+      setSlimeFace(saved.slimeFace);
+      setSlimeHeadAccessory(saved.slimeHeadAccessory);
+      setSlimeBodyAccessory(saved.slimeBodyAccessory);
+      setNameColor(saved.nameColor);
+      setNameOutline(saved.nameOutline);
+      setNameBadge(saved.nameBadge);
     } catch {
       // ignore localStorage failures (private mode etc.)
     }
@@ -270,14 +271,17 @@ export default function SurvivorClient({ initialState }: SurvivorClientProps) {
         issuedAtMs: json.issuedAtMs,
         slimeColor,
         slimeFace,
-        slimeAccessories,
+        slimeHeadAccessory,
+        slimeBodyAccessory,
         nameColor,
+        nameOutline,
+        nameBadge,
       }).then((connection) => {
         wsUrlRef.current = json.wsUrl as string;
         return connection;
       });
     },
-    [slimeColor, slimeFace, slimeAccessories, nameColor]
+    [slimeColor, slimeFace, slimeHeadAccessory, slimeBodyAccessory, nameColor, nameOutline, nameBadge]
   );
 
   const join = useCallback(async () => {
@@ -302,10 +306,15 @@ export default function SurvivorClient({ initialState }: SurvivorClientProps) {
     try {
       localStorage.setItem(NAME_KEY, trimmedName);
       localStorage.setItem(EMAIL_KEY, trimmedEmail);
-      localStorage.setItem(SLIME_COLOR_KEY, slimeColor);
-      localStorage.setItem(SLIME_FACE_KEY, String(slimeFace));
-      localStorage.setItem(SLIME_ACCESSORIES_KEY, String(slimeAccessories));
-      localStorage.setItem(NAME_COLOR_KEY, nameColor);
+      saveSlimeCustomizationToStorage({
+        slimeColor,
+        slimeFace,
+        slimeHeadAccessory,
+        slimeBodyAccessory,
+        nameColor,
+        nameOutline,
+        nameBadge,
+      });
     } catch {
       /* ignore */
     }
@@ -352,8 +361,11 @@ export default function SurvivorClient({ initialState }: SurvivorClientProps) {
     email,
     slimeColor,
     slimeFace,
-    slimeAccessories,
+    slimeHeadAccessory,
+    slimeBodyAccessory,
     nameColor,
+    nameOutline,
+    nameBadge,
     serverState.currentMatch?.status,
     attemptJoin,
     attachRoom,
@@ -453,14 +465,20 @@ export default function SurvivorClient({ initialState }: SurvivorClientProps) {
           email={email}
           slimeColor={slimeColor}
           slimeFace={slimeFace}
-          slimeAccessories={slimeAccessories}
+          slimeHeadAccessory={slimeHeadAccessory}
+          slimeBodyAccessory={slimeBodyAccessory}
           nameColor={nameColor}
+          nameOutline={nameOutline}
+          nameBadge={nameBadge}
           onName={setDisplayName}
           onEmail={setEmail}
           onSlimeColor={setSlimeColor}
           onSlimeFace={setSlimeFace}
-          onSlimeAccessories={setSlimeAccessories}
+          onSlimeHeadAccessory={setSlimeHeadAccessory}
+          onSlimeBodyAccessory={setSlimeBodyAccessory}
           onNameColor={setNameColor}
+          onNameOutline={setNameOutline}
+          onNameBadge={setNameBadge}
           onJoin={join}
           phase={phase}
           error={error}
@@ -492,8 +510,11 @@ export default function SurvivorClient({ initialState }: SurvivorClientProps) {
           displayName={displayName}
           slimeColor={slimeColor}
           slimeFace={slimeFace}
-          slimeAccessories={slimeAccessories}
+          slimeHeadAccessory={slimeHeadAccessory}
+          slimeBodyAccessory={slimeBodyAccessory}
           nameColor={nameColor}
+          nameOutline={nameOutline}
+          nameBadge={nameBadge}
           onLeave={leaveAndReset}
         />
       )}
@@ -562,14 +583,20 @@ function LobbyPanel(props: {
   email: string;
   slimeColor: SlimeColor;
   slimeFace: number;
-  slimeAccessories: number;
+  slimeHeadAccessory: number;
+  slimeBodyAccessory: number;
   nameColor: NameColor;
+  nameOutline: number;
+  nameBadge: number;
   onName: (v: string) => void;
   onEmail: (v: string) => void;
   onSlimeColor: (v: SlimeColor) => void;
   onSlimeFace: (v: number) => void;
-  onSlimeAccessories: (v: number) => void;
+  onSlimeHeadAccessory: (v: number) => void;
+  onSlimeBodyAccessory: (v: number) => void;
   onNameColor: (v: NameColor) => void;
+  onNameOutline: (v: number) => void;
+  onNameBadge: (v: number) => void;
   onJoin: () => void;
   phase: Phase;
   error: string | null;
@@ -580,18 +607,35 @@ function LobbyPanel(props: {
     email,
     slimeColor,
     slimeFace,
-    slimeAccessories,
+    slimeHeadAccessory,
+    slimeBodyAccessory,
     nameColor,
+    nameOutline,
+    nameBadge,
     onName,
     onEmail,
     onSlimeColor,
     onSlimeFace,
-    onSlimeAccessories,
+    onSlimeHeadAccessory,
+    onSlimeBodyAccessory,
     onNameColor,
+    onNameOutline,
+    onNameBadge,
     onJoin,
     phase,
     error,
   } = props;
+  const badgeGlyph =
+    NAME_BADGES.find((b) => b.id === nameBadge)?.glyph ?? "";
+  const nameTagStyle: CSSProperties = {
+    color: nameColor,
+    textShadow:
+      nameOutline === 1
+        ? "0 0 8px rgba(255,255,255,0.95), 0 0 16px rgba(255,255,255,0.45)"
+        : undefined,
+    WebkitTextStroke:
+      nameOutline === 2 ? "1px rgba(0,0,0,0.95)" : undefined,
+  };
   const busy = phase === "joining" || phase === "connecting";
   const status = serverState.currentMatch?.status;
   const matchLive = status === "PLAYING";
@@ -658,6 +702,50 @@ function LobbyPanel(props: {
                 ))}
               </div>
             </div>
+            <div className="mt-3 space-y-3">
+              <div>
+                <p className="text-[10px] uppercase tracking-widest text-neutral-400 mb-2">
+                  Name outline
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {NAME_OUTLINES.map((o) => (
+                    <button
+                      key={o.id}
+                      type="button"
+                      onClick={() => onNameOutline(o.id)}
+                      className={`px-3 py-1.5 text-[10px] uppercase tracking-widest border ${
+                        nameOutline === o.id
+                          ? "border-fuchsia-400 text-white bg-fuchsia-500/20"
+                          : "border-white/15 text-neutral-400 hover:border-white/40"
+                      }`}
+                    >
+                      {o.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-widest text-neutral-400 mb-2">
+                  Name badge
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {NAME_BADGES.map((b) => (
+                    <button
+                      key={b.id}
+                      type="button"
+                      onClick={() => onNameBadge(b.id)}
+                      className={`px-3 py-1.5 text-[10px] uppercase tracking-widest border ${
+                        nameBadge === b.id
+                          ? "border-fuchsia-400 text-white bg-fuchsia-500/20"
+                          : "border-white/15 text-neutral-400 hover:border-white/40"
+                      }`}
+                    >
+                      {b.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
           </div>
 
           <div>
@@ -682,7 +770,8 @@ function LobbyPanel(props: {
               <SlimeAvatar
                 color={slimeColor}
                 face={slimeFace}
-                accessories={slimeAccessories}
+                headAccessory={slimeHeadAccessory}
+                bodyAccessory={slimeBodyAccessory}
                 size={88}
               />
               <div>
@@ -690,13 +779,18 @@ function LobbyPanel(props: {
                   Your slime
                 </p>
                 <p className="text-xs text-neutral-400 mt-1">
-                  Colour, face, and drip before you drop in.
+                  Face, head gear, body drip — then drop in.
                 </p>
                 {displayName && (
                   <p
-                    className="text-sm font-bold tracking-widest uppercase mt-2"
-                    style={{ color: nameColor }}
+                    className="text-sm font-bold tracking-widest uppercase mt-2 inline-flex items-center gap-1.5"
+                    style={nameTagStyle}
                   >
+                    {badgeGlyph ? (
+                      <span aria-hidden className="text-base leading-none">
+                        {badgeGlyph}
+                      </span>
+                    ) : null}
                     {displayName}
                   </p>
                 )}
@@ -730,9 +824,9 @@ function LobbyPanel(props: {
                 Face
               </p>
               <div className="flex flex-wrap gap-2">
-                {Array.from({ length: SLIME_FACE_COUNT }, (_, i) => (
+                {SLIME_FACE_LABELS.map((label, i) => (
                   <button
-                    key={i}
+                    key={label}
                     type="button"
                     onClick={() => onSlimeFace(i)}
                     className={`px-3 py-1.5 text-[10px] uppercase tracking-widest border ${
@@ -741,7 +835,7 @@ function LobbyPanel(props: {
                         : "border-white/15 text-neutral-400 hover:border-white/40"
                     }`}
                   >
-                    {["Classic", "Shiny", "Tough", "Sleepy"][i]}
+                    {label}
                   </button>
                 ))}
               </div>
@@ -749,28 +843,45 @@ function LobbyPanel(props: {
 
             <div>
               <p className="text-[10px] uppercase tracking-widest text-neutral-400 mb-2">
-                Accessories
+                Head slot
               </p>
               <div className="flex flex-wrap gap-2">
-                {SLIME_ACCESSORIES.map((a) => {
-                  const on = (slimeAccessories & a.bit) !== 0;
-                  return (
-                    <button
-                      key={a.bit}
-                      type="button"
-                      onClick={() =>
-                        onSlimeAccessories(toggleAccessory(slimeAccessories, a.bit))
-                      }
-                      className={`px-3 py-1.5 text-[10px] uppercase tracking-widest border ${
-                        on
-                          ? "border-fuchsia-400 text-white bg-fuchsia-500/20"
-                          : "border-white/15 text-neutral-400 hover:border-white/40"
-                      }`}
-                    >
-                      {a.label}
-                    </button>
-                  );
-                })}
+                {SLIME_HEAD_ACCESSORIES.map((a) => (
+                  <button
+                    key={a.id}
+                    type="button"
+                    onClick={() => onSlimeHeadAccessory(a.id)}
+                    className={`px-3 py-1.5 text-[10px] uppercase tracking-widest border ${
+                      slimeHeadAccessory === a.id
+                        ? "border-fuchsia-400 text-white bg-fuchsia-500/20"
+                        : "border-white/15 text-neutral-400 hover:border-white/40"
+                    }`}
+                  >
+                    {a.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <p className="text-[10px] uppercase tracking-widest text-neutral-400 mb-2">
+                Body slot
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {SLIME_BODY_ACCESSORIES.map((a) => (
+                  <button
+                    key={a.id}
+                    type="button"
+                    onClick={() => onSlimeBodyAccessory(a.id)}
+                    className={`px-3 py-1.5 text-[10px] uppercase tracking-widest border ${
+                      slimeBodyAccessory === a.id
+                        ? "border-fuchsia-400 text-white bg-fuchsia-500/20"
+                        : "border-white/15 text-neutral-400 hover:border-white/40"
+                    }`}
+                  >
+                    {a.label}
+                  </button>
+                ))}
               </div>
             </div>
           </div>
@@ -815,8 +926,11 @@ function StandbyPanel({
   displayName,
   slimeColor,
   slimeFace,
-  slimeAccessories,
+  slimeHeadAccessory,
+  slimeBodyAccessory,
   nameColor,
+  nameOutline,
+  nameBadge,
   onLeave,
 }: {
   status: RoomPhase;
@@ -825,8 +939,11 @@ function StandbyPanel({
   displayName: string;
   slimeColor: SlimeColor;
   slimeFace: number;
-  slimeAccessories: number;
+  slimeHeadAccessory: number;
+  slimeBodyAccessory: number;
   nameColor: NameColor;
+  nameOutline: number;
+  nameBadge: number;
   onLeave: () => void;
 }) {
   const [now, setNow] = useState(() => Date.now());
@@ -838,6 +955,17 @@ function StandbyPanel({
   const remainingMs = countdownEndsAtMs > 0 ? Math.max(0, countdownEndsAtMs - now) : 0;
   const remainingS = Math.ceil(remainingMs / 1000);
   const counting = status === "COUNTDOWN" && countdownEndsAtMs > 0;
+  const badgeGlyph =
+    NAME_BADGES.find((b) => b.id === nameBadge)?.glyph ?? "";
+  const nameTagStyle: CSSProperties = {
+    color: nameColor,
+    textShadow:
+      nameOutline === 1
+        ? "0 0 8px rgba(255,255,255,0.95), 0 0 16px rgba(255,255,255,0.45)"
+        : undefined,
+    WebkitTextStroke:
+      nameOutline === 2 ? "1px rgba(0,0,0,0.95)" : undefined,
+  };
 
   return (
     <LobbyScene>
@@ -846,13 +974,19 @@ function StandbyPanel({
           <SlimeAvatar
             color={slimeColor}
             face={slimeFace}
-            accessories={slimeAccessories}
+            headAccessory={slimeHeadAccessory}
+            bodyAccessory={slimeBodyAccessory}
             size={112}
           />
           <h2
-            className="text-2xl font-bold mt-1 tracking-widest uppercase"
-            style={{ color: nameColor }}
+            className="text-2xl font-bold mt-1 tracking-widest uppercase inline-flex items-center gap-2"
+            style={nameTagStyle}
           >
+            {badgeGlyph ? (
+              <span aria-hidden className="text-xl leading-none">
+                {badgeGlyph}
+              </span>
+            ) : null}
             {displayName ? displayName : "You're in."}
           </h2>
         </div>

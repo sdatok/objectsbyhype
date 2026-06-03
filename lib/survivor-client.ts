@@ -71,8 +71,13 @@ export interface JoinParams {
   issuedAtMs: number;
   slimeColor?: string;
   slimeFace?: number;
+  /** @deprecated */
   slimeAccessories?: number;
+  slimeHeadAccessory?: number;
+  slimeBodyAccessory?: number;
   nameColor?: string;
+  nameOutline?: number;
+  nameBadge?: number;
 }
 
 const ROOM_NAME = "survivor";
@@ -110,7 +115,11 @@ export async function joinSurvivorRoom(
       slimeColor: params.slimeColor ?? "",
       slimeFace: params.slimeFace ?? 0,
       slimeAccessories: params.slimeAccessories ?? 0,
+      slimeHeadAccessory: params.slimeHeadAccessory ?? 0,
+      slimeBodyAccessory: params.slimeBodyAccessory ?? 0,
       nameColor: params.nameColor ?? "",
+      nameOutline: params.nameOutline ?? 0,
+      nameBadge: params.nameBadge ?? 0,
     });
     if (typeof window !== "undefined") {
       console.info("[survivor] joined room", {

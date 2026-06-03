@@ -10,6 +10,14 @@ import MobileControls, {
 } from "@/components/survivor/MobileControls";
 import RetroOverlay from "@/components/survivor/RetroOverlay";
 import { drawSlime } from "@/components/survivor/SlimeAvatar";
+import {
+  DEFAULT_SLIME_COLOR,
+  migrateLegacyAccessories,
+  parseNameColor,
+  parseSlimeAccessories,
+  parseSlimeColor,
+  parseSlimeFace,
+} from "@/lib/survivor-slime";
 import { drawLunaDog, drawLunaPuppy } from "@/components/luna/LunaDogSprite";
 import {
   drawLunaObstacle,
@@ -18,13 +26,6 @@ import {
 import LunaMatchEndOverlay, {
   type LunaEndSnapshot,
 } from "@/components/luna/LunaMatchEndOverlay";
-import {
-  DEFAULT_SLIME_COLOR,
-  parseNameColor,
-  parseSlimeColor,
-  parseSlimeFace,
-  parseSlimeAccessories,
-} from "@/lib/survivor-slime";
 
 const WORLD = 2800;
 const WORLD_HALF = WORLD / 2;
@@ -386,6 +387,9 @@ export default function LunaGameCanvas({ room, onLeave }: LunaGameCanvasProps) {
       for (const [id, p] of Object.entries(players)) {
         const sp = toScreen(p.x, p.y);
         if (p.alive) {
+          const legacy = migrateLegacyAccessories(
+            parseSlimeAccessories(p.slimeAccessories)
+          );
           drawSlime(
             ctx,
             sp.x,
@@ -397,7 +401,8 @@ export default function LunaGameCanvas({ room, onLeave }: LunaGameCanvasProps) {
             false,
             false,
             Date.now(),
-            p.slimeAccessories
+            legacy.head,
+            legacy.body
           );
           if (id === sessionIdRef.current) {
             ctx.strokeStyle = "#fff";

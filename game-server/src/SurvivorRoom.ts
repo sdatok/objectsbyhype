@@ -14,7 +14,11 @@ import {
   parseSlimeColor,
   parseSlimeFace,
   parseSlimeAccessories,
+  parseSlimeHeadAccessory,
+  parseSlimeBodyAccessory,
   parseNameColor,
+  parseNameOutline,
+  parseNameBadge,
   DEFAULT_NAME_COLOR,
 } from "./constants";
 import { verifyMatchToken } from "./hmac";
@@ -126,7 +130,11 @@ export class SurvivorRoom extends Room<SurvivorState> {
     slimeColor: string;
     slimeFace: number;
     slimeAccessories: number;
+    slimeHeadAccessory: number;
+    slimeBodyAccessory: number;
     nameColor: string;
+    nameOutline: number;
+    nameBadge: number;
   }> {
     const email = String(options.email ?? "").trim().toLowerCase();
     const displayName = String(options.displayName ?? "").trim().slice(0, 32);
@@ -211,8 +219,19 @@ export class SurvivorRoom extends Room<SurvivorState> {
     const isSpectator = !canJoinActive;
     const slimeColor = parseSlimeColor(options.slimeColor);
     const slimeFace = parseSlimeFace(options.slimeFace);
-    const slimeAccessories = parseSlimeAccessories(options.slimeAccessories);
+    const legacyAccessories = parseSlimeAccessories(options.slimeAccessories);
+    const slimeAccessories = legacyAccessories;
+    const slimeHeadAccessory = parseSlimeHeadAccessory(
+      options.slimeHeadAccessory,
+      legacyAccessories
+    );
+    const slimeBodyAccessory = parseSlimeBodyAccessory(
+      options.slimeBodyAccessory,
+      legacyAccessories
+    );
     const nameColor = parseNameColor(options.nameColor);
+    const nameOutline = parseNameOutline(options.nameOutline);
+    const nameBadge = parseNameBadge(options.nameBadge);
     return {
       email,
       displayName,
@@ -221,7 +240,11 @@ export class SurvivorRoom extends Room<SurvivorState> {
       slimeColor,
       slimeFace,
       slimeAccessories,
+      slimeHeadAccessory,
+      slimeBodyAccessory,
       nameColor,
+      nameOutline,
+      nameBadge,
     };
   }
 
@@ -236,7 +259,11 @@ export class SurvivorRoom extends Room<SurvivorState> {
       slimeColor: string;
       slimeFace: number;
       slimeAccessories: number;
+      slimeHeadAccessory: number;
+      slimeBodyAccessory: number;
       nameColor: string;
+      nameOutline: number;
+      nameBadge: number;
     }
   ): void {
     const p = new Player();
@@ -245,7 +272,11 @@ export class SurvivorRoom extends Room<SurvivorState> {
     p.slimeColor = auth.slimeColor || DEFAULT_SLIME_COLOR;
     p.slimeFace = auth.slimeFace ?? 0;
     p.slimeAccessories = auth.slimeAccessories ?? 0;
+    p.slimeHeadAccessory = auth.slimeHeadAccessory ?? 0;
+    p.slimeBodyAccessory = auth.slimeBodyAccessory ?? 0;
     p.nameColor = auth.nameColor || DEFAULT_NAME_COLOR;
+    p.nameOutline = auth.nameOutline ?? 0;
+    p.nameBadge = auth.nameBadge ?? 0;
     p.connected = true;
 
     if (auth.isSpectator) {
@@ -271,6 +302,7 @@ export class SurvivorRoom extends Room<SurvivorState> {
       p.towerBuffKind = "";
       p.alive = true;
     }
+    p.extraLives = 0;
     this.state.players.set(client.sessionId, p);
     this.inputs.set(client.sessionId, emptyInput());
     console.log(
@@ -578,6 +610,18 @@ export class SurvivorRoom extends Room<SurvivorState> {
     }
     if (events.bossTrails.length > 0) {
       this.broadcast("event:boss-trails", events.bossTrails);
+    }
+    for (const ev of events.extraLifeGranted) {
+      const cli = this.clients.find((c) => c.sessionId === ev.sessionId);
+      cli?.send("event:extra-life", {
+        message: "Extra life earned! Take down a giant slime.",
+      });
+    }
+    for (const ev of events.respawns) {
+      const cli = this.clients.find((c) => c.sessionId === ev.sessionId);
+      cli?.send("event:respawn", {
+        message: "Extra life used — you're back in the fight!",
+      });
     }
 
     // End conditions: everyone dead, or last standing after a multi-player start.

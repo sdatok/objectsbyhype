@@ -70,6 +70,16 @@ export class Player extends Schema {
   @type("string") nameColor = "#ffffff";
   /** Escape Luna: eliminated runner hunting survivors as a small puppy. */
   @type("boolean") puppyMode = false;
+  /** Survivor: banked respawns from giant slime boss kills. */
+  @type("number") extraLives = 0;
+  /** Head slot: hat, crown, shades, etc. */
+  @type("number") slimeHeadAccessory = 0;
+  /** Body slot: chain, cape, backpack, etc. */
+  @type("number") slimeBodyAccessory = 0;
+  /** Name tag outline style (0 default, 1 glow, 2 heavy stroke). */
+  @type("number") nameOutline = 0;
+  /** Small icon beside display name (0 none, 1 star, 2 skull, 3 flame). */
+  @type("number") nameBadge = 0;
 }
 
 export class Bullet extends Schema {
@@ -130,8 +140,10 @@ export class Boss extends Schema {
   @type("number") slimeFace = 0;
   /** UNIX ms when the boss will leap to a new spot. */
   @type("number") nextJumpAtMs = 0;
-  /** UNIX ms of the last landing — drives client squash FX. */
+  /** UNIX ms of the last landing — legacy client squash FX (unused). */
   @type("number") jumpLandAtMs = 0;
+  /** Facing angle in radians — synced for client draw. */
+  @type("number") aim = 0;
 }
 
 export class SurvivorState extends Schema {
