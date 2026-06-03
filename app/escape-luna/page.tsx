@@ -10,11 +10,16 @@ export default async function EscapeLunaPage() {
     return (
       <main className="flex-1 flex items-center justify-center p-6 text-center overflow-y-auto">
         <div className="max-w-md">
-          <p className="text-xs uppercase tracking-[0.3em] text-amber-400">
+          <p
+            className="font-pixel text-[8px] tracking-[0.35em] text-red-500"
+            style={{ textShadow: "0 0 16px rgba(220,38,38,0.6)" }}
+          >
             Escape Luna
           </p>
-          <h1 className="text-3xl font-bold mt-3">Currently offline</h1>
-          <p className="text-sm text-neutral-400 mt-3">
+          <h1 className="font-pixel text-xs sm:text-sm mt-5 uppercase leading-relaxed">
+            Currently offline
+          </h1>
+          <p className="font-pixel-body text-lg text-neutral-500 mt-4">
             Luna is resting. Check back when the next chase opens.
           </p>
         </div>

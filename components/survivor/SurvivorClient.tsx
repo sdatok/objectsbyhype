@@ -438,7 +438,7 @@ export default function SurvivorClient({ initialState }: SurvivorClientProps) {
 
   return (
     <SurvivorMusicProvider>
-      <main className="min-h-[100dvh] flex flex-col">
+      <main className="flex-1 min-h-0 flex flex-col overflow-hidden">
       <Header serverState={serverState} />
 
       {phase === "noMatch" && <NoMatchPanel last={serverState.lastWinner} />}

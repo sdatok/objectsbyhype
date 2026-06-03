@@ -38,16 +38,19 @@ export default function LunaStandbyPanel({
       <LunaLobbyCard className="text-center space-y-6">
         <div className="flex flex-col items-center gap-3">
           <SlimeAvatar color={slimeColor} face={0} accessories={0} size={112} />
-          <h2 className="text-2xl font-bold mt-1 tracking-widest uppercase">
+          <h2 className="font-pixel text-[10px] sm:text-xs mt-1 tracking-[0.2em] uppercase text-red-100">
             {displayName ? displayName : "You're in."}
           </h2>
         </div>
 
-        <p className="text-[10px] uppercase tracking-[0.3em] text-amber-400">
+        <p
+          className="font-pixel text-[7px] tracking-[0.35em] text-red-500"
+          style={{ textShadow: "0 0 12px rgba(220,38,38,0.5)" }}
+        >
           {counting ? "Luna is coming" : "In lobby"}
         </p>
 
-        <p className="text-xs text-neutral-400">
+        <p className="font-pixel-body text-base text-neutral-400">
           {counting
             ? "Run when the timer hits zero — Luna chases until one survives."
             : "Waiting for admin to start the countdown."}
@@ -55,12 +58,15 @@ export default function LunaStandbyPanel({
 
         {counting ? (
           <div>
-            <p className="text-[10px] uppercase tracking-[0.25em] text-neutral-500">
+            <p className="font-pixel text-[7px] uppercase tracking-[0.25em] text-neutral-500">
               Starts in
             </p>
-            <p className="text-7xl font-bold tabular-nums leading-none mt-2 text-white">
+            <p
+              className="font-pixel text-2xl sm:text-3xl tabular-nums leading-none mt-3 text-red-400"
+              style={{ textShadow: "0 0 20px rgba(255,40,20,0.65)" }}
+            >
               {remainingS}
-              <span className="text-xl text-neutral-500 ml-1">s</span>
+              <span className="text-sm text-neutral-500 ml-1">s</span>
             </p>
           </div>
         ) : (
@@ -114,13 +120,16 @@ function LunaCountdownBanner({
   if (remainingS <= 0) return null;
 
   return (
-    <div className="text-center py-3 px-4 rounded-sm border border-amber-500/30 bg-amber-950/30">
-      <p className="text-[10px] uppercase tracking-[0.25em] text-amber-400">
+    <div className="text-center py-3 px-4 rounded-sm border border-red-800/40 bg-red-950/40">
+      <p className="font-pixel text-[7px] uppercase tracking-[0.3em] text-red-400">
         {label}
       </p>
-      <p className="text-4xl font-bold tabular-nums text-white mt-1">
+      <p
+        className="font-pixel text-xl sm:text-2xl tabular-nums text-red-300 mt-2"
+        style={{ textShadow: "0 0 16px rgba(255,60,40,0.5)" }}
+      >
         {remainingS}
-        <span className="text-base text-neutral-500 ml-1">s</span>
+        <span className="text-sm text-neutral-500 ml-1">s</span>
       </p>
     </div>
   );

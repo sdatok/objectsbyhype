@@ -156,18 +156,29 @@ export default function LunaClient({ initialState }: { initialState: PublicLunaS
           <LunaLobbyScene>
             <div className="w-full max-w-md space-y-4">
               <div className="text-center mb-2">
-                <p className="text-[10px] uppercase tracking-[0.35em] text-amber-400">
+                <p
+                  className="font-pixel text-[8px] sm:text-[9px] tracking-[0.4em] text-red-500"
+                  style={{ textShadow: "0 0 18px rgba(220,38,38,0.75)" }}
+                >
                   Escape Luna
                 </p>
-                <h1 className="text-2xl sm:text-3xl font-bold mt-2">Run from the dog</h1>
-                <p className="text-xs sm:text-sm text-neutral-400 mt-1">
+                <h1
+                  className="font-pixel text-sm sm:text-base md:text-lg mt-4 leading-relaxed uppercase"
+                  style={{
+                    textShadow:
+                      "0 0 24px rgba(255,40,20,0.55), 2px 2px 0 rgba(0,0,0,0.9)",
+                  }}
+                >
+                  Run from the dog
+                </h1>
+                <p className="font-pixel-body text-lg sm:text-xl text-red-200/70 mt-3 tracking-wide">
                   Last one standing wins. No guns — just sprint.
                 </p>
               </div>
 
               {phase === "noMatch" ? (
                 <LunaLobbyCard>
-                  <p className="text-sm text-neutral-400">
+                  <p className="font-pixel-body text-lg text-neutral-400">
                     No match is open yet. Watch for the next Escape Luna drop.
                   </p>
                 </LunaLobbyCard>
@@ -178,11 +189,13 @@ export default function LunaClient({ initialState }: { initialState: PublicLunaS
                   )}
 
                   <LunaLobbyCard>
-                    <p className="text-[10px] uppercase tracking-widest text-amber-400">
+                    <p className="font-pixel text-[7px] tracking-[0.25em] text-red-400">
                       Prize
                     </p>
-                    <p className="text-lg font-bold mt-1">{serverState.prizeTitle}</p>
-                    <p className="text-xs text-neutral-500 mt-2">
+                    <p className="font-pixel-body text-xl sm:text-2xl font-bold mt-2 text-red-50">
+                      {serverState.prizeTitle}
+                    </p>
+                    <p className="font-pixel-body text-base text-neutral-500 mt-2">
                       {serverState.currentMatch?.participantCount ?? 0} registered ·{" "}
                       {lobbyCounting
                         ? "Countdown live"
