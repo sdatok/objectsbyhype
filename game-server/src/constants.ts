@@ -522,8 +522,14 @@ function parseSurvivorMaxPlayers(raw: string | undefined): number {
 export const SURVIVOR_MAX_PLAYERS = parseSurvivorMaxPlayers(
   process.env.SURVIVOR_MAX_PLAYERS
 );
-/** Escape Luna stays smaller for tighter chase gameplay. */
-export const LUNA_MAX_PLAYERS = 25;
+/** Active runners allowed in Escape Luna lobby / match (override via LUNA_MAX_PLAYERS). */
+function parseLunaMaxPlayers(raw: string | undefined): number {
+  const n = parseInt(raw ?? "50", 10);
+  if (!Number.isFinite(n)) return 50;
+  return Math.max(2, Math.min(100, n));
+}
+
+export const LUNA_MAX_PLAYERS = parseLunaMaxPlayers(process.env.LUNA_MAX_PLAYERS);
 /** @deprecated Prefer SURVIVOR_MAX_PLAYERS in Survivor code paths. */
 export const MAX_PLAYERS = SURVIVOR_MAX_PLAYERS;
 /** Global bullet cap — prevents runaway sim + patch size with 50 shooters. */

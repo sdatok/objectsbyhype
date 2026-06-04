@@ -4,6 +4,7 @@ import { signMatchToken } from "@/lib/survivor-hmac";
 import {
   getOrCreateLunaConfig,
   getCurrentLunaMatch,
+  LUNA_MAX_LOBBY_PARTICIPANTS,
 } from "@/lib/luna-config";
 import { ensureLunaGameServerMatchBound } from "@/lib/luna-game-server-sync";
 
@@ -58,7 +59,7 @@ export async function POST(request: Request) {
         const count = await prisma.escapeLunaParticipant.count({
           where: { matchId: current.id },
         });
-        if (count >= 50) {
+        if (count >= LUNA_MAX_LOBBY_PARTICIPANTS) {
           return NextResponse.json({ error: "Lobby is full." }, { status: 409 });
         }
         await prisma.escapeLunaParticipant.create({

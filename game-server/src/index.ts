@@ -17,6 +17,7 @@ import {
   MIN_MATCH_SECONDS,
   MAX_MATCH_SECONDS,
   SURVIVOR_MAX_PLAYERS,
+  LUNA_MAX_PLAYERS,
 } from "./constants";
 
 const SURVIVOR_ROOM = "survivor";
@@ -78,6 +79,7 @@ app.get("/healthz", (_req, res) => {
     gitSha: process.env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 7) ?? "unknown",
     build: "survivor-50p-v2",
     survivorMaxPlayers: SURVIVOR_MAX_PLAYERS,
+    lunaMaxPlayers: LUNA_MAX_PLAYERS,
     features: [
       "survivor",
       "escape-luna",
@@ -93,6 +95,7 @@ app.get("/version", (_req, res) => {
     ok: true,
     build: "survivor-50p-v2",
     survivorMaxPlayers: SURVIVOR_MAX_PLAYERS,
+    lunaMaxPlayers: LUNA_MAX_PLAYERS,
     gitSha: process.env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 7) ?? "unknown",
   });
 });
@@ -303,6 +306,7 @@ app.get("/admin/state", async (req: Request, res: Response) => {
     room: room ? room.adminSnapshot() : null,
     luna: (await getLunaRoom())?.adminSnapshot() ?? null,
     maxPlayers: SURVIVOR_MAX_PLAYERS,
+    lunaMaxPlayers: LUNA_MAX_PLAYERS,
   });
 });
 
@@ -423,6 +427,7 @@ const port = Number(process.env.PORT) || 2567;
 gameServer.listen(port).then(() => {
   console.log(`[survivor] listening on :${port}`);
   console.log(`[survivor] SURVIVOR_MAX_PLAYERS=${SURVIVOR_MAX_PLAYERS}`);
+  console.log(`[survivor] LUNA_MAX_PLAYERS=${LUNA_MAX_PLAYERS}`);
   console.log(
     `[survivor] admin command TTL=${ADMIN_COMMAND_TTL_MS}ms, allowed origins=${allowedOriginsRaw}${allowAny ? " (permissive)" : ""}`
   );

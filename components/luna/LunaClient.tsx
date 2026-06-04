@@ -147,6 +147,7 @@ export default function LunaClient({ initialState }: { initialState: PublicLunaS
           <LunaStandbyPanel
             status={roomStatus}
             countdownEndsAtMs={countdownEndsAtMs}
+            maxPlayers={serverState.maxPlayers}
             alive={aliveInRoom}
             displayName={displayName}
             slimeColor={slimeColor}
@@ -172,7 +173,7 @@ export default function LunaClient({ initialState }: { initialState: PublicLunaS
                   Run from the dog
                 </h1>
                 <p className="font-pixel-body text-lg sm:text-xl text-red-200/70 mt-3 tracking-wide">
-                  Last one standing wins. No guns — just sprint.
+                  {serverState.maxPlayers} runners · last one standing wins.
                 </p>
               </div>
 

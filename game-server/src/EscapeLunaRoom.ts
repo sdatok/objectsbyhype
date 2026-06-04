@@ -147,11 +147,9 @@ export class EscapeLunaRoom extends Room<EscapeLunaState> {
       this.inputCounters.delete(existingSessionId);
     }
 
-    const alivePlayers = this.countAlive();
-    if (inLobby && alivePlayers >= MAX_PLAYERS) {
-      throw new Error(`Match is full (${MAX_PLAYERS} players).`);
-    }
-    const isSpectator = !(inLobby && alivePlayers < MAX_PLAYERS);
+    const fighterCount = this.countLobbyFighters();
+    const canJoinActive = inLobby && fighterCount < MAX_PLAYERS;
+    const isSpectator = inLobby && !canJoinActive;
 
     return {
       email,
@@ -244,7 +242,7 @@ export class EscapeLunaRoom extends Room<EscapeLunaState> {
     status: EscapeLunaState["status"]
   ): void {
     p.connected = false;
-    if (status === "WAITING") {
+    if (status === "WAITING" || status === "COUNTDOWN") {
       this.state.players.delete(sessionId);
     } else if (p.alive && status === "PLAYING") {
       p.alive = false;
@@ -448,6 +446,15 @@ export class EscapeLunaRoom extends Room<EscapeLunaState> {
     let n = 0;
     this.state.players.forEach((p) => {
       if (p.alive && p.connected) n++;
+    });
+    return n;
+  }
+
+  /** All fighter seats reserved in lobby (includes disconnected reconnect holds). */
+  private countLobbyFighters(): number {
+    let n = 0;
+    this.state.players.forEach((p) => {
+      if (p.alive) n++;
     });
     return n;
   }

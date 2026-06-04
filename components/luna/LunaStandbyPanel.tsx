@@ -10,6 +10,7 @@ type RoomPhase = "WAITING" | "COUNTDOWN" | "PLAYING" | "ENDED";
 export default function LunaStandbyPanel({
   status,
   countdownEndsAtMs,
+  maxPlayers,
   alive,
   displayName,
   slimeColor,
@@ -17,6 +18,7 @@ export default function LunaStandbyPanel({
 }: {
   status: RoomPhase;
   countdownEndsAtMs: number;
+  maxPlayers: number;
   alive: number;
   displayName: string;
   slimeColor: SlimeColor;
@@ -82,7 +84,7 @@ export default function LunaStandbyPanel({
 
         <div className="text-xs text-neutral-400 border-t border-white/10 pt-4 space-y-1">
           <p>
-            <span className="text-white">{alive}</span> runner
+            <span className="text-white">{alive}</span> / {maxPlayers} runner
             {alive === 1 ? "" : "s"} in the arena
           </p>
           <p className="text-[10px] text-neutral-500 leading-relaxed">

@@ -3,6 +3,21 @@ import type { EscapeLunaConfig, EscapeLunaMatch, SurvivorMatchStatus } from "@pr
 
 export const LUNA_CONFIG_ID = "default";
 
+function parseLunaMaxPlayers(): number {
+  const raw =
+    process.env.NEXT_PUBLIC_LUNA_MAX_PLAYERS ??
+    process.env.LUNA_MAX_PLAYERS ??
+    "50";
+  const n = parseInt(raw, 10);
+  if (!Number.isFinite(n)) return 50;
+  return Math.max(2, Math.min(100, n));
+}
+
+export const LUNA_MAX_PLAYERS = parseLunaMaxPlayers();
+/** Token route cap: fighters plus spectator headroom before Colyseus rejects. */
+export const LUNA_MAX_LOBBY_PARTICIPANTS =
+  LUNA_MAX_PLAYERS + Math.max(25, Math.ceil(LUNA_MAX_PLAYERS * 0.5));
+
 export {
   clampLobbySeconds,
   clampMatchSeconds,
@@ -18,6 +33,7 @@ export interface PublicLunaState {
   prizeDescription: string | null;
   matchSeconds: number;
   gameServerWsUrl: string;
+  maxPlayers: number;
   currentMatch: PublicLunaMatchSummary | null;
   lastWinner: { displayName: string; placement: number } | null;
 }
@@ -130,6 +146,7 @@ export async function buildPublicLunaState(): Promise<PublicLunaState> {
     prizeDescription: config.prizeDescription,
     matchSeconds: config.matchSeconds,
     gameServerWsUrl: process.env.NEXT_PUBLIC_SURVIVOR_WS_URL ?? "",
+    maxPlayers: LUNA_MAX_PLAYERS,
     currentMatch,
     lastWinner,
   };
