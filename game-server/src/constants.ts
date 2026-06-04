@@ -512,8 +512,16 @@ export const MIN_LOBBY_SECONDS = 1;
 export const MAX_LOBBY_SECONDS = 600;
 export const MIN_MATCH_SECONDS = 10;
 export const MAX_MATCH_SECONDS = 3600;
-/** Active fighters allowed in Survivor lobby / match. */
-export const SURVIVOR_MAX_PLAYERS = 50;
+/** Active fighters allowed in Survivor lobby / match (override via SURVIVOR_MAX_PLAYERS). */
+function parseSurvivorMaxPlayers(raw: string | undefined): number {
+  const n = parseInt(raw ?? "50", 10);
+  if (!Number.isFinite(n)) return 50;
+  return Math.max(2, Math.min(100, n));
+}
+
+export const SURVIVOR_MAX_PLAYERS = parseSurvivorMaxPlayers(
+  process.env.SURVIVOR_MAX_PLAYERS
+);
 /** Escape Luna stays smaller for tighter chase gameplay. */
 export const LUNA_MAX_PLAYERS = 25;
 /** @deprecated Prefer SURVIVOR_MAX_PLAYERS in Survivor code paths. */

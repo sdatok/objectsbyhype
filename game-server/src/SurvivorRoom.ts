@@ -211,12 +211,9 @@ export class SurvivorRoom extends Room<SurvivorState> {
       this.inputCounters.delete(existingSessionId);
     }
 
-    const alivePlayers = this.countAlive();
-    const canJoinActive = inLobby && alivePlayers < SURVIVOR_MAX_PLAYERS;
-    if (inLobby && alivePlayers >= SURVIVOR_MAX_PLAYERS) {
-      throw new Error(`Match is full (${SURVIVOR_MAX_PLAYERS} players).`);
-    }
-    const isSpectator = !canJoinActive;
+    const fighterCount = this.countLobbyFighters();
+    const canJoinActive = inLobby && fighterCount < SURVIVOR_MAX_PLAYERS;
+    const isSpectator = inLobby && !canJoinActive;
     const slimeColor = parseSlimeColor(options.slimeColor);
     const slimeFace = parseSlimeFace(options.slimeFace);
     const legacyAccessories = parseSlimeAccessories(options.slimeAccessories);
@@ -352,7 +349,7 @@ export class SurvivorRoom extends Room<SurvivorState> {
     status: SurvivorState["status"]
   ): void {
     p.connected = false;
-    if (status === "WAITING") {
+    if (status === "WAITING" || status === "COUNTDOWN") {
       this.state.players.delete(sessionId);
     } else if (p.alive && status === "PLAYING") {
       p.alive = false;
@@ -677,6 +674,15 @@ export class SurvivorRoom extends Room<SurvivorState> {
     let n = 0;
     this.state.players.forEach((p) => {
       if (p.alive && p.connected) n++;
+    });
+    return n;
+  }
+
+  /** All fighter seats reserved in lobby (includes disconnected reconnect holds). */
+  private countLobbyFighters(): number {
+    let n = 0;
+    this.state.players.forEach((p) => {
+      if (p.alive) n++;
     });
     return n;
   }

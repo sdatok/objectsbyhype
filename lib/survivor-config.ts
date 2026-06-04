@@ -8,9 +8,20 @@ import type {
 const SINGLETON_ID = "default";
 
 /** Shared admin timing bounds (also mirrored in game-server/src/constants.ts). */
-export const SURVIVOR_MAX_PLAYERS = 50;
+function parseSurvivorMaxPlayers(): number {
+  const raw =
+    process.env.NEXT_PUBLIC_SURVIVOR_MAX_PLAYERS ??
+    process.env.SURVIVOR_MAX_PLAYERS ??
+    "50";
+  const n = parseInt(raw, 10);
+  if (!Number.isFinite(n)) return 50;
+  return Math.max(2, Math.min(100, n));
+}
+
+export const SURVIVOR_MAX_PLAYERS = parseSurvivorMaxPlayers();
 /** Token route cap: fighters plus spectator headroom before Colyseus rejects. */
-export const SURVIVOR_MAX_LOBBY_PARTICIPANTS = 75;
+export const SURVIVOR_MAX_LOBBY_PARTICIPANTS =
+  SURVIVOR_MAX_PLAYERS + Math.max(25, Math.ceil(SURVIVOR_MAX_PLAYERS * 0.5));
 export const SURVIVOR_MIN_LOBBY_SECONDS = 1;
 export const SURVIVOR_MAX_LOBBY_SECONDS = 600;
 export const SURVIVOR_MIN_MATCH_SECONDS = 10;
@@ -41,6 +52,7 @@ export interface PublicSurvivorState {
   prizeDescription: string | null;
   matchSeconds: number;
   gameServerWsUrl: string;
+  maxPlayers: number;
   currentMatch: PublicMatchSummary | null;
   lastWinner: { displayName: string; placement: number } | null;
 }
@@ -111,6 +123,7 @@ export async function buildPublicSurvivorState(): Promise<PublicSurvivorState> {
     prizeDescription: config.prizeDescription,
     matchSeconds: config.matchSeconds,
     gameServerWsUrl: process.env.NEXT_PUBLIC_SURVIVOR_WS_URL ?? "",
+    maxPlayers: SURVIVOR_MAX_PLAYERS,
     currentMatch,
     lastWinner,
   };

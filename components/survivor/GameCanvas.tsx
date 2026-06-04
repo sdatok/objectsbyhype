@@ -12,6 +12,7 @@ import MobileControls, {
 import RetroOverlay from "./RetroOverlay";
 import { MusicMuteButton } from "./SurvivorMusic";
 import SlimeAvatar, { drawSlime } from "./SlimeAvatar";
+import { SURVIVOR_MAX_PLAYERS } from "@/lib/survivor-config";
 import { DEFAULT_NAME_COLOR, DEFAULT_SLIME_COLOR, parseNameColor, parseNameBadge, parseNameOutline, parseSlimeFace, parseSlimeHeadAccessory, parseSlimeBodyAccessory, NAME_BADGES, NAME_OUTLINE_GLOW, NAME_OUTLINE_HEAVY } from "@/lib/survivor-slime";
 
 /**
@@ -1262,7 +1263,7 @@ function MatchEndOverlay({
     : podium
     ? `#${placement} — still dripped out.`
     : placement > 0
-    ? `#${placement} of 25 — run it back.`
+    ? `#${placement} of ${SURVIVOR_MAX_PLAYERS} — run it back.`
     : "Thanks for watching the chaos.";
 
   const tagline = won

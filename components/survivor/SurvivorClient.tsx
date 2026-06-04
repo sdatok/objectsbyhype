@@ -3,10 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import dynamic from "next/dynamic";
 import type { Client, Room } from "colyseus.js";
-import {
-  type PublicSurvivorState,
-  SURVIVOR_MAX_PLAYERS,
-} from "@/lib/survivor-config";
+import { type PublicSurvivorState } from "@/lib/survivor-config";
 import {
   clearSurvivorReconnectSession,
   joinSurvivorRoom,
@@ -506,6 +503,7 @@ export default function SurvivorClient({ initialState }: SurvivorClientProps) {
         <StandbyPanel
           status={roomStatus}
           countdownEndsAtMs={countdownEndsAtMs}
+          maxPlayers={serverState.maxPlayers}
           alive={aliveInRoom}
           displayName={displayName}
           slimeColor={slimeColor}
@@ -544,7 +542,7 @@ function Header({ serverState }: { serverState: PublicSurvivorState }) {
         )}
       </div>
       <p className="text-[10px] uppercase tracking-[0.25em] text-neutral-500">
-        {SURVIVOR_MAX_PLAYERS} players · last alive wins
+        {serverState.maxPlayers} players · last alive wins
       </p>
     </header>
   );
@@ -922,6 +920,7 @@ function LobbyPanel(props: {
 function StandbyPanel({
   status,
   countdownEndsAtMs,
+  maxPlayers,
   alive,
   displayName,
   slimeColor,
@@ -935,6 +934,7 @@ function StandbyPanel({
 }: {
   status: RoomPhase;
   countdownEndsAtMs: number;
+  maxPlayers: number;
   alive: number;
   displayName: string;
   slimeColor: SlimeColor;
@@ -1024,7 +1024,7 @@ function StandbyPanel({
 
         <div className="text-xs text-neutral-400 border-t border-white/10 pt-4 space-y-1">
           <p>
-            <span className="text-white">{alive}</span> / {SURVIVOR_MAX_PLAYERS} player
+            <span className="text-white">{alive}</span> / {maxPlayers} player
             {alive === 1 ? "" : "s"} in the arena
           </p>
           <p className="text-[10px] text-neutral-500 leading-relaxed">

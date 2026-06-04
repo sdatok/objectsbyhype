@@ -76,7 +76,8 @@ app.get("/healthz", (_req, res) => {
     ts: Date.now(),
     service: "objectsbyhype-survivor",
     gitSha: process.env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 7) ?? "unknown",
-    build: "escape-luna-v1.0",
+    build: "survivor-50p-v2",
+    survivorMaxPlayers: SURVIVOR_MAX_PLAYERS,
     features: [
       "survivor",
       "escape-luna",
@@ -90,7 +91,8 @@ app.get("/healthz", (_req, res) => {
 app.get("/version", (_req, res) => {
   res.json({
     ok: true,
-    build: "escape-luna-v1.0",
+    build: "survivor-50p-v2",
+    survivorMaxPlayers: SURVIVOR_MAX_PLAYERS,
     gitSha: process.env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 7) ?? "unknown",
   });
 });
@@ -420,6 +422,7 @@ app.post("/admin/luna/end", async (req: Request, res: Response) => {
 const port = Number(process.env.PORT) || 2567;
 gameServer.listen(port).then(() => {
   console.log(`[survivor] listening on :${port}`);
+  console.log(`[survivor] SURVIVOR_MAX_PLAYERS=${SURVIVOR_MAX_PLAYERS}`);
   console.log(
     `[survivor] admin command TTL=${ADMIN_COMMAND_TTL_MS}ms, allowed origins=${allowedOriginsRaw}${allowAny ? " (permissive)" : ""}`
   );
