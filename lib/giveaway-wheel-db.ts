@@ -79,10 +79,46 @@ export async function syncGiveawayWheelPrizeCatalog() {
   const applied = await readCatalogVersion();
   if (applied >= GIVEAWAY_WHEEL_CATALOG_VERSION) return;
 
+  if (applied < 2) {
+    await prisma.giveawayWheelPrize.updateMany({
+      where: { label: "Slime PRO (1 Week)" },
+      data: { active: false, quantityRemaining: 0 },
+    });
+
+    const sortMigration: Record<number, number> = {
+      10: 9,
+      11: 10,
+      12: 11,
+      13: 12,
+      14: 13,
+    };
+    for (const [from, to] of Object.entries(sortMigration)) {
+      await prisma.giveawayWheelPrize.updateMany({
+        where: {
+          sortOrder: Number(from),
+          active: true,
+          label: { not: "__giveaway_catalog_version__" },
+        },
+        data: { sortOrder: to },
+      });
+    }
+
+    await prisma.giveawayWheelPrize.updateMany({
+      where: {
+        active: true,
+        label: { not: "__giveaway_catalog_version__" },
+      },
+      data: { tier: "RARE" },
+    });
+  }
+
   const existing = await prisma.giveawayWheelPrize.findMany({
     where: { active: true, label: { not: "__giveaway_catalog_version__" } },
   });
   const bySort = new Map(existing.map((p) => [p.sortOrder, p]));
+  const validSortOrders = new Set(
+    GIVEAWAY_WHEEL_SEED_PRIZES.map((p) => p.sortOrder)
+  );
 
   for (const item of GIVEAWAY_WHEEL_SEED_PRIZES) {
     const row = bySort.get(item.sortOrder);
@@ -104,6 +140,15 @@ export async function syncGiveawayWheelPrizeCatalog() {
       });
     }
   }
+
+  await prisma.giveawayWheelPrize.updateMany({
+    where: {
+      active: true,
+      label: { not: "__giveaway_catalog_version__" },
+      sortOrder: { notIn: [...validSortOrders] },
+    },
+    data: { active: false },
+  });
 
   await writeCatalogVersion(GIVEAWAY_WHEEL_CATALOG_VERSION);
 }
