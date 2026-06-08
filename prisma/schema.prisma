@@ -527,3 +527,65 @@ model WheelSpin {
   @@index([proMemberId])
   @@index([createdAt])
 }
+
+// ---------- Giveaway Wheel (game-winner single spin) ----------
+
+/// Singleton row (id="default") for /giveawaywheel settings.
+model GiveawayWheelConfig {
+  id             String   @id @default("default")
+  enabled        Boolean  @default(false)
+  commonWeight   Int      @default(60)
+  rareWeight     Int      @default(30)
+  jackpotWeight  Int      @default(10)
+  updatedAt      DateTime @updatedAt
+}
+
+model GiveawayWheelPrize {
+  id                String              @id @default(cuid())
+  label             String
+  tier              WheelPrizeTier
+  quantityInitial   Int                 @default(1)
+  quantityRemaining Int                 @default(1)
+  sortOrder         Int                 @default(0)
+  active            Boolean             @default(true)
+  spins             GiveawayWheelSpin[]
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  @@index([tier, active])
+  @@index([sortOrder])
+}
+
+/// One-time play code issued when a player wins a game.
+model GiveawayWheelPlayCode {
+  id          String             @id @default(cuid())
+  code        String             @unique
+  winnerName  String
+  winnerEmail String             @default("")
+  source      String             @default("")
+  notes       String?            @db.Text
+  usedAt      DateTime?
+  spin        GiveawayWheelSpin?
+  createdAt   DateTime           @default(now())
+
+  @@index([usedAt])
+  @@index([winnerEmail])
+  @@index([createdAt])
+}
+
+model GiveawayWheelSpin {
+  id          String                @id @default(cuid())
+  codeId      String                @unique
+  code        GiveawayWheelPlayCode @relation(fields: [codeId], references: [id], onDelete: Cascade)
+  prizeId     String
+  prize       GiveawayWheelPrize    @relation(fields: [prizeId], references: [id], onDelete: Restrict)
+  prizeLabel  String
+  tier        WheelPrizeTier
+  winnerName  String
+  winnerEmail String                @default("")
+  ip          String?
+  createdAt   DateTime              @default(now())
+
+  @@index([createdAt])
+  @@index([winnerEmail])
+}

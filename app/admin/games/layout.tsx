@@ -8,6 +8,7 @@ const TABS = [
   { href: "/admin/games/survivor", label: "Survivor" },
   { href: "/admin/games/escape-luna", label: "Escape Luna" },
   { href: "/admin/games/wheel", label: "Wheel of Hype" },
+  { href: "/admin/games/giveaway-wheel", label: "Giveaway Wheel" },
 ] as const;
 
 export default function AdminGamesLayout({
