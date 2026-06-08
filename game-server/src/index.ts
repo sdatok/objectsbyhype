@@ -4,6 +4,7 @@ import { Server, matchMaker } from "@colyseus/core";
 import { WebSocketTransport } from "@colyseus/ws-transport";
 import { SurvivorRoom } from "./SurvivorRoom";
 import { EscapeLunaRoom } from "./EscapeLunaRoom";
+import { RedLightRoom } from "./RedLightRoom";
 import {
   verifyAdminCommand,
   type AdminCommand,
@@ -19,9 +20,11 @@ import {
   SURVIVOR_MAX_PLAYERS,
   LUNA_MAX_PLAYERS,
 } from "./constants";
+import { RED_LIGHT_MAX_PLAYERS } from "./red-light-constants";
 
 const SURVIVOR_ROOM = "survivor";
 const LUNA_ROOM = "escape-luna";
+const RED_LIGHT_ROOM = "red-light";
 
 const app = express();
 app.use(express.json({ limit: "32kb" }));
@@ -68,6 +71,7 @@ const gameServer = new Server({
 
 gameServer.define(SURVIVOR_ROOM, SurvivorRoom);
 gameServer.define(LUNA_ROOM, EscapeLunaRoom);
+gameServer.define(RED_LIGHT_ROOM, RedLightRoom);
 
 // ---------- Liveness ----------
 
@@ -80,12 +84,14 @@ app.get("/healthz", (_req, res) => {
     build: "survivor-50p-v2",
     survivorMaxPlayers: SURVIVOR_MAX_PLAYERS,
     lunaMaxPlayers: LUNA_MAX_PLAYERS,
+    redLightMaxPlayers: RED_LIGHT_MAX_PLAYERS,
     features: [
       "survivor",
       "escape-luna",
       "luna-chase",
       "maze-map",
       "zone-shrink",
+      "red-light",
     ],
   });
 });
@@ -96,6 +102,7 @@ app.get("/version", (_req, res) => {
     build: "survivor-50p-v2",
     survivorMaxPlayers: SURVIVOR_MAX_PLAYERS,
     lunaMaxPlayers: LUNA_MAX_PLAYERS,
+    redLightMaxPlayers: RED_LIGHT_MAX_PLAYERS,
     gitSha: process.env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 7) ?? "unknown",
   });
 });
@@ -136,6 +143,24 @@ async function ensureLunaRoom(): Promise<EscapeLunaRoom> {
   await matchMaker.createRoom(LUNA_ROOM, {});
   room = await getLunaRoom();
   if (!room) throw new Error("Could not create EscapeLunaRoom");
+  return room;
+}
+
+async function getRedLightRoom(): Promise<RedLightRoom | null> {
+  const rooms = await matchMaker.query({ name: RED_LIGHT_ROOM });
+  if (rooms.length === 0) return null;
+  const ref = rooms[0];
+  return (
+    (matchMaker.getLocalRoomById(ref.roomId) as RedLightRoom | undefined) ?? null
+  );
+}
+
+async function ensureRedLightRoom(): Promise<RedLightRoom> {
+  let room = await getRedLightRoom();
+  if (room) return room;
+  await matchMaker.createRoom(RED_LIGHT_ROOM, {});
+  room = await getRedLightRoom();
+  if (!room) throw new Error("Could not create RedLightRoom");
   return room;
 }
 
@@ -305,8 +330,10 @@ app.get("/admin/state", async (req: Request, res: Response) => {
     ok: true,
     room: room ? room.adminSnapshot() : null,
     luna: (await getLunaRoom())?.adminSnapshot() ?? null,
+    redLight: (await getRedLightRoom())?.adminSnapshot() ?? null,
     maxPlayers: SURVIVOR_MAX_PLAYERS,
     lunaMaxPlayers: LUNA_MAX_PLAYERS,
+    redLightMaxPlayers: RED_LIGHT_MAX_PLAYERS,
   });
 });
 
@@ -421,6 +448,117 @@ app.post("/admin/luna/end", async (req: Request, res: Response) => {
   }
 });
 
+// ---------- Red Light Green Light admin ----------
+
+app.post("/admin/red-light/start", async (req: Request, res: Response) => {
+  try {
+    const body = req.body ?? {};
+    const matchId = String(body.matchId ?? "");
+    const prizeTitle = String(body.prizeTitle ?? "Red Light Green Light Prize");
+    const matchSeconds = Math.max(
+      MIN_MATCH_SECONDS,
+      Math.min(MAX_MATCH_SECONDS, Number(body.matchSeconds) || DEFAULT_MATCH_SECONDS)
+    );
+    const lobbySeconds = Math.max(
+      MIN_LOBBY_SECONDS,
+      Math.min(MAX_LOBBY_SECONDS, Number(body.lobbySeconds) || DEFAULT_LOBBY_SECONDS)
+    );
+    if (!matchId) {
+      res.status(400).json({ error: "matchId required" });
+      return;
+    }
+    const auth = parseAdminAuth(req, "start", matchId);
+    if (!auth.ok) {
+      res.status(auth.status).json({ error: auth.error });
+      return;
+    }
+    const room = await ensureRedLightRoom();
+    try {
+      room.startMatch(matchId, prizeTitle, matchSeconds, lobbySeconds);
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Could not start match";
+      res.status(409).json({ error: message });
+      return;
+    }
+    res.json({ ok: true, matchId, matchSeconds, lobbySeconds });
+  } catch (err) {
+    console.error("[/admin/red-light/start]", err);
+    res.status(500).json({ error: "internal error" });
+  }
+});
+
+app.post("/admin/red-light/rebind", async (req: Request, res: Response) => {
+  try {
+    const body = req.body ?? {};
+    const matchId = String(body.matchId ?? "");
+    const prizeTitle = String(body.prizeTitle ?? "Red Light Green Light Prize");
+    const matchSeconds = Math.max(
+      MIN_MATCH_SECONDS,
+      Math.min(MAX_MATCH_SECONDS, Number(body.matchSeconds) || DEFAULT_MATCH_SECONDS)
+    );
+    const lobbySeconds = Math.max(
+      MIN_LOBBY_SECONDS,
+      Math.min(MAX_LOBBY_SECONDS, Number(body.lobbySeconds) || DEFAULT_LOBBY_SECONDS)
+    );
+    const targetStatus = String(body.targetStatus ?? "COUNTDOWN") as
+      | "WAITING"
+      | "COUNTDOWN"
+      | "PLAYING";
+    const startedAtMs = Number(body.startedAtMs) || 0;
+    const matchEndsAtMs = Number(body.matchEndsAtMs) || 0;
+    if (!matchId) {
+      res.status(400).json({ error: "matchId required" });
+      return;
+    }
+    const auth = parseAdminAuth(req, "start", matchId);
+    if (!auth.ok) {
+      res.status(auth.status).json({ error: auth.error });
+      return;
+    }
+    const room = await ensureRedLightRoom();
+    room.restoreMatch(
+      matchId,
+      prizeTitle,
+      matchSeconds,
+      lobbySeconds,
+      targetStatus,
+      startedAtMs,
+      matchEndsAtMs
+    );
+    res.json({ ok: true, rebound: true, matchId, targetStatus });
+  } catch (err) {
+    console.error("[/admin/red-light/rebind]", err);
+    res.status(500).json({ error: "internal error" });
+  }
+});
+
+app.post("/admin/red-light/end", async (req: Request, res: Response) => {
+  try {
+    const body = req.body ?? {};
+    const matchId = String(body.matchId ?? "");
+    if (!matchId) {
+      res.status(400).json({ error: "matchId required" });
+      return;
+    }
+    const auth = parseAdminAuth(req, "end", matchId);
+    if (!auth.ok) {
+      res.status(auth.status).json({ error: auth.error });
+      return;
+    }
+    const room = await getRedLightRoom();
+    if (!room || room.state.matchId !== matchId) {
+      res.json({ ok: true, note: "no active match" });
+      return;
+    }
+    room.endMatch("admin");
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("[/admin/red-light/end]", err);
+    res.status(500).json({ error: "internal error" });
+  }
+});
+
 // ---------- Boot ----------
 
 const port = Number(process.env.PORT) || 2567;
@@ -428,6 +566,7 @@ gameServer.listen(port).then(() => {
   console.log(`[survivor] listening on :${port}`);
   console.log(`[survivor] SURVIVOR_MAX_PLAYERS=${SURVIVOR_MAX_PLAYERS}`);
   console.log(`[survivor] LUNA_MAX_PLAYERS=${LUNA_MAX_PLAYERS}`);
+  console.log(`[survivor] RED_LIGHT_MAX_PLAYERS=${RED_LIGHT_MAX_PLAYERS}`);
   console.log(
     `[survivor] admin command TTL=${ADMIN_COMMAND_TTL_MS}ms, allowed origins=${allowedOriginsRaw}${allowAny ? " (permissive)" : ""}`
   );

@@ -33,6 +33,13 @@ export async function postLunaMatchResult(payload: ResultPayload): Promise<void>
   await postResultToUrl(url, payload);
 }
 
+export async function postRedLightMatchResult(payload: ResultPayload): Promise<void> {
+  const url =
+    process.env.RED_LIGHT_WEBHOOK_URL ??
+    process.env.WEBHOOK_URL?.replace("/survivor/result", "/red-light/result");
+  await postResultToUrl(url, payload);
+}
+
 async function postResultToUrl(
   webhookUrl: string | undefined,
   payload: ResultPayload

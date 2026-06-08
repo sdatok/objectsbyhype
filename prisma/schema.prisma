@@ -442,6 +442,48 @@ model EscapeLunaParticipant {
   @@index([email])
 }
 
+// ---------- Red Light Green Light (Squid Game) ----------
+
+model RedLightConfig {
+  id               String   @id @default("default")
+  enabled          Boolean  @default(false)
+  prizeTitle       String   @default("Red Light Green Light Prize")
+  prizeDescription String?  @db.Text
+  matchSeconds     Int      @default(120)
+  currentMatchId   String?
+  updatedAt        DateTime @updatedAt
+}
+
+model RedLightMatch {
+  id           String              @id @default(cuid())
+  status       SurvivorMatchStatus @default(WAITING)
+  prizeTitle   String
+  startedAt    DateTime?
+  endedAt      DateTime?
+  winnerEmail  String?
+  participants RedLightParticipant[]
+  createdAt    DateTime            @default(now())
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+model RedLightParticipant {
+  id              String        @id @default(cuid())
+  matchId         String
+  match           RedLightMatch @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  email           String
+  displayName     String
+  placement       Int?
+  survivedSeconds Int           @default(0)
+  joinedAt        DateTime      @default(now())
+  disconnectedAt  DateTime?
+
+  @@unique([matchId, email])
+  @@index([matchId])
+  @@index([email])
+}
+
 // ---------- Wheel of Hype (pro-member monthly spin) ----------
 
 enum WheelPrizeTier {
