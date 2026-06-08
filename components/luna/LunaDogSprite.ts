@@ -203,18 +203,29 @@ export function drawLunaPuppy(
 ) {
   const angle = Math.hypot(vx, vy) > 6 ? Math.atan2(vy, vx) : 0;
   const wag = Math.sin(nowMs * 0.024) * radius * 0.15;
+  const lineW = Math.max(1.5, radius * 0.14);
+
+  // Soft halo so infected runners stay visible on dark mobile canvases.
+  const halo = ctx.createRadialGradient(x, y, 0, x, y, radius * 2.1);
+  halo.addColorStop(0, "rgba(255, 170, 60, 0.28)");
+  halo.addColorStop(0.55, "rgba(255, 90, 30, 0.12)");
+  halo.addColorStop(1, "rgba(255, 90, 30, 0)");
+  ctx.fillStyle = halo;
+  ctx.beginPath();
+  ctx.arc(x, y, radius * 2.1, 0, Math.PI * 2);
+  ctx.fill();
 
   ctx.save();
   ctx.translate(x, y);
   ctx.rotate(angle);
 
-  ctx.fillStyle = "rgba(0, 0, 0, 0.35)";
+  ctx.fillStyle = "rgba(0, 0, 0, 0.45)";
   ctx.beginPath();
   ctx.ellipse(0, radius * 0.5, radius * 1.1, radius * 0.28, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  ctx.strokeStyle = "#1a1a1a";
-  ctx.lineWidth = radius * 0.18;
+  ctx.strokeStyle = "#3a2010";
+  ctx.lineWidth = lineW;
   ctx.lineCap = "round";
   ctx.beginPath();
   ctx.moveTo(-radius * 0.85, 0);
@@ -226,15 +237,16 @@ export function drawLunaPuppy(
   );
   ctx.stroke();
 
-  ctx.fillStyle = "#2a1810";
-  ctx.strokeStyle = "#0a0a0a";
-  ctx.lineWidth = 1.5;
+  ctx.fillStyle = "#6b3a18";
+  ctx.strokeStyle = "#ffb066";
+  ctx.lineWidth = Math.max(1.5, radius * 0.1);
   ctx.beginPath();
   ctx.ellipse(0, 0, radius * 1.12, radius * 0.85, 0, 0, Math.PI * 2);
   ctx.fill();
   ctx.stroke();
 
-  ctx.fillStyle = "#1a1008";
+  ctx.fillStyle = "#4a2810";
+  ctx.strokeStyle = "#ff9a45";
   ctx.beginPath();
   ctx.moveTo(radius * 0.5, -radius * 0.45);
   ctx.lineTo(radius * 1.15, -radius * 0.05);
@@ -242,35 +254,47 @@ export function drawLunaPuppy(
   ctx.lineTo(radius * 0.4, radius * 0.28);
   ctx.closePath();
   ctx.fill();
+  ctx.stroke();
 
   for (const side of [-1, 1]) {
-    ctx.fillStyle = "#140c06";
+    ctx.fillStyle = "#3a2008";
+    ctx.strokeStyle = "#ff8a35";
     ctx.beginPath();
     ctx.moveTo(radius * 0.65, side * radius * 0.15);
     ctx.lineTo(radius * 0.82, side * radius * 0.72);
     ctx.lineTo(radius * 0.35, side * radius * 0.42);
     ctx.closePath();
     ctx.fill();
+    ctx.stroke();
   }
 
-  ctx.fillStyle = "#050505";
+  ctx.fillStyle = "#120806";
   ctx.beginPath();
-  ctx.arc(radius * 0.95, radius * 0.02, radius * 0.07, 0, Math.PI * 2);
+  ctx.arc(radius * 0.95, radius * 0.02, Math.max(2, radius * 0.07), 0, Math.PI * 2);
   ctx.fill();
 
   for (const side of [-1, 1]) {
-    ctx.fillStyle = "#553311";
+    ctx.fillStyle = "#ffcc44";
     ctx.beginPath();
-    ctx.arc(radius * 0.72, side * radius * 0.22, radius * 0.08, 0, Math.PI * 2);
+    ctx.arc(
+      radius * 0.72,
+      side * radius * 0.22,
+      Math.max(2, radius * 0.08),
+      0,
+      Math.PI * 2
+    );
     ctx.fill();
   }
 
   ctx.restore();
 
   ctx.save();
-  ctx.fillStyle = "#c9a227";
-  ctx.font = `bold ${Math.max(8, radius * 0.42)}px monospace`;
+  ctx.fillStyle = "#ffd56a";
+  ctx.strokeStyle = "rgba(0,0,0,0.85)";
+  ctx.lineWidth = Math.max(2, radius * 0.08);
+  ctx.font = `bold ${Math.max(10, radius * 0.42)}px monospace`;
   ctx.textAlign = "center";
+  ctx.strokeText(displayName.slice(0, 12), x, y + radius * 1.65);
   ctx.fillText(displayName.slice(0, 12), x, y + radius * 1.65);
   ctx.restore();
 }

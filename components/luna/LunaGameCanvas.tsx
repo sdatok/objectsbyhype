@@ -57,6 +57,95 @@ interface LunaPlayerSnap {
   deathAt?: number;
 }
 
+interface LunaServerState {
+  status?: string;
+  prizeTitle?: string;
+  startedAtMs?: number;
+  endedAtMs?: number;
+  countdownEndsAtMs?: number;
+  matchEndsAtMs?: number;
+  zoneShrink01?: number;
+  zone?: { cx: number; cy: number; radius: number };
+  dog?: {
+    x: number;
+    y: number;
+    vx?: number;
+    vy?: number;
+    speed: number;
+    jumpAtMs?: number;
+    shootUntilMs?: number;
+    aimAngle?: number;
+    nextBarrageAtMs?: number;
+  };
+  obstacles?: Array<{ kind: string; x: number; y: number; w: number; h: number }>;
+  bullets?: Array<{ x: number; y: number; vx: number; vy: number }>;
+  players?: {
+    forEach?: (cb: (p: LunaPlayerSnap, id: string) => void) => void;
+    get?: (id: string) => LunaPlayerSnap | undefined;
+  };
+}
+
+type LunaPosSnap = { t: number; x: number; y: number; aim: number };
+type LunaPlayerBuffer = Map<string, { prev: LunaPosSnap; curr: LunaPosSnap }>;
+
+function readPuppyMode(p: { alive?: boolean; puppyMode?: unknown }): boolean {
+  if (p.alive) return false;
+  const v = p.puppyMode;
+  return v === true || v === 1;
+}
+
+function forEachLunaPlayer(
+  rs: LunaServerState,
+  cb: (p: LunaPlayerSnap, sessionId: string) => void
+): void {
+  rs.players?.forEach?.(cb);
+}
+
+function lookupLunaPlayer(
+  rs: LunaServerState,
+  sessionId: string
+): LunaPlayerSnap | null {
+  const players = rs.players;
+  if (!players) return null;
+  if (typeof players.get === "function") {
+    return players.get(sessionId) ?? null;
+  }
+  let found: LunaPlayerSnap | null = null;
+  players.forEach?.((p, id) => {
+    if (!found && id === sessionId) found = p;
+  });
+  return found;
+}
+
+function shortestAngleLerp(a: number, b: number, t: number): number {
+  let diff = b - a;
+  while (diff < -Math.PI) diff += Math.PI * 2;
+  while (diff > Math.PI) diff -= Math.PI * 2;
+  return a + diff * t;
+}
+
+function interpLunaPlayer(
+  pair: { prev: LunaPosSnap; curr: LunaPosSnap } | undefined
+): { x: number; y: number; aim: number } | null {
+  if (!pair) return null;
+  const renderT = Date.now() - INTERP_DELAY_MS;
+  const { prev, curr } = pair;
+  if (curr.t <= prev.t) return { x: curr.x, y: curr.y, aim: curr.aim };
+  const span = curr.t - prev.t;
+  const t = (renderT - prev.t) / span;
+  const clamped = t < 0 ? 0 : t > 1 ? 1 : t;
+  return {
+    x: prev.x + (curr.x - prev.x) * clamped,
+    y: prev.y + (curr.y - prev.y) * clamped,
+    aim: shortestAngleLerp(prev.aim, curr.aim, clamped),
+  };
+}
+
+function puppyScreenRadius(scale: number, mobileControls: boolean): number {
+  const base = PUPPY_R * scale * 1.35;
+  return Math.max(base, mobileControls ? 18 : 14);
+}
+
 function snapshotLunaStatus(room: Room): LunaEndSnapshot & { status: string } {
   const empty = {
     status: "WAITING",
@@ -89,7 +178,7 @@ function snapshotLunaStatus(room: Room): LunaEndSnapshot & { status: string } {
     let playerCount = 0;
     let me: LunaPlayerSnap | undefined;
     rs.players.forEach((p: LunaPlayerSnap, id: string) => {
-      if (p.alive || p.puppyMode || (p.placement ?? 0) > 0) playerCount++;
+      if (p.alive || readPuppyMode(p) || (p.placement ?? 0) > 0) playerCount++;
       if (id === room.sessionId) me = p;
     });
 
@@ -115,7 +204,7 @@ function snapshotLunaStatus(room: Room): LunaEndSnapshot & { status: string } {
       selfSlimeAccessories: parseSlimeAccessories(me?.slimeAccessories),
       selfNameColor: parseNameColor(me?.nameColor),
       selfAlive: me?.alive ?? false,
-      selfPuppyMode: me?.puppyMode ?? false,
+      selfPuppyMode: me ? readPuppyMode(me) : false,
       prizeTitle: rs.prizeTitle ?? "",
       survivedSeconds,
       playerCount,
@@ -141,13 +230,18 @@ export default function LunaGameCanvas({ room, onLeave }: LunaGameCanvasProps) {
   });
   const keysRef = useRef(new Set<string>());
   const sessionIdRef = useRef(room.sessionId);
-  const snapshotsRef = useRef<Array<{ t: number; state: unknown }>>([]);
+  const roomRef = useRef(room);
+  const playerBufRef = useRef<LunaPlayerBuffer>(new Map());
   const moveStickRef = useRef<VirtualStickState>(emptyStick());
   const aimStickRef = useRef<VirtualStickState>(emptyStick());
   const mobileControls = useMobileControls();
   const spectatorCamRef = useRef({ x: 0, y: 0, ready: false });
-  const [selfMode, setSelfMode] = useState<"runner" | "puppy" | "spectator">("runner");
   const [endSnapshot, setEndSnapshot] = useState(() => snapshotLunaStatus(room));
+
+  useEffect(() => {
+    roomRef.current = room;
+    sessionIdRef.current = room.sessionId;
+  }, [room]);
 
   useEffect(() => {
     const sync = () => setEndSnapshot(snapshotLunaStatus(room));
@@ -161,8 +255,24 @@ export default function LunaGameCanvas({ room, onLeave }: LunaGameCanvasProps) {
 
   useEffect(() => {
     const push = () => {
-      snapshotsRef.current.push({ t: Date.now(), state: room.state.toJSON() });
-      if (snapshotsRef.current.length > 8) snapshotsRef.current.shift();
+      const now = Date.now();
+      const rs = room.state as unknown as LunaServerState;
+      if (!rs?.players?.forEach) return;
+      const next: LunaPlayerBuffer = new Map();
+      rs.players.forEach((p, sessionId) => {
+        const curr: LunaPosSnap = {
+          t: now,
+          x: p.x ?? 0,
+          y: p.y ?? 0,
+          aim: p.aim ?? 0,
+        };
+        const existing = playerBufRef.current.get(sessionId);
+        next.set(sessionId, {
+          prev: existing?.curr ?? curr,
+          curr,
+        });
+      });
+      playerBufRef.current = next;
     };
     push();
     room.onStateChange(push);
@@ -234,16 +344,8 @@ export default function LunaGameCanvas({ room, onLeave }: LunaGameCanvasProps) {
       const w = canvas.width / dpr;
       const h = canvas.height / dpr;
 
-      const snaps = snapshotsRef.current;
-      const renderAt = Date.now() - INTERP_DELAY_MS;
-      let cur = snaps[snaps.length - 1]?.state as Record<string, unknown> | undefined;
-      for (let i = snaps.length - 1; i >= 0; i--) {
-        if (snaps[i]!.t <= renderAt) {
-          cur = snaps[i]!.state as Record<string, unknown>;
-          break;
-        }
-      }
-      if (!cur) {
+      const rs = roomRef.current?.state as unknown as LunaServerState | undefined;
+      if (!rs?.players?.forEach) {
         raf = requestAnimationFrame(draw);
         return;
       }
@@ -267,22 +369,24 @@ export default function LunaGameCanvas({ room, onLeave }: LunaGameCanvasProps) {
         moveY /= len;
       }
 
-      const players = (cur.players ?? {}) as Record<string, LunaPlayerSnap>;
-      const self = players[sessionIdRef.current];
-      const isRunner = !!self?.alive;
-      const isPuppy = !!self && !self.alive && !!self.puppyMode;
-      const isSpectating = !!self && !self.alive && !self.puppyMode;
-      const nextMode = isRunner ? "runner" : isPuppy ? "puppy" : "spectator";
-      if (nextMode !== selfMode) setSelfMode(nextMode);
+      const selfLive = lookupLunaPlayer(rs, sessionIdRef.current);
+      const selfPos =
+        interpLunaPlayer(playerBufRef.current.get(sessionIdRef.current)) ?? {
+          x: selfLive?.x ?? 0,
+          y: selfLive?.y ?? 0,
+          aim: selfLive?.aim ?? 0,
+        };
+      const isRunner = !!selfLive?.alive;
+      const isPuppy = !!selfLive && readPuppyMode(selfLive);
+      const isSpectating = !!selfLive && !selfLive.alive && !readPuppyMode(selfLive);
 
       if (isSpectating) {
         inputRef.current.moveX = 0;
         inputRef.current.moveY = 0;
         if (!spectatorCamRef.current.ready) {
-          const zone = cur.zone as { cx: number; cy: number };
           spectatorCamRef.current = {
-            x: zone?.cx ?? 0,
-            y: zone?.cy ?? 0,
+            x: rs.zone?.cx ?? 0,
+            y: rs.zone?.cy ?? 0,
             ready: true,
           };
         }
@@ -305,8 +409,8 @@ export default function LunaGameCanvas({ room, onLeave }: LunaGameCanvasProps) {
       }
       inputRef.current.shooting = false;
 
-      const camX = isSpectating ? spectatorCamRef.current.x : (self?.x ?? 0);
-      const camY = isSpectating ? spectatorCamRef.current.y : (self?.y ?? 0);
+      const camX = isSpectating ? spectatorCamRef.current.x : selfPos.x;
+      const camY = isSpectating ? spectatorCamRef.current.y : selfPos.y;
       const viewSpan = isSpectating ? SPECTATOR_VIEW : RUNNER_VIEW;
       const scale = Math.min(w, h) / viewSpan;
       const toScreen = (wx: number, wy: number) => ({
@@ -317,20 +421,14 @@ export default function LunaGameCanvas({ room, onLeave }: LunaGameCanvasProps) {
       ctx.fillStyle = "#0a0a12";
       ctx.fillRect(0, 0, w, h);
 
-      const zone = cur.zone as { cx: number; cy: number; radius: number };
+      const zone = rs.zone ?? { cx: 0, cy: 0, radius: WORLD_HALF * 0.68 };
       const zc = toScreen(zone.cx, zone.cy);
       ctx.fillStyle = "#1c1410";
       ctx.beginPath();
       ctx.arc(zc.x, zc.y, zone.radius * scale, 0, Math.PI * 2);
       ctx.fill();
 
-      const obstacles = (cur.obstacles ?? []) as Array<{
-        kind: string;
-        x: number;
-        y: number;
-        w: number;
-        h: number;
-      }>;
+      const obstacles = rs.obstacles ?? [];
       for (const o of obstacles) {
         drawLunaObstacle(ctx, toScreen, o, scale);
       }
@@ -341,12 +439,7 @@ export default function LunaGameCanvas({ room, onLeave }: LunaGameCanvasProps) {
       ctx.arc(zc.x, zc.y, zone.radius * scale, 0, Math.PI * 2);
       ctx.stroke();
 
-      const bullets = (cur.bullets ?? []) as Array<{
-        x: number;
-        y: number;
-        vx: number;
-        vy: number;
-      }>;
+      const bullets = rs.bullets ?? [];
       for (const b of bullets) {
         const bp = toScreen(b.x, b.y);
         const br = Math.max(3, 5 * scale);
@@ -379,13 +472,19 @@ export default function LunaGameCanvas({ room, onLeave }: LunaGameCanvasProps) {
 
       let puppyCount = 0;
       let survivorCount = 0;
-      for (const p of Object.values(players)) {
+      forEachLunaPlayer(rs, (p) => {
         if (p.alive) survivorCount++;
-        else if (p.puppyMode) puppyCount++;
-      }
+        else if (readPuppyMode(p)) puppyCount++;
+      });
 
-      for (const [id, p] of Object.entries(players)) {
-        const sp = toScreen(p.x, p.y);
+      forEachLunaPlayer(rs, (p, id) => {
+        const pos =
+          interpLunaPlayer(playerBufRef.current.get(id)) ?? {
+            x: p.x ?? 0,
+            y: p.y ?? 0,
+            aim: p.aim ?? 0,
+          };
+        const sp = toScreen(pos.x, pos.y);
         if (p.alive) {
           const legacy = migrateLegacyAccessories(
             parseSlimeAccessories(p.slimeAccessories)
@@ -415,32 +514,22 @@ export default function LunaGameCanvas({ room, onLeave }: LunaGameCanvasProps) {
           ctx.font = "11px monospace";
           ctx.textAlign = "center";
           ctx.fillText(p.displayName, sp.x, sp.y - PLAYER_R * scale * 2);
-        } else if (p.puppyMode) {
-          const aim = p.aim ?? 0;
+        } else if (readPuppyMode(p)) {
+          const aim = pos.aim;
           drawLunaPuppy(
             ctx,
             sp.x,
             sp.y,
-            PUPPY_R * scale * 1.15,
+            puppyScreenRadius(scale, mobileControls),
             Math.cos(aim) * 80,
             Math.sin(aim) * 80,
             Date.now(),
             id === sessionIdRef.current ? "YOU" : p.displayName
           );
         }
-      }
+      });
 
-      const dog = cur.dog as {
-        x: number;
-        y: number;
-        vx?: number;
-        vy?: number;
-        speed: number;
-        jumpAtMs?: number;
-        shootUntilMs?: number;
-        aimAngle?: number;
-        nextBarrageAtMs?: number;
-      };
+      const dog = rs.dog;
       const nowMs = Date.now();
       const lunaShooting = (dog?.shootUntilMs ?? 0) > nowMs;
       if (dog) {
@@ -483,7 +572,7 @@ export default function LunaGameCanvas({ room, onLeave }: LunaGameCanvasProps) {
           speedPct = Math.round(Math.min(208, mult * 100));
         }
         ctx.fillText(
-          `Zone ${Math.round((Number(cur.zoneShrink01) || 0) * 100)}% · speed ${speedPct}% · ${puppyCount} infected`,
+          `Zone ${Math.round((Number(rs.zoneShrink01) || 0) * 100)}% · speed ${speedPct}% · ${puppyCount} infected`,
           16,
           hudPadTop + 18
         );
@@ -503,7 +592,7 @@ export default function LunaGameCanvas({ room, onLeave }: LunaGameCanvasProps) {
     };
     raf = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(raf);
-  }, [moveStickRef, mobileControls, selfMode]);
+  }, [moveStickRef, mobileControls]);
 
   return (
     <div
