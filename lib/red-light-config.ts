@@ -92,7 +92,27 @@ export async function getCurrentRedLightMatch(
   });
 }
 
+const OFFLINE_RED_LIGHT_STATE: PublicRedLightState = {
+  enabled: false,
+  prizeTitle: "Red Light Green Light Prize",
+  prizeDescription: null,
+  matchSeconds: RLGL_DEFAULT_MATCH_SECONDS,
+  gameServerWsUrl: process.env.NEXT_PUBLIC_SURVIVOR_WS_URL ?? "",
+  maxPlayers: RED_LIGHT_MAX_PLAYERS,
+  currentMatch: null,
+  lastWinner: null,
+};
+
 export async function buildPublicRedLightState(): Promise<PublicRedLightState> {
+  try {
+    return await buildPublicRedLightStateInner();
+  } catch (err) {
+    console.error("[red-light] buildPublicRedLightState failed", err);
+    return OFFLINE_RED_LIGHT_STATE;
+  }
+}
+
+async function buildPublicRedLightStateInner(): Promise<PublicRedLightState> {
   const config = await getOrCreateRedLightConfig();
   const current = await getCurrentRedLightMatch(config);
 
