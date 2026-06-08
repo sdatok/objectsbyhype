@@ -3,6 +3,13 @@
 import { useEffect, useRef, useState } from "react";
 import type { Room } from "colyseus.js";
 import { startRedLightInputLoop, type RedLightInput } from "@/lib/red-light-client";
+import {
+  RLGL_FINISH_Y,
+  RLGL_START_Y,
+  RLGL_TRACK_LENGTH,
+  RLGL_TRACK_WIDTH,
+  rlglRoundTiming,
+} from "@/lib/red-light-game-constants";
 import { drawSlime } from "@/components/survivor/SlimeAvatar";
 import {
   DEFAULT_SLIME_COLOR,
@@ -12,24 +19,21 @@ import {
   parseSlimeColor,
   parseSlimeFace,
 } from "@/lib/survivor-slime";
+import {
+  dollTurnProgress,
+  drawYoungHeeDoll,
+  preloadYoungHeeDoll,
+} from "@/components/red-light/RedLightDoll";
+import {
+  drawPinkGuard,
+  drawSquidGameField,
+} from "@/components/red-light/RedLightFieldArt";
 
-const TRACK_W = 720;
-const TRACK_L = 1500;
-const PLAYER_R = 16;
-const VIEW_H = 520;
-
-const COLORS = {
-  skyTop: "#E8998D",
-  skyBot: "#F5C4B8",
-  sand: "#E8C99B",
-  sandDark: "#C9A66B",
-  wallPink: "#D4737A",
-  tree: "#1B4332",
-  treeLight: "#2D6A6A",
-  finish: "#F4D03F",
-  greenGlow: "rgba(34, 197, 94, 0.35)",
-  redGlow: "rgba(239, 68, 68, 0.45)",
-};
+const PLAYER_R = 15;
+const VIEW_W = 960;
+const VIEW_H = 1500;
+const PERSPECTIVE_Y = 0.74;
+const INTERP_MS = 110;
 
 interface PlayerSnap {
   x: number;
@@ -46,7 +50,6 @@ interface PlayerSnap {
 
 interface ServerState {
   status?: string;
-  prizeTitle?: string;
   matchEndsAtMs?: number;
   lightPhase?: string;
   roundNumber?: number;
@@ -54,16 +57,16 @@ interface ServerState {
   startLineY?: number;
   finishLineY?: number;
   trackWidth?: number;
+  trackLength?: number;
   players?: {
     forEach?: (cb: (p: PlayerSnap, id: string) => void) => void;
     get?: (id: string) => PlayerSnap | undefined;
   };
 }
 
-function forEachPlayer(
-  rs: ServerState,
-  cb: (p: PlayerSnap, id: string) => void
-): void {
+type PosBuf = Map<string, { prev: { t: number; x: number; y: number }; curr: { t: number; x: number; y: number } }>;
+
+function forEachPlayer(rs: ServerState, cb: (p: PlayerSnap, id: string) => void): void {
   rs.players?.forEach?.(cb);
 }
 
@@ -78,87 +81,23 @@ function getPlayer(rs: ServerState, id: string): PlayerSnap | null {
   return found;
 }
 
-function drawTree(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  scale: number
-) {
-  const s = scale;
-  ctx.fillStyle = COLORS.tree;
-  ctx.beginPath();
-  ctx.moveTo(x, y - 80 * s);
-  ctx.lineTo(x - 28 * s, y + 10 * s);
-  ctx.lineTo(x + 28 * s, y + 10 * s);
-  ctx.closePath();
-  ctx.fill();
-  ctx.fillStyle = COLORS.treeLight;
-  ctx.beginPath();
-  ctx.moveTo(x, y - 55 * s);
-  ctx.lineTo(x - 18 * s, y - 5 * s);
-  ctx.lineTo(x + 18 * s, y - 5 * s);
-  ctx.closePath();
-  ctx.fill();
-  ctx.fillStyle = "#5D4037";
-  ctx.fillRect(x - 6 * s, y + 8 * s, 12 * s, 22 * s);
+function interpPos(
+  pair: { prev: { t: number; x: number; y: number }; curr: { t: number; x: number; y: number } } | undefined
+): { x: number; y: number } | null {
+  if (!pair) return null;
+  const renderT = Date.now() - INTERP_MS;
+  const { prev, curr } = pair;
+  if (curr.t <= prev.t) return { x: curr.x, y: curr.y };
+  const span = curr.t - prev.t;
+  const t = Math.max(0, Math.min(1, (renderT - prev.t) / span));
+  return {
+    x: prev.x + (curr.x - prev.x) * t,
+    y: prev.y + (curr.y - prev.y) * t,
+  };
 }
 
-function drawDoll(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  facingPlayers: boolean,
-  turning: boolean
-) {
-  const rot = turning ? Math.sin(Date.now() / 120) * 0.4 : facingPlayers ? Math.PI : 0;
-  ctx.save();
-  ctx.translate(x, y);
-  ctx.rotate(rot);
-
-  ctx.fillStyle = "#F4D03F";
-  ctx.fillRect(-35, -20, 70, 90);
-  ctx.fillStyle = "#FFE082";
-  ctx.fillRect(-30, 10, 60, 55);
-
-  ctx.fillStyle = "#FFDBAC";
-  ctx.beginPath();
-  ctx.arc(0, -45, 32, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.fillStyle = "#1a1a1a";
-  ctx.beginPath();
-  ctx.arc(0, -52, 34, Math.PI, Math.PI * 2);
-  ctx.fill();
-  ctx.fillRect(-34, -58, 68, 12);
-
-  if (facingPlayers || turning) {
-    ctx.fillStyle = "#111";
-    ctx.beginPath();
-    ctx.arc(-12, -48, 4, 0, Math.PI * 2);
-    ctx.arc(12, -48, 4, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = "#111";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(-8, -38);
-    ctx.lineTo(8, -38);
-    ctx.stroke();
-  }
-
-  ctx.fillStyle = "#E91E8C";
-  ctx.fillRect(-8, 65, 16, 25);
-  ctx.restore();
-}
-
-function drawGuard(ctx: CanvasRenderingContext2D, x: number, y: number) {
-  ctx.fillStyle = "#E91E8C";
-  ctx.fillRect(x - 8, y - 28, 16, 32);
-  ctx.fillStyle = "#111";
-  ctx.beginPath();
-  ctx.arc(x, y - 34, 10, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = "#fff";
-  ctx.fillRect(x - 12, y - 18, 24, 3);
+function lerp(a: number, b: number, t: number): number {
+  return a + (b - a) * t;
 }
 
 export default function RedLightGameCanvas({
@@ -172,10 +111,20 @@ export default function RedLightGameCanvas({
   const inputRef = useRef<RedLightInput>({ moveX: 0, moveY: 0, forward: false });
   const holdRef = useRef(false);
   const keysRef = useRef({ w: false, space: false, a: false, d: false });
+  const camRef = useRef({ x: 0, y: 0, init: false });
+  const playerBufRef = useRef<PosBuf>(new Map());
+  const phaseFlashRef = useRef(0);
+  const lastPhaseRef = useRef("");
+
   const [eliminated, setEliminated] = useState(false);
   const [finished, setFinished] = useState(false);
   const [placement, setPlacement] = useState(0);
   const [ended, setEnded] = useState(false);
+  const [progressPct, setProgressPct] = useState(0);
+
+  useEffect(() => {
+    preloadYoungHeeDoll();
+  }, []);
 
   useEffect(() => {
     const syncSelf = () => {
@@ -189,9 +138,37 @@ export default function RedLightGameCanvas({
         setEliminated(true);
       }
       if (rs.status === "ENDED") setEnded(true);
+
+      const startY = rs.startLineY ?? RLGL_START_Y;
+      const finishY = rs.finishLineY ?? RLGL_FINISH_Y;
+      const pct = Math.max(0, Math.min(1, (startY - me.y) / (startY - finishY)));
+      setProgressPct(pct);
+
+      const phase = rs.lightPhase ?? "GREEN";
+      if (phase !== lastPhaseRef.current) {
+        if (phase === "RED") phaseFlashRef.current = 1;
+        lastPhaseRef.current = phase;
+      }
     };
     syncSelf();
     room.onStateChange(syncSelf);
+  }, [room]);
+
+  useEffect(() => {
+    const push = () => {
+      const now = Date.now();
+      const rs = room.state as unknown as ServerState;
+      if (!rs.players?.forEach) return;
+      const next: PosBuf = new Map();
+      rs.players.forEach((p, sid) => {
+        const curr = { t: now, x: p.x, y: p.y };
+        const existing = playerBufRef.current.get(sid);
+        next.set(sid, { prev: existing?.curr ?? curr, curr });
+      });
+      playerBufRef.current = next;
+    };
+    push();
+    room.onStateChange(push);
   }, [room]);
 
   useEffect(() => {
@@ -205,20 +182,15 @@ export default function RedLightGameCanvas({
       if (k === "a" || k === "arrowleft") keysRef.current.a = down;
       if (k === "d" || k === "arrowright") keysRef.current.d = down;
     };
-    const down = (e: KeyboardEvent) => onKey(e, true);
-    const up = (e: KeyboardEvent) => onKey(e, false);
-    window.addEventListener("keydown", down);
-    window.addEventListener("keyup", up);
+    window.addEventListener("keydown", (e) => onKey(e, true));
+    window.addEventListener("keyup", (e) => onKey(e, false));
     return () => {
-      window.removeEventListener("keydown", down);
-      window.removeEventListener("keyup", up);
+      window.removeEventListener("keydown", (e) => onKey(e, true));
+      window.removeEventListener("keyup", (e) => onKey(e, false));
     };
   }, []);
 
-  useEffect(() => {
-    const stopInput = startRedLightInputLoop(room, inputRef);
-    return stopInput;
-  }, [room]);
+  useEffect(() => startRedLightInputLoop(room, inputRef, 1000 / 60), [room]);
 
   useEffect(() => {
     const tick = () => {
@@ -230,7 +202,7 @@ export default function RedLightGameCanvas({
         forward,
       };
     };
-    const id = window.setInterval(tick, 1000 / 30);
+    const id = window.setInterval(tick, 1000 / 60);
     return () => window.clearInterval(id);
   }, []);
 
@@ -242,104 +214,108 @@ export default function RedLightGameCanvas({
 
     let raf = 0;
     const draw = () => {
-      const dpr = window.devicePixelRatio || 1;
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
       const w = canvas.clientWidth;
       const h = canvas.clientHeight;
-      if (canvas.width !== w * dpr || canvas.height !== h * dpr) {
-        canvas.width = w * dpr;
-        canvas.height = h * dpr;
+      if (canvas.width !== Math.floor(w * dpr) || canvas.height !== Math.floor(h * dpr)) {
+        canvas.width = Math.floor(w * dpr);
+        canvas.height = Math.floor(h * dpr);
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       }
 
       const rs = room.state as unknown as ServerState;
       const me = getPlayer(rs, room.sessionId);
-      const camY = me?.y ?? TRACK_L / 2 - 80;
-      const camX = me?.x ?? 0;
-
+      const startY = rs.startLineY ?? RLGL_START_Y;
+      const finishY = rs.finishLineY ?? RLGL_FINISH_Y;
+      const trackLen = rs.trackLength ?? RLGL_TRACK_LENGTH;
+      const halfW = (rs.trackWidth ?? RLGL_TRACK_WIDTH) / 2;
       const phase = rs.lightPhase ?? "GREEN";
-      const facing = phase === "RED" || phase === "TURNING";
+      const round = rs.roundNumber ?? 1;
+      const now = Date.now();
 
-      ctx.fillStyle = COLORS.skyTop;
-      ctx.fillRect(0, 0, w, h);
+      const mePos = interpPos(playerBufRef.current.get(room.sessionId)) ?? {
+        x: me?.x ?? 0,
+        y: me?.y ?? startY,
+      };
 
-      const scale = h / VIEW_H;
-      ctx.save();
-      ctx.translate(w / 2, h * 0.55);
-      ctx.scale(scale, scale);
-      ctx.translate(-camX, -camY);
+      const progress = Math.max(0, Math.min(1, (startY - mePos.y) / (startY - finishY)));
+      const lookAhead = lerp(520, 720, progress);
+      const targetCamY = mePos.y - lookAhead;
+      const targetCamX = mePos.x * 0.55;
 
-      const halfW = (rs.trackWidth ?? TRACK_W) / 2;
-
-      ctx.fillStyle = COLORS.sand;
-      ctx.fillRect(-halfW - 40, -TRACK_L / 2, TRACK_W + 80, TRACK_L);
-
-      for (let i = 0; i < 8; i++) {
-        const ty = -TRACK_L / 2 + i * 200 + 80;
-        drawTree(ctx, -halfW - 55, ty, 0.9);
-        drawTree(ctx, halfW + 55, ty + 60, 0.85);
+      if (!camRef.current.init) {
+        camRef.current.x = targetCamX;
+        camRef.current.y = targetCamY;
+        camRef.current.init = true;
+      } else {
+        camRef.current.x = lerp(camRef.current.x, targetCamX, 0.08);
+        camRef.current.y = lerp(camRef.current.y, targetCamY, 0.065);
       }
 
-      ctx.fillStyle = COLORS.wallPink;
-      ctx.fillRect(-halfW - 60, -TRACK_L / 2 - 120, TRACK_W + 120, 100);
+      ctx.fillStyle = "#1a1020";
+      ctx.fillRect(0, 0, w, h);
 
-      const finishY = rs.finishLineY ?? -TRACK_L / 2 + 60;
-      ctx.strokeStyle = COLORS.finish;
-      ctx.lineWidth = 4;
-      ctx.setLineDash([12, 8]);
-      ctx.beginPath();
-      ctx.moveTo(-halfW, finishY);
-      ctx.lineTo(halfW, finishY);
-      ctx.stroke();
-      ctx.setLineDash([]);
+      const scale = Math.min(w / VIEW_W, h / VIEW_H) * 0.92;
+      ctx.save();
+      ctx.translate(w / 2, h * 0.7);
+      ctx.scale(scale, scale * PERSPECTIVE_Y);
+      ctx.translate(-camRef.current.x, -camRef.current.y);
 
-      drawDoll(ctx, 0, finishY - 90, facing, phase === "TURNING");
+      drawSquidGameField(ctx, {
+        halfW,
+        trackLength: trackLen,
+        startY,
+        finishY,
+        camY: camRef.current.y,
+      });
 
-      const startY = rs.startLineY ?? TRACK_L / 2 - 80;
-      ctx.strokeStyle = "#fff";
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.moveTo(-halfW, startY);
-      ctx.lineTo(halfW, startY);
-      ctx.stroke();
+      const timing = rlglRoundTiming(round);
+      const turn01 = dollTurnProgress(phase, rs.phaseEndsAtMs ?? 0, now, timing.turningMs);
+      drawYoungHeeDoll(ctx, 0, finishY - 70, 0.95, turn01, phase);
 
-      for (let g = -3; g <= 3; g++) {
-        drawGuard(ctx, g * 55, startY + 45);
+      for (let g = -4; g <= 4; g++) {
+        drawPinkGuard(ctx, g * 62, startY + 52, 1.05);
       }
 
       forEachPlayer(rs, (p, sid) => {
         if (!p.alive && !p.placement) {
-          if (p.deathAt && Date.now() - p.deathAt < 800) {
-            ctx.globalAlpha = 0.35;
+          if (p.deathAt && now - p.deathAt < 1200) {
+            ctx.globalAlpha = 0.4;
           } else if (!p.placement) return;
         }
+
+        const pos = interpPos(playerBufRef.current.get(sid)) ?? { x: p.x, y: p.y };
         const isMe = sid === room.sessionId;
-        const legacy = migrateLegacyAccessories(
-          parseSlimeAccessories(p.slimeAccessories)
-        );
+        const legacy = migrateLegacyAccessories(parseSlimeAccessories(p.slimeAccessories));
+
         drawSlime(
           ctx,
-          p.x,
-          p.y,
-          PLAYER_R,
+          pos.x,
+          pos.y,
+          PLAYER_R * (isMe ? 1.08 : 1),
           parseSlimeColor(p.slimeColor || DEFAULT_SLIME_COLOR),
           parseSlimeFace(p.slimeFace),
           -Math.PI / 2,
           false,
           false,
-          Date.now(),
+          now,
           legacy.head,
           legacy.body
         );
         ctx.globalAlpha = 1;
-        ctx.fillStyle = parseNameColor(p.nameColor);
-        ctx.font = "bold 11px sans-serif";
-        ctx.textAlign = "center";
-        ctx.fillText(p.displayName.slice(0, 12), p.x, p.y - PLAYER_R - 8);
+
+        if (isMe || progress > 0.5) {
+          ctx.fillStyle = parseNameColor(p.nameColor);
+          ctx.font = `${isMe ? "bold" : "normal"} 10px sans-serif`;
+          ctx.textAlign = "center";
+          ctx.fillText(p.displayName.slice(0, 10), pos.x, pos.y - PLAYER_R - 6);
+        }
+
         if (isMe) {
-          ctx.strokeStyle = "#fff";
-          ctx.lineWidth = 2;
+          ctx.strokeStyle = phase === "GREEN" ? "#4ade80" : "#f87171";
+          ctx.lineWidth = 2.5;
           ctx.beginPath();
-          ctx.arc(p.x, p.y, PLAYER_R + 4, 0, Math.PI * 2);
+          ctx.arc(pos.x, pos.y, PLAYER_R + 5, 0, Math.PI * 2);
           ctx.stroke();
         }
       });
@@ -347,48 +323,62 @@ export default function RedLightGameCanvas({
       ctx.restore();
 
       if (phase === "GREEN") {
-        ctx.fillStyle = COLORS.greenGlow;
+        ctx.fillStyle = "rgba(34, 197, 94, 0.22)";
         ctx.fillRect(0, 0, w, h);
       } else if (phase === "RED") {
-        ctx.fillStyle = COLORS.redGlow;
+        const flash = phaseFlashRef.current;
+        ctx.fillStyle = `rgba(239, 68, 68, ${0.28 + flash * 0.25})`;
+        ctx.fillRect(0, 0, w, h);
+        phaseFlashRef.current = Math.max(0, flash - 0.04);
+      } else {
+        ctx.fillStyle = "rgba(251, 191, 36, 0.18)";
         ctx.fillRect(0, 0, w, h);
       }
 
-      const matchLeft = Math.max(
-        0,
-        Math.ceil(((rs.matchEndsAtMs ?? 0) - Date.now()) / 1000)
-      );
-      const phaseLeft = Math.max(
-        0,
-        Math.ceil(((rs.phaseEndsAtMs ?? 0) - Date.now()) / 1000)
-      );
+      const matchLeft = Math.max(0, Math.ceil(((rs.matchEndsAtMs ?? 0) - now) / 1000));
+      const phaseLeft = Math.max(0, Math.ceil(((rs.phaseEndsAtMs ?? 0) - now) / 1000));
 
-      ctx.fillStyle = "rgba(0,0,0,0.55)";
-      ctx.fillRect(0, 0, w, 56);
+      ctx.fillStyle = "rgba(0,0,0,0.62)";
+      ctx.fillRect(0, 0, w, 58);
+
       ctx.textAlign = "center";
-      ctx.font = "bold 14px sans-serif";
+      ctx.font = "bold 15px sans-serif";
       if (phase === "GREEN") {
         ctx.fillStyle = "#4ade80";
-        ctx.fillText("GREEN LIGHT — GO!", w / 2, 22);
+        ctx.fillText("GREEN LIGHT", w / 2, 22);
         ctx.font = "11px sans-serif";
         ctx.fillStyle = "#bbf7d0";
-        ctx.fillText(`무궁화 꽃이 피었습니다 · ${phaseLeft}s`, w / 2, 40);
+        ctx.fillText(`무궁화 꽃이 피었습니다 · ${phaseLeft}s`, w / 2, 42);
       } else if (phase === "TURNING") {
         ctx.fillStyle = "#fbbf24";
-        ctx.fillText("TURNING…", w / 2, 28);
+        ctx.fillText("THE DOLL IS TURNING…", w / 2, 26);
       } else {
         ctx.fillStyle = "#f87171";
         ctx.fillText("RED LIGHT — FREEZE!", w / 2, 22);
         ctx.font = "11px sans-serif";
         ctx.fillStyle = "#fecaca";
-        ctx.fillText(`현재 등판 · Round ${rs.roundNumber ?? 1}`, w / 2, 40);
+        ctx.fillText(`Round ${round} · hold still`, w / 2, 42);
       }
 
       ctx.textAlign = "right";
       ctx.fillStyle = "#fff";
       ctx.font = "12px monospace";
-      ctx.fillText(`${matchLeft}s left`, w - 12, 28);
-      ctx.fillText(`Round ${rs.roundNumber ?? 1}`, w - 12, 44);
+      ctx.fillText(`${matchLeft}s`, w - 12, 24);
+      ctx.fillText(`R${round}`, w - 12, 42);
+
+      const barW = Math.min(280, w - 48);
+      const barX = (w - barW) / 2;
+      const barY = h - 28;
+      ctx.fillStyle = "rgba(0,0,0,0.5)";
+      ctx.fillRect(barX - 4, barY - 4, barW + 8, 16);
+      ctx.fillStyle = "rgba(255,255,255,0.15)";
+      ctx.fillRect(barX, barY, barW, 8);
+      ctx.fillStyle = phase === "GREEN" ? "#22c55e" : "#ef4444";
+      ctx.fillRect(barX, barY, barW * progress, 8);
+      ctx.fillStyle = "#fff";
+      ctx.font = "9px sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText(`${Math.round(progress * 100)}% to finish`, w / 2, barY - 6);
 
       raf = requestAnimationFrame(draw);
     };
@@ -398,6 +388,7 @@ export default function RedLightGameCanvas({
 
   const me = getPlayer(room.state as unknown as ServerState, room.sessionId);
   const isSpectator = me && !me.alive && !(me.deathAt ?? 0);
+  const phase = (room.state as unknown as ServerState).lightPhase ?? "GREEN";
 
   return (
     <div className="relative flex-1 min-h-0 flex flex-col bg-[#1a0a12]">
@@ -406,9 +397,13 @@ export default function RedLightGameCanvas({
       {!ended && !eliminated && !finished && !isSpectator && (
         <button
           type="button"
-          className="absolute bottom-6 left-1/2 -translate-x-1/2 w-[min(280px,70vw)] py-5 rounded-full bg-green-600 active:bg-green-500 text-white font-pixel text-[11px] tracking-widest shadow-[0_0_32px_rgba(34,197,94,0.5)] select-none touch-none"
+          className={`absolute bottom-14 left-1/2 -translate-x-1/2 w-[min(300px,78vw)] py-5 rounded-full text-white font-pixel text-[11px] tracking-widest select-none touch-none transition-all ${
+            phase === "GREEN"
+              ? "bg-green-600 active:bg-green-500 shadow-[0_0_36px_rgba(34,197,94,0.55)] scale-100"
+              : "bg-neutral-700 opacity-60 scale-95 pointer-events-none"
+          }`}
           onPointerDown={() => {
-            holdRef.current = true;
+            if (phase === "GREEN") holdRef.current = true;
           }}
           onPointerUp={() => {
             holdRef.current = false;
@@ -418,31 +413,27 @@ export default function RedLightGameCanvas({
           }}
           onContextMenu={(e) => e.preventDefault()}
         >
-          HOLD TO GO
+          {phase === "GREEN" ? "HOLD TO RUN" : "FREEZE!"}
         </button>
       )}
 
       {(eliminated || finished || ended) && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/70 p-6">
+        <div className="absolute inset-0 flex items-center justify-center bg-black/75 p-6">
           <div className="max-w-sm w-full rounded-lg border border-pink-500/40 bg-[#2a1020] p-6 text-center space-y-3">
             {finished ? (
               <>
-                <p className="font-pixel text-green-400 text-[10px] tracking-widest">
-                  YOU FINISHED
-                </p>
+                <p className="font-pixel text-green-400 text-[10px] tracking-widest">YOU FINISHED</p>
                 <p className="font-pixel text-3xl text-yellow-300">#{placement}</p>
+                <p className="text-sm text-pink-200/70">{Math.round(progressPct * 100)}% of the field</p>
               </>
             ) : eliminated ? (
               <>
-                <p className="font-pixel text-red-400 text-[10px] tracking-widest">
-                  ELIMINATED
-                </p>
-                <p className="font-pixel-body text-pink-100">You moved on red light.</p>
+                <p className="font-pixel text-red-400 text-[10px] tracking-widest">ELIMINATED</p>
+                <p className="font-pixel-body text-pink-100">The doll saw you move.</p>
+                <p className="text-sm text-pink-200/60">{Math.round(progressPct * 100)}% reached</p>
               </>
             ) : (
-              <p className="font-pixel text-pink-300 text-[10px] tracking-widest">
-                MATCH OVER
-              </p>
+              <p className="font-pixel text-pink-300 text-[10px] tracking-widest">MATCH OVER</p>
             )}
             <button
               type="button"
@@ -458,7 +449,7 @@ export default function RedLightGameCanvas({
       <button
         type="button"
         onClick={onLeave}
-        className="absolute top-2 left-2 px-3 py-1.5 text-[10px] uppercase tracking-widest bg-black/50 text-pink-200 border border-pink-900/40"
+        className="absolute top-14 left-2 px-3 py-1.5 text-[10px] uppercase tracking-widest bg-black/50 text-pink-200 border border-pink-900/40"
       >
         Leave
       </button>

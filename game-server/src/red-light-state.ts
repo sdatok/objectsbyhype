@@ -4,6 +4,7 @@ import { Player } from "./state";
 import {
   RLGL_FINISH_Y,
   RLGL_START_Y,
+  RLGL_TRACK_LENGTH,
   RLGL_TRACK_WIDTH,
 } from "./red-light-constants";
 
@@ -23,6 +24,7 @@ export class RedLightState extends Schema {
   @type("number") phaseEndsAtMs = 0;
 
   @type("number") trackWidth = RLGL_TRACK_WIDTH;
+  @type("number") trackLength = RLGL_TRACK_LENGTH;
   @type("number") startLineY = RLGL_START_Y;
   @type("number") finishLineY = RLGL_FINISH_Y;
 

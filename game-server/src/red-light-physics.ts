@@ -3,8 +3,10 @@ import type { RedLightState } from "./red-light-state";
 import {
   RLGL_FINISH_Y,
   RLGL_FORWARD_THRESHOLD,
+  RLGL_MAX_SPEED,
+  RLGL_ACCEL,
+  RLGL_DECEL,
   RLGL_MOVE_TOLERANCE,
-  RLGL_PLAYER_SPEED,
   RLGL_START_Y,
   RLGL_TRACK_WIDTH,
   rlglRoundTiming,
@@ -43,6 +45,17 @@ const redSnapshots = new WeakMap<
   Map<string, { x: number; y: number }>
 >();
 
+const forwardVelocity = new WeakMap<RedLightState, Map<string, number>>();
+
+function velocityMap(state: RedLightState): Map<string, number> {
+  let m = forwardVelocity.get(state);
+  if (!m) {
+    m = new Map();
+    forwardVelocity.set(state, m);
+  }
+  return m;
+}
+
 function snapshotMap(state: RedLightState): Map<string, { x: number; y: number }> {
   let m = redSnapshots.get(state);
   if (!m) {
@@ -54,6 +67,7 @@ function snapshotMap(state: RedLightState): Map<string, { x: number; y: number }
 
 export function resetRedLightMatch(state: RedLightState) {
   snapshotMap(state).clear();
+  velocityMap(state).clear();
   state.lightPhase = "GREEN";
   state.roundNumber = 1;
   state.phaseEndsAtMs = 0;
@@ -112,36 +126,48 @@ export function tickRedLightPlayers(
   const phase = state.lightPhase as LightPhase;
   const halfW = RLGL_TRACK_WIDTH / 2 - 24;
   const snapshots = snapshotMap(state);
+  const velocities = velocityMap(state);
   let finishOrder = countFinished(state);
+  const roundBoost = 1 + Math.min(0.12, state.roundNumber * 0.018);
 
   state.players.forEach((p, sessionId) => {
     if (!p.alive) return;
 
     const inp = inputs.get(sessionId) ?? emptyInput();
+    let v = velocities.get(sessionId) ?? 0;
+    const wantsForward =
+      inp.forward || inp.moveY < -RLGL_FORWARD_THRESHOLD;
 
     if (phase === "GREEN") {
-      if (inp.forward || inp.moveY < -RLGL_FORWARD_THRESHOLD) {
-        const speed = RLGL_PLAYER_SPEED * (1 + Math.min(0.15, state.roundNumber * 0.02));
-        p.y -= speed * dtSec;
-        p.x += inp.moveX * speed * 0.35 * dtSec;
-      }
-    } else if (phase === "RED" || phase === "TURNING") {
-      const snap = snapshots.get(sessionId);
-      if (snap) {
-        const dist = Math.hypot(p.x - snap.x, p.y - snap.y);
-        if (dist > RLGL_MOVE_TOLERANCE) {
-          eliminatePlayer(p, nowMs);
-          return;
+      if (wantsForward) {
+        v = Math.min(RLGL_MAX_SPEED * roundBoost, v + RLGL_ACCEL * dtSec);
+        p.y -= v * dtSec;
+        p.x += inp.moveX * v * 0.32 * dtSec;
+      } else {
+        v = Math.max(0, v - RLGL_DECEL * dtSec);
+        if (v > 8) {
+          p.y -= v * dtSec * 0.35;
         }
       }
-      if (phase === "RED" && inp.forward) {
-        const snap2 = snapshots.get(sessionId);
-        if (snap2) {
+    } else {
+      v = Math.max(0, v - RLGL_DECEL * dtSec * 2.5);
+      if (phase === "RED" || phase === "TURNING") {
+        const snap = snapshots.get(sessionId);
+        if (snap) {
+          const dist = Math.hypot(p.x - snap.x, p.y - snap.y);
+          if (dist > RLGL_MOVE_TOLERANCE) {
+            eliminatePlayer(p, nowMs);
+            return;
+          }
+        }
+        if (phase === "RED" && wantsForward) {
           eliminatePlayer(p, nowMs);
           return;
         }
       }
     }
+
+    velocities.set(sessionId, v);
 
     p.x = Math.max(-halfW, Math.min(halfW, p.x));
     p.y = Math.min(RLGL_START_Y + 40, p.y);

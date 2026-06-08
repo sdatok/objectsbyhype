@@ -26,15 +26,19 @@ export { RED_LIGHT_MAX_PLAYERS as MAX_PLAYERS };
 /** Default ~2 min to cross the field. */
 export const RLGL_DEFAULT_MATCH_SECONDS = 120;
 
-export const RLGL_TRACK_WIDTH = 720;
-export const RLGL_TRACK_LENGTH = 1500;
-export const RLGL_START_Y = RLGL_TRACK_LENGTH / 2 - 80;
-export const RLGL_FINISH_Y = -RLGL_TRACK_LENGTH / 2 + 60;
+export const RLGL_TRACK_WIDTH = 800;
+/** Longer field — ~2 min with red-light stops at default speed. */
+export const RLGL_TRACK_LENGTH = 2600;
+export const RLGL_START_Y = RLGL_TRACK_LENGTH / 2 - 120;
+export const RLGL_FINISH_Y = -RLGL_TRACK_LENGTH / 2 + 100;
 
-export const RLGL_PLAYER_SPEED = 240;
+export const RLGL_PLAYER_SPEED = 268;
+export const RLGL_MAX_SPEED = 318;
+export const RLGL_ACCEL = 520;
+export const RLGL_DECEL = 680;
 /** Movement during red light above this → eliminated. */
-export const RLGL_MOVE_TOLERANCE = 14;
-export const RLGL_FORWARD_THRESHOLD = 0.35;
+export const RLGL_MOVE_TOLERANCE = 11;
+export const RLGL_FORWARD_THRESHOLD = 0.28;
 
 export type LightPhase = "GREEN" | "TURNING" | "RED";
 
@@ -45,8 +49,8 @@ export function rlglRoundTiming(round: number): {
 } {
   const r = Math.max(1, round);
   return {
-    greenMs: Math.max(1400, 4400 - r * 520),
-    turningMs: Math.max(320, 950 - r * 85),
-    redMs: Math.max(1800, 3400 - r * 220),
+    greenMs: Math.max(1600, 4800 - r * 540),
+    turningMs: Math.max(380, 1100 - r * 90),
+    redMs: Math.max(2000, 3600 - r * 240),
   };
 }
