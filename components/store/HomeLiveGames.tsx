@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { unstable_noStore as noStore } from "next/cache";
+import { getOrCreateBlackjackConfig } from "@/lib/blackjack-config";
 import { getOrCreateLunaConfig } from "@/lib/luna-config";
 import { getOrCreateRedLightConfig } from "@/lib/red-light-config";
 import { getOrCreateSurvivorConfig } from "@/lib/survivor-config";
@@ -7,17 +8,19 @@ import { getOrCreateSurvivorConfig } from "@/lib/survivor-config";
 export default async function HomeLiveGames() {
   noStore();
 
-  const [survivor, luna, redLight] = await Promise.all([
+  const [survivor, luna, redLight, blackjack] = await Promise.all([
     getOrCreateSurvivorConfig().catch(() => null),
     getOrCreateLunaConfig().catch(() => null),
     getOrCreateRedLightConfig().catch(() => null),
+    getOrCreateBlackjackConfig().catch(() => null),
   ]);
 
   const survivorOn = survivor?.enabled ?? false;
   const lunaOn = luna?.enabled ?? false;
   const redLightOn = redLight?.enabled ?? false;
+  const blackjackOn = blackjack?.enabled ?? false;
 
-  if (!survivorOn && !lunaOn && !redLightOn) return null;
+  if (!survivorOn && !lunaOn && !redLightOn && !blackjackOn) return null;
 
   return (
     <section
@@ -80,6 +83,22 @@ export default async function HomeLiveGames() {
               Red Light Green Light
               <span className="block mt-1.5 text-[10px] font-normal tracking-widest text-[#2a1020]/75 normal-case">
                 100 players · hold on green · freeze on red
+              </span>
+            </Link>
+          )}
+          {blackjackOn && (
+            <Link
+              href="/blackjack"
+              className="flex-1 min-w-[220px] text-center px-6 py-4 border-2 border-amber-400 font-bold text-xs sm:text-sm uppercase tracking-[0.2em] transition-transform hover:scale-[1.02] active:scale-[0.99] text-amber-50"
+              style={{
+                background:
+                  "linear-gradient(165deg, #14532d 0%, #052e16 55%, #0a2818 100%)",
+                boxShadow: "4px 4px 0 rgba(251,191,36,0.75)",
+              }}
+            >
+              Blackjack
+              <span className="block mt-1 text-[10px] font-normal tracking-widest text-amber-200/80 normal-case">
+                1 hand every 3 min · top 10 win a wheel spin
               </span>
             </Link>
           )}

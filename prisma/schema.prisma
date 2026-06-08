@@ -484,6 +484,73 @@ model RedLightParticipant {
   @@index([email])
 }
 
+// ---------- Blackjack (timed rounds, top 10 win wheel spins) ----------
+
+enum BlackjackRoundStatus {
+  OPEN
+  SETTLED
+}
+
+enum BlackjackOutcome {
+  BLACKJACK
+  WIN
+  PUSH
+  LOSE
+  BUST
+}
+
+/// Singleton row (id="default") for /blackjack timed rounds.
+model BlackjackConfig {
+  id               String   @id @default("default")
+  enabled          Boolean  @default(false)
+  prizeTitle       String   @default("Giveaway Wheel Spin")
+  prizeDescription String?  @db.Text
+  /// Seconds each round stays open for one hand (default 3 minutes).
+  roundSeconds     Int      @default(180)
+  currentRoundId   String?
+  updatedAt        DateTime @updatedAt
+}
+
+model BlackjackRound {
+  id         String               @id @default(cuid())
+  status     BlackjackRoundStatus @default(OPEN)
+  prizeTitle String
+  startedAt  DateTime             @default(now())
+  endsAt     DateTime
+  settledAt  DateTime?
+  entries    BlackjackEntry[]
+  createdAt  DateTime             @default(now())
+
+  @@index([status])
+  @@index([endsAt])
+  @@index([createdAt])
+}
+
+/// One hand per email per round. Server deals and resolves vs the dealer.
+model BlackjackEntry {
+  id          String            @id @default(cuid())
+  roundId     String
+  round       BlackjackRound    @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  email       String
+  displayName String
+  /// JSON array of { rank: 1-13, suit: 0-3 } cards.
+  playerCards Json
+  dealerCards Json
+  outcome     BlackjackOutcome?
+  handValue   Int               @default(0)
+  /// 1 = best hand in the round. Top 10 receive a GW- wheel code.
+  placement   Int?
+  wheelCode   String?
+  finishedAt  DateTime?
+  /// JSON array of remaining deck cards while hand is active.
+  deckRemaining Json?
+  joinedAt    DateTime          @default(now())
+
+  @@unique([roundId, email])
+  @@index([roundId])
+  @@index([email])
+}
+
 // ---------- Wheel of Hype (pro-member monthly spin) ----------
 
 enum WheelPrizeTier {
