@@ -59,7 +59,7 @@ import { postMatchResult, type ResultParticipant } from "./webhook";
  * during PLAYING clients must reconnect with their Colyseus token.
  */
 export class SurvivorRoom extends Room<SurvivorState> {
-  maxClients = 200; // generous; spectators can fill above SURVIVOR_MAX_PLAYERS
+  maxClients = 280;
   // Never auto-dispose; we keep one persistent room across matches so admin
   // calls always have a target. Colyseus would otherwise drop the room as
   // soon as the lobby goes empty.

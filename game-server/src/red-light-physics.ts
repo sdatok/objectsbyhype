@@ -218,12 +218,12 @@ export function assignFinalPlacements(state: RedLightState) {
 }
 
 export function pickSpawnSlot(index: number, total: number): { x: number; y: number } {
-  const cols = Math.min(10, Math.max(5, Math.ceil(Math.sqrt(total))));
+  const cols = Math.min(14, Math.max(8, Math.ceil(Math.sqrt(total))));
   const row = Math.floor(index / cols);
   const col = index % cols;
-  const xSpan = RLGL_TRACK_WIDTH * 0.75;
+  const xSpan = RLGL_TRACK_WIDTH * 0.82;
   const xStep = cols > 1 ? xSpan / (cols - 1) : 0;
   const x = -xSpan / 2 + col * xStep;
-  const y = RLGL_START_Y + row * 36;
+  const y = RLGL_START_Y + row * 32;
   return { x, y };
 }

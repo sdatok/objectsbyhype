@@ -30,8 +30,8 @@ export {
 export { LUNA_MAX_PLAYERS as MAX_PLAYERS } from "./constants";
 
 /** Safe zone — same scale as Survivor island. */
-export const LUNA_ZONE_START_RADIUS = 1900;
-export const LUNA_ZONE_END_RADIUS = 320;
+export const LUNA_ZONE_START_RADIUS = 2700;
+export const LUNA_ZONE_END_RADIUS = 450;
 export const LUNA_ZONE_DPS_START = 4;
 export const LUNA_ZONE_DPS_END = 28;
 

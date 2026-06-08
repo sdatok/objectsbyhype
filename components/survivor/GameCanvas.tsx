@@ -141,9 +141,9 @@ interface ServerState {
 }
 
 // Must match game-server/src/constants.ts.
-const WORLD = 2800;
-const ZONE_START_RADIUS = 1900;
-const ZONE_END_RADIUS = 320;
+const WORLD = 4000;
+const ZONE_START_RADIUS = 2700;
+const ZONE_END_RADIUS = 450;
 const PLAYER_R = 18;
 const BULLET_R = 4;
 const PICKUP_R = 14;

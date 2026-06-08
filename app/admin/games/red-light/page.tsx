@@ -67,7 +67,7 @@ export default async function AdminRedLightPage() {
         <h1 className="text-[18px] font-bold mt-3">Red Light Green Light</h1>
         <p className="text-[12px] text-neutral-500 mt-0.5">
           Squid Game–style mode at <code>/red-light</code>. Hold to advance on
-          green light — don&apos;t move on red. Supports 50-player lobbies.
+          green light — don&apos;t move on red. Supports 100-player lobbies.
         </p>
         {serverHealth && (
           <div

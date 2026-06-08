@@ -27,7 +27,7 @@ import LunaMatchEndOverlay, {
   type LunaEndSnapshot,
 } from "@/components/luna/LunaMatchEndOverlay";
 
-const WORLD = 2800;
+const WORLD = 4000;
 const WORLD_HALF = WORLD / 2;
 const PLAYER_R = 18;
 const LUNA_R = 18;

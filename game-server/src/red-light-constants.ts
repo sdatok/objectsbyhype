@@ -12,8 +12,8 @@ export {
 } from "./constants";
 
 function parseRedLightMaxPlayers(raw: string | undefined): number {
-  const n = parseInt(raw ?? "50", 10);
-  if (!Number.isFinite(n)) return 50;
+  const n = parseInt(raw ?? "100", 10);
+  if (!Number.isFinite(n)) return 100;
   return Math.max(2, Math.min(100, n));
 }
 
@@ -26,14 +26,14 @@ export { RED_LIGHT_MAX_PLAYERS as MAX_PLAYERS };
 /** Default ~2 min to cross the field. */
 export const RLGL_DEFAULT_MATCH_SECONDS = 120;
 
-export const RLGL_TRACK_WIDTH = 800;
+export const RLGL_TRACK_WIDTH = 1120;
 /** Longer field — ~2 min with red-light stops at default speed. */
-export const RLGL_TRACK_LENGTH = 2600;
-export const RLGL_START_Y = RLGL_TRACK_LENGTH / 2 - 120;
-export const RLGL_FINISH_Y = -RLGL_TRACK_LENGTH / 2 + 100;
+export const RLGL_TRACK_LENGTH = 3700;
+export const RLGL_START_Y = RLGL_TRACK_LENGTH / 2 - 140;
+export const RLGL_FINISH_Y = -RLGL_TRACK_LENGTH / 2 + 110;
 
-export const RLGL_PLAYER_SPEED = 268;
-export const RLGL_MAX_SPEED = 318;
+export const RLGL_PLAYER_SPEED = 285;
+export const RLGL_MAX_SPEED = 340;
 export const RLGL_ACCEL = 520;
 export const RLGL_DECEL = 680;
 /** Movement during red light above this → eliminated. */

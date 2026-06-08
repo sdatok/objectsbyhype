@@ -134,7 +134,7 @@ export default function RedLightMatchControls({ initial }: RedLightMatchControls
           Match controls
         </h2>
         <p className="text-[11px] text-neutral-500 mt-1">
-          Up to 50 players join at <code>/red-light</code>. Hold to move on
+          Up to 100 players join at <code>/red-light</code>. Hold to move on
           green — freeze on red. First across the finish wins.
         </p>
       </div>

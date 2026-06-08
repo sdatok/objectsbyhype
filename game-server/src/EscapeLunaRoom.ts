@@ -32,7 +32,7 @@ import {
 import { postLunaMatchResult, type ResultParticipant } from "./webhook";
 
 export class EscapeLunaRoom extends Room<EscapeLunaState> {
-  maxClients = 200;
+  maxClients = 280;
   override autoDispose = false;
 
   private inputs = new Map<string, PlayerInput>();

@@ -4,8 +4,8 @@
  * effect on the next match.
  */
 
-// ---------- World ----------
-export const WORLD_SIZE = 2800;
+// ---------- World (scaled for 100-player lobbies) ----------
+export const WORLD_SIZE = 4000;
 export const WORLD_HALF = WORLD_SIZE / 2;
 
 // ---------- Tick ----------
@@ -397,16 +397,16 @@ export const TOWER_DISPLAY_NAMES: Record<TowerKind, string> = {
 
 /** Fixed scattered positions (x, y) for each vendor tower. */
 export const TOWER_PLACEMENTS: Array<{ kind: TowerKind; x: number; y: number }> = [
-  { kind: "tower_ror_sply", x: -820, y: -640 },
-  { kind: "tower_internet_money", x: 0, y: -980 },
-  { kind: "tower_src", x: 780, y: -520 },
-  { kind: "tower_pax", x: -1050, y: 120 },
-  { kind: "tower_goat", x: 920, y: 680 },
-  { kind: "tower_horizon", x: -480, y: 860 },
-  { kind: "tower_kt_corp", x: 1050, y: -80 },
-  { kind: "tower_dan_sporting", x: -680, y: -180 },
-  { kind: "tower_tomy", x: 420, y: 920 },
-  { kind: "tower_gus_supply", x: -200, y: -420 },
+  { kind: "tower_ror_sply", x: -1170, y: -915 },
+  { kind: "tower_internet_money", x: 0, y: -1400 },
+  { kind: "tower_src", x: 1115, y: -745 },
+  { kind: "tower_pax", x: -1500, y: 170 },
+  { kind: "tower_goat", x: 1315, y: 970 },
+  { kind: "tower_horizon", x: -685, y: 1230 },
+  { kind: "tower_kt_corp", x: 1500, y: -115 },
+  { kind: "tower_dan_sporting", x: -970, y: -260 },
+  { kind: "tower_tomy", x: 600, y: 1315 },
+  { kind: "tower_gus_supply", x: -285, y: -600 },
 ];
 
 export const TOWER_CYCLE_MS = 60_000;
@@ -496,8 +496,8 @@ export const OBSTACLE_SIZES: Record<ObstacleKind, Array<{ w: number; h: number }
 };
 
 // ---------- Zone ----------
-export const ZONE_START_RADIUS = 1900;
-export const ZONE_END_RADIUS = 320;
+export const ZONE_START_RADIUS = 2700;
+export const ZONE_END_RADIUS = 450;
 /** Damage per second when outside the safe zone. Ramps up over the match. */
 export const ZONE_DPS_START = 6;
 export const ZONE_DPS_END = 30;
@@ -514,8 +514,8 @@ export const MIN_MATCH_SECONDS = 10;
 export const MAX_MATCH_SECONDS = 3600;
 /** Active fighters allowed in Survivor lobby / match (override via SURVIVOR_MAX_PLAYERS). */
 function parseSurvivorMaxPlayers(raw: string | undefined): number {
-  const n = parseInt(raw ?? "50", 10);
-  if (!Number.isFinite(n)) return 50;
+  const n = parseInt(raw ?? "100", 10);
+  if (!Number.isFinite(n)) return 100;
   return Math.max(2, Math.min(100, n));
 }
 
@@ -524,16 +524,16 @@ export const SURVIVOR_MAX_PLAYERS = parseSurvivorMaxPlayers(
 );
 /** Active runners allowed in Escape Luna lobby / match (override via LUNA_MAX_PLAYERS). */
 function parseLunaMaxPlayers(raw: string | undefined): number {
-  const n = parseInt(raw ?? "50", 10);
-  if (!Number.isFinite(n)) return 50;
+  const n = parseInt(raw ?? "100", 10);
+  if (!Number.isFinite(n)) return 100;
   return Math.max(2, Math.min(100, n));
 }
 
 export const LUNA_MAX_PLAYERS = parseLunaMaxPlayers(process.env.LUNA_MAX_PLAYERS);
 /** @deprecated Prefer SURVIVOR_MAX_PLAYERS in Survivor code paths. */
 export const MAX_PLAYERS = SURVIVOR_MAX_PLAYERS;
-/** Global bullet cap — prevents runaway sim + patch size with 50 shooters. */
-export const SURVIVOR_MAX_BULLETS = 160;
+/** Global bullet cap — prevents runaway sim + patch size with 100 shooters. */
+export const SURVIVOR_MAX_BULLETS = 280;
 /** Slower state patches in lobby (join churn only); PLAYING uses TICK_MS. */
 export const LOBBY_PATCH_MS = 250;
 

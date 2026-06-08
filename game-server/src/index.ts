@@ -81,7 +81,7 @@ app.get("/healthz", (_req, res) => {
     ts: Date.now(),
     service: "objectsbyhype-survivor",
     gitSha: process.env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 7) ?? "unknown",
-    build: "survivor-50p-v2",
+    build: "survivor-100p-v3",
     survivorMaxPlayers: SURVIVOR_MAX_PLAYERS,
     lunaMaxPlayers: LUNA_MAX_PLAYERS,
     redLightMaxPlayers: RED_LIGHT_MAX_PLAYERS,
@@ -99,7 +99,7 @@ app.get("/healthz", (_req, res) => {
 app.get("/version", (_req, res) => {
   res.json({
     ok: true,
-    build: "survivor-50p-v2",
+    build: "survivor-100p-v3",
     survivorMaxPlayers: SURVIVOR_MAX_PLAYERS,
     lunaMaxPlayers: LUNA_MAX_PLAYERS,
     redLightMaxPlayers: RED_LIGHT_MAX_PLAYERS,

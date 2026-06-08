@@ -12,9 +12,9 @@ function parseSurvivorMaxPlayers(): number {
   const raw =
     process.env.NEXT_PUBLIC_SURVIVOR_MAX_PLAYERS ??
     process.env.SURVIVOR_MAX_PLAYERS ??
-    "50";
+    "100";
   const n = parseInt(raw, 10);
-  if (!Number.isFinite(n)) return 50;
+  if (!Number.isFinite(n)) return 100;
   return Math.max(2, Math.min(100, n));
 }
 

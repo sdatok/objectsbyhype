@@ -40,7 +40,7 @@ export default async function HomeLiveGames() {
             >
               Play Survivor
               <span className="block mt-1 text-[10px] font-normal tracking-widest text-white/80 normal-case">
-                50-player arena · last alive wins
+                100-player arena · last alive wins
               </span>
             </Link>
           )}
@@ -79,7 +79,7 @@ export default async function HomeLiveGames() {
               </span>
               Red Light Green Light
               <span className="block mt-1.5 text-[10px] font-normal tracking-widest text-[#2a1020]/75 normal-case">
-                50 players · hold on green · freeze on red
+                100 players · hold on green · freeze on red
               </span>
             </Link>
           )}

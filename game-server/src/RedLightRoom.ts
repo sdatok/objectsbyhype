@@ -28,7 +28,7 @@ import { verifyMatchToken } from "./hmac";
 import { postRedLightMatchResult, type ResultParticipant } from "./webhook";
 
 export class RedLightRoom extends Room<RedLightState> {
-  maxClients = RED_LIGHT_MAX_PLAYERS + 20;
+  maxClients = RED_LIGHT_MAX_PLAYERS + 50;
   override autoDispose = false;
 
   private inputs = new Map<string, PlayerInput>();

@@ -31,7 +31,7 @@ import {
 
 const PLAYER_R = 15;
 const VIEW_W = 960;
-const VIEW_H = 1500;
+const VIEW_H = 1700;
 const PERSPECTIVE_Y = 0.74;
 const INTERP_MS = 110;
 

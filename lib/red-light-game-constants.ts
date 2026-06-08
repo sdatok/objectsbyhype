@@ -1,8 +1,8 @@
 /** Client-side mirror of game-server red-light-constants (display + timing only). */
-export const RLGL_TRACK_WIDTH = 800;
-export const RLGL_TRACK_LENGTH = 2600;
-export const RLGL_START_Y = RLGL_TRACK_LENGTH / 2 - 120;
-export const RLGL_FINISH_Y = -RLGL_TRACK_LENGTH / 2 + 100;
+export const RLGL_TRACK_WIDTH = 1120;
+export const RLGL_TRACK_LENGTH = 3700;
+export const RLGL_START_Y = RLGL_TRACK_LENGTH / 2 - 140;
+export const RLGL_FINISH_Y = -RLGL_TRACK_LENGTH / 2 + 110;
 
 export function rlglRoundTiming(round: number): {
   greenMs: number;
