@@ -40,13 +40,13 @@ function PlayingCard({
   card,
   hidden,
   animate = "none",
-  mini = false,
+  size = "full",
   style,
 }: {
   card?: BJCard;
   hidden?: boolean;
   animate?: "deal" | "flip" | "none";
-  mini?: boolean;
+  size?: "full" | "mini" | "micro";
   style?: React.CSSProperties;
 }) {
   const animClass =
@@ -56,13 +56,18 @@ function PlayingCard({
         ? "bj-flip-card"
         : "";
 
-  const sizeClass = mini ? "bj-card-mini" : "bj-card";
+  const sizeClass =
+    size === "micro"
+      ? "bj-card-micro"
+      : size === "mini"
+        ? "bj-card-mini"
+        : "bj-card";
 
   if (hidden || !card) {
     return (
       <div className={`${sizeClass} bj-card-back ${animClass}`} style={style}>
-        {!mini && <div className="bj-card-back-pattern" />}
-        <span className="text-amber-500/50 text-[10px] font-serif tracking-widest">
+        {size === "full" && <div className="bj-card-back-pattern" />}
+        <span className="text-amber-500/50 text-[8px] font-serif tracking-widest">
           OBH
         </span>
       </div>
@@ -73,10 +78,14 @@ function PlayingCard({
   const symbol = SUIT_SYMBOLS[card.suit] ?? "?";
   const rank = cardLabel(card).slice(0, -1);
 
-  if (mini) {
+  if (size !== "full") {
     return (
       <div className={`${sizeClass} bj-card-face ${animClass}`} style={style}>
-        <span className={`text-[9px] font-bold leading-none ${color}`}>
+        <span
+          className={`font-bold leading-none ${color} ${
+            size === "micro" ? "text-[7px]" : "text-[8px]"
+          }`}
+        >
           {rank}
           {symbol}
         </span>
@@ -145,25 +154,32 @@ function SeatSlot({
             {player.displayName}
             {isViewer && <span className="bj-seat-you"> · you</span>}
           </p>
-          {isViewer && viewerSeat && (
-            <p className="text-[8px] text-amber-400/90 tabular-nums">
-              {viewerSeat.stackCredits} IM
-            </p>
-          )}
+          <p className="bj-seat-stack">{player.stackCredits} IM</p>
+          {player.currentBet > 0 &&
+            (player.handPhase === "PLAYING" || player.handPhase === "SETTLED") && (
+              <p className="bj-seat-bet">bet {player.currentBet}</p>
+            )}
           <div className="bj-seat-cards">
-            {cards.map((c, i) => (
-              <PlayingCard
-                key={`${seatIndex}-${i}-${c.rank}-${c.suit}`}
-                card={c}
-                mini
-                animate={
-                  isViewer && i === cards.length - 1 && anim.isDealing
-                    ? "deal"
-                    : "none"
-                }
-                style={{ marginLeft: i > 0 ? -8 : 0, zIndex: i + 1 }}
-              />
-            ))}
+            {cards.length === 0 && player.handPhase === "IDLE" ? (
+              <span className="bj-seat-waiting">waiting</span>
+            ) : (
+              cards.map((c, i) => (
+                <PlayingCard
+                  key={`${seatIndex}-${i}-${c.rank}-${c.suit}`}
+                  card={c}
+                  size="micro"
+                  animate={
+                    isViewer && i === cards.length - 1 && anim.isDealing
+                      ? "deal"
+                      : "none"
+                  }
+                  style={{
+                    marginLeft: i > 0 ? -4 : 0,
+                    zIndex: i + 1,
+                  }}
+                />
+              ))
+            )}
           </div>
           <div className="bj-seat-meta">
             <HandBadge value={total} />
@@ -268,7 +284,8 @@ export default function BlackjackTable({
                     card={slot.card}
                     hidden={slot.hidden}
                     animate={slot.animate}
-                    style={{ zIndex: i + 1, marginLeft: i > 0 ? -14 : 0 }}
+                    size="mini"
+                    style={{ zIndex: i + 1, marginLeft: i > 0 ? -10 : 0 }}
                   />
                 ))
               ) : mySeat && anim.isDealing ? (

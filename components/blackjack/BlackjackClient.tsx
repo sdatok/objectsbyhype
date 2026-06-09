@@ -306,7 +306,7 @@ export default function BlackjackClient({ initialState }: BlackjackClientProps) 
       </header>
 
       <div className="flex-1 overflow-y-auto min-h-0">
-        <div className="flex flex-col items-center p-4 gap-5 max-w-2xl mx-auto w-full pb-4">
+        <div className="flex flex-col items-center p-4 gap-5 max-w-3xl mx-auto w-full pb-4">
           <BlackjackTable
             mySeat={mySeat ?? null}
             seats={state.seats}
@@ -329,8 +329,12 @@ export default function BlackjackClient({ initialState }: BlackjackClientProps) 
                   {mySeat.savedCredits} IM
                 </strong>
               </span>
-              <span className="text-neutral-500">
-                Bet {state.imMinBet}–{state.imMaxBet} IM
+              <span>
+                Your bet{" "}
+                <strong className="text-amber-200 tabular-nums">{bet} IM</strong>
+              </span>
+              <span className="text-neutral-500 text-[10px]">
+                ({state.imMinBet}–{state.imMaxBet} IM)
               </span>
             </div>
           )}

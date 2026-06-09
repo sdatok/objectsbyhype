@@ -54,6 +54,7 @@ export interface PublicBlackjackSeatPlayer {
   displayName: string;
   email: string;
   stackCredits: number;
+  currentBet: number;
   handPhase: string;
   playerCards: { rank: number; suit: number }[];
   handValue: number;

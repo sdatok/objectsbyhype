@@ -118,6 +118,7 @@ function toPublicSeatPlayer(
     displayName: seat.displayName,
     email: maskEmail(seat.email),
     stackCredits: seat.stackCredits,
+    currentBet: seat.currentBet,
     handPhase: seat.handPhase,
     playerCards,
     handValue: playerCards.length ? handValueFromSeat(seat) : 0,
