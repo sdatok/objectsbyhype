@@ -14,7 +14,12 @@ interface BlackjackClientProps {
 }
 
 const SUIT_SYMBOLS = ["♠", "♥", "♦", "♣"];
-const SUIT_COLORS = ["text-white", "text-red-400", "text-red-400", "text-white"];
+const SUIT_COLORS = [
+  "text-neutral-900",
+  "text-red-600",
+  "text-red-600",
+  "text-neutral-900",
+];
 
 function pad(n: number): string {
   return n.toString().padStart(2, "0");
