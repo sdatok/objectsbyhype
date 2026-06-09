@@ -22,7 +22,7 @@ export default function BlackjackLayout({
 }) {
   return (
     <div
-      className={`${gameFontVariables} fixed inset-0 flex flex-col overflow-hidden bg-[#0a2818] text-white antialiased overscroll-none touch-manipulation`}
+      className={`${gameFontVariables} fixed inset-0 flex flex-col overflow-hidden text-white antialiased overscroll-none touch-manipulation bj-casino-room`}
     >
       {children}
     </div>

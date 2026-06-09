@@ -72,3 +72,445 @@ a {
   font-family: var(--font-vt323), "VT323", ui-monospace, monospace;
   letter-spacing: 0.02em;
 }
+
+/* ---------- OBH Blackjack (casino table) ---------- */
+@keyframes bj-deal-in {
+  from {
+    opacity: 0;
+    transform: translate(-36px, -48px) scale(0.72) rotate(-12deg);
+  }
+  to {
+    opacity: 1;
+    transform: translate(0, 0) scale(1) rotate(0deg);
+  }
+}
+
+@keyframes bj-card-flip {
+  from {
+    transform: perspective(600px) rotateY(-90deg) scale(0.92);
+    opacity: 0.35;
+  }
+  to {
+    transform: perspective(600px) rotateY(0deg) scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes bj-shoe-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(251, 191, 36, 0.25);
+  }
+  50% {
+    box-shadow: 0 0 14px 2px rgba(251, 191, 36, 0.45);
+  }
+}
+
+@keyframes bj-felt-shimmer {
+  0%,
+  100% {
+    opacity: 0.03;
+  }
+  50% {
+    opacity: 0.07;
+  }
+}
+
+.bj-deal-card {
+  animation: bj-deal-in 0.48s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.bj-flip-card {
+  animation: bj-card-flip 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+  transform-origin: center center;
+}
+
+.bj-table-wrap {
+  width: 100%;
+  perspective: 1200px;
+}
+
+.bj-table-rail {
+  border-radius: 999px 999px 18px 18px / 140px 140px 18px 18px;
+  padding: 10px;
+  background: linear-gradient(180deg, #78350f 0%, #451a03 45%, #292524 100%);
+  box-shadow:
+    0 0 0 2px #b45309,
+    0 0 0 4px #1c1917,
+    0 24px 48px rgba(0, 0, 0, 0.55),
+    inset 0 2px 0 rgba(251, 191, 36, 0.25);
+}
+
+.bj-table-felt {
+  position: relative;
+  border-radius: 999px 999px 14px 14px / 128px 128px 14px 14px;
+  min-height: 420px;
+  padding: 1.25rem 1rem 1.75rem;
+  background:
+    radial-gradient(ellipse 90% 70% at 50% 35%, #15803d 0%, #14532d 55%, #052e16 100%);
+  box-shadow: inset 0 0 80px rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+}
+
+.bj-table-felt::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 2px,
+    rgba(255, 255, 255, 0.02) 2px,
+    rgba(255, 255, 255, 0.02) 4px
+  );
+  animation: bj-felt-shimmer 4s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.bj-table-brand {
+  text-align: center;
+  margin-bottom: 1rem;
+  position: relative;
+  z-index: 1;
+}
+
+.bj-table-logo {
+  display: block;
+  font-size: 9px;
+  letter-spacing: 0.45em;
+  color: rgba(251, 191, 36, 0.85);
+  font-weight: 700;
+}
+
+.bj-table-rule {
+  display: block;
+  margin-top: 0.35rem;
+  font-size: 8px;
+  letter-spacing: 0.12em;
+  color: rgba(255, 255, 255, 0.35);
+  text-transform: uppercase;
+}
+
+.bj-table-prize {
+  display: block;
+  margin-top: 0.5rem;
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  color: rgba(167, 243, 208, 0.75);
+  text-transform: uppercase;
+}
+
+.bj-shoe {
+  position: absolute;
+  top: 1.25rem;
+  right: 1rem;
+  z-index: 2;
+}
+
+.bj-shoe-stack {
+  width: 36px;
+  height: 52px;
+  border-radius: 4px;
+  background: linear-gradient(135deg, #fff 0%, #e5e5e5 100%);
+  border: 1px solid #a3a3a3;
+  box-shadow:
+    2px 2px 0 #737373,
+    4px 4px 0 #525252,
+    6px 6px 0 #404040;
+  transition: box-shadow 0.3s;
+}
+
+.bj-shoe-active {
+  animation: bj-shoe-pulse 0.9s ease-in-out infinite;
+}
+
+.bj-hand-zone {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 7.5rem;
+}
+
+.bj-dealer-zone {
+  margin-bottom: 0.5rem;
+}
+
+.bj-player-zone {
+  margin-top: 0.25rem;
+}
+
+.bj-hand-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 10px;
+  letter-spacing: 0.25em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.45);
+  margin-bottom: 0.65rem;
+}
+
+.bj-hand-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.75rem;
+  height: 1.75rem;
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(251, 191, 36, 0.45);
+  color: #fcd34d;
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+}
+
+.bj-card-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 6.5rem;
+  padding: 0 0.5rem;
+}
+
+.bj-card {
+  width: 4.25rem;
+  height: 6rem;
+  border-radius: 0.45rem;
+  flex-shrink: 0;
+  position: relative;
+}
+
+@media (min-width: 640px) {
+  .bj-card {
+    width: 4.75rem;
+    height: 6.75rem;
+  }
+}
+
+.bj-card-face {
+  background: linear-gradient(145deg, #ffffff 0%, #f5f5f5 100%);
+  border: 1px solid #d4d4d4;
+  box-shadow:
+    0 1px 0 #fff inset,
+    0 8px 16px rgba(0, 0, 0, 0.35),
+    0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.bj-card-back {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(145deg, #7f1d1d 0%, #450a0a 100%);
+  border: 2px solid #b45309;
+  box-shadow:
+    0 8px 16px rgba(0, 0, 0, 0.4),
+    inset 0 0 0 2px rgba(251, 191, 36, 0.35);
+  overflow: hidden;
+}
+
+.bj-card-back-pattern {
+  position: absolute;
+  inset: 6px;
+  border: 1px solid rgba(251, 191, 36, 0.25);
+  border-radius: 0.25rem;
+  background: repeating-linear-gradient(
+    -45deg,
+    transparent,
+    transparent 4px,
+    rgba(251, 191, 36, 0.08) 4px,
+    rgba(251, 191, 36, 0.08) 8px
+  );
+}
+
+.bj-card-corner {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.bj-card-corner.top-left {
+  top: 0.35rem;
+  left: 0.35rem;
+}
+
+.bj-card-corner.bottom-right {
+  bottom: 0.35rem;
+  right: 0.35rem;
+  transform: rotate(180deg);
+}
+
+.bj-card-suit {
+  font-size: 0.62rem;
+  margin-top: 1px;
+}
+
+.bj-card-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.75rem;
+}
+
+.bj-table-divider {
+  height: 1px;
+  margin: 0.75rem 2rem;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(251, 191, 36, 0.25) 20%,
+    rgba(251, 191, 36, 0.25) 80%,
+    transparent
+  );
+}
+
+.bj-bet-circle {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 7rem;
+  height: 7rem;
+  transform: translate(-50%, -30%);
+  border: 2px dashed rgba(251, 191, 36, 0.2);
+  border-radius: 999px;
+  pointer-events: none;
+}
+
+.bj-placeholder,
+.bj-dealing-text {
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.35);
+  letter-spacing: 0.08em;
+}
+
+.bj-dealing-text {
+  color: rgba(251, 191, 36, 0.65);
+  animation: bj-shoe-pulse 1.2s ease-in-out infinite;
+}
+
+.bj-outcome-banner {
+  margin-top: 1rem;
+  text-align: center;
+  padding: 0.65rem 1rem;
+  border-radius: 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.bj-outcome-win {
+  background: rgba(22, 163, 74, 0.35);
+  border: 1px solid rgba(74, 222, 128, 0.45);
+  color: #bbf7d0;
+}
+
+.bj-outcome-push {
+  background: rgba(251, 191, 36, 0.15);
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  color: #fde68a;
+}
+
+.bj-outcome-lose {
+  background: rgba(127, 29, 29, 0.35);
+  border: 1px solid rgba(248, 113, 113, 0.35);
+  color: #fecaca;
+}
+
+.bj-casino-btn {
+  flex: 1;
+  padding: 0.85rem 1rem;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  border-radius: 0.5rem;
+  transition:
+    transform 0.15s,
+    filter 0.15s,
+    opacity 0.15s;
+}
+
+.bj-casino-btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.bj-casino-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.bj-btn-hit {
+  background: linear-gradient(180deg, #166534 0%, #14532d 100%);
+  border: 2px solid #4ade80;
+  color: #dcfce7;
+  box-shadow: 0 4px 0 #052e16;
+}
+
+.bj-btn-stand {
+  background: linear-gradient(180deg, #fbbf24 0%, #d97706 100%);
+  border: 2px solid #fde68a;
+  color: #1c1917;
+  box-shadow: 0 4px 0 #92400e;
+}
+
+.bj-btn-deal {
+  width: 100%;
+  background: linear-gradient(180deg, #fbbf24 0%, #b45309 100%);
+  border: 2px solid #fde68a;
+  color: #1c1917;
+  box-shadow: 0 4px 0 #78350f;
+}
+
+.bj-casino-room {
+  background:
+    radial-gradient(ellipse 120% 80% at 50% 0%, #1a1a2e 0%, #0f0f14 45%, #050508 100%);
+}
+
+.bj-casino-room::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 20% 10%, rgba(251, 191, 36, 0.04) 0%, transparent 40%),
+    radial-gradient(circle at 80% 20%, rgba(34, 197, 94, 0.04) 0%, transparent 35%);
+  z-index: 0;
+}
+
+.bj-casino-panel {
+  background: rgba(0, 0, 0, 0.55);
+  border: 1px solid rgba(251, 191, 36, 0.2);
+  border-radius: 0.75rem;
+  backdrop-filter: blur(8px);
+}
+
+.bj-casino-input {
+  width: 100%;
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(251, 191, 36, 0.25);
+  border-radius: 0.5rem;
+  padding: 0.7rem 0.85rem;
+  font-size: 0.875rem;
+  color: #fff;
+}
+
+.bj-casino-input::placeholder {
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.bj-casino-input:focus {
+  outline: none;
+  border-color: rgba(251, 191, 36, 0.55);
+  box-shadow: 0 0 0 2px rgba(251, 191, 36, 0.15);
+}

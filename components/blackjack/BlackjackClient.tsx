@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import type { PublicBlackjackState } from "@/lib/blackjack-types";
-import type { BJCard } from "@/lib/blackjack-engine";
-import { cardLabel } from "@/lib/blackjack-engine";
+import BlackjackTable from "@/components/blackjack/BlackjackTable";
+import { useBlackjackDealAnimation } from "@/components/blackjack/useBlackjackDealAnimation";
 
 const STORAGE_EMAIL = "obh-blackjack-email";
 const STORAGE_NAME = "obh-blackjack-name";
@@ -12,14 +12,6 @@ const STORAGE_NAME = "obh-blackjack-name";
 interface BlackjackClientProps {
   initialState: PublicBlackjackState;
 }
-
-const SUIT_SYMBOLS = ["♠", "♥", "♦", "♣"];
-const SUIT_COLORS = [
-  "text-neutral-900",
-  "text-red-600",
-  "text-red-600",
-  "text-neutral-900",
-];
 
 function pad(n: number): string {
   return n.toString().padStart(2, "0");
@@ -48,31 +40,65 @@ function outcomeLabel(outcome: string | null): string {
   }
 }
 
-function PlayingCard({
-  card,
-  hidden,
+function WheelCodeWinner({
+  code,
+  placement,
 }: {
-  card?: BJCard;
-  hidden?: boolean;
+  code: string;
+  placement?: number | null;
 }) {
-  if (hidden || !card) {
-    return (
-      <div className="w-14 h-20 sm:w-16 sm:h-24 rounded-md border-2 border-amber-600/50 bg-gradient-to-br from-amber-900 to-amber-950 flex items-center justify-center shadow-lg">
-        <span className="text-amber-500/60 text-xl">♠</span>
-      </div>
-    );
+  const [copied, setCopied] = useState(false);
+
+  async function copyCode() {
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      const input = document.getElementById("bj-wheel-code") as HTMLInputElement | null;
+      input?.select();
+      document.execCommand("copy");
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
   }
 
-  const color = SUIT_COLORS[card.suit] ?? "text-white";
-  const symbol = SUIT_SYMBOLS[card.suit] ?? "?";
-
   return (
-    <div className="w-14 h-20 sm:w-16 sm:h-24 rounded-md border border-neutral-300 bg-white text-black flex flex-col justify-between p-1.5 shadow-lg">
-      <span className={`text-xs font-bold leading-none ${color}`}>
-        {cardLabel(card).slice(0, -1)}
-        <span className="block text-[10px]">{symbol}</span>
-      </span>
-      <span className={`text-xl self-center ${color}`}>{symbol}</span>
+    <div className="bj-casino-panel p-4 text-center w-full">
+      <p className="text-[10px] uppercase tracking-widest text-amber-400 mb-1">
+        You won a wheel spin
+        {placement != null && (
+          <span className="text-neutral-400"> · rank #{placement}</span>
+        )}
+      </p>
+      <p className="text-[11px] text-emerald-200/80 mb-3">
+        Copy your code, then spin on the giveaway wheel.
+      </p>
+      <div className="flex gap-2 mb-3">
+        <input
+          id="bj-wheel-code"
+          readOnly
+          value={code}
+          onFocus={(e) => e.target.select()}
+          onClick={(e) => e.currentTarget.select()}
+          className="flex-1 min-w-0 bj-casino-input font-mono text-sm text-amber-300 text-center tracking-wider select-all"
+        />
+        <button
+          type="button"
+          onClick={copyCode}
+          className="shrink-0 px-4 py-2.5 bg-emerald-800 hover:bg-emerald-700 text-white text-[10px] uppercase tracking-widest rounded font-bold transition-colors border border-emerald-600"
+        >
+          {copied ? "Copied!" : "Copy"}
+        </button>
+      </div>
+      <a
+        href="/giveawaywheel"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="bj-casino-btn bj-btn-deal inline-block"
+      >
+        Open giveaway wheel ↗
+      </a>
     </div>
   );
 }
@@ -85,6 +111,9 @@ export default function BlackjackClient({ initialState }: BlackjackClientProps) 
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const myEntry = state.myEntry;
+  const dealAnim = useBlackjackDealAnimation(myEntry ?? null);
 
   useEffect(() => {
     const savedEmail = localStorage.getItem(STORAGE_EMAIL) ?? "";
@@ -141,7 +170,7 @@ export default function BlackjackClient({ initialState }: BlackjackClientProps) 
   }
 
   async function doAction(action: "hit" | "stand") {
-    if (!entryId) return;
+    if (!entryId || dealAnim.isDealing) return;
     setActionLoading(true);
     setError(null);
     const trimmedEmail = email.trim().toLowerCase();
@@ -161,125 +190,76 @@ export default function BlackjackClient({ initialState }: BlackjackClientProps) 
     }
   }
 
-  const myEntry = state.myEntry;
-  const resultEntry = myEntry ?? state.recentResult;
   const playing = myEntry && !myEntry.finished;
   const finished = myEntry?.finished ?? false;
   const secondsLeft = state.currentRound?.secondsRemaining ?? 0;
+  const wheelCode = myEntry?.wheelCode ?? state.recentResult?.wheelCode ?? null;
+  const wheelPlacement =
+    myEntry?.wheelCode != null
+      ? myEntry.placement
+      : state.recentResult?.placement ?? null;
+  const controlsLocked = dealAnim.isDealing || actionLoading;
 
   return (
-    <main className="flex-1 flex flex-col overflow-y-auto">
-      <header className="shrink-0 px-4 py-3 border-b border-emerald-900/60 flex items-center justify-between gap-3 bg-black/30">
+    <main className="flex-1 flex flex-col overflow-y-auto bj-casino-room">
+      <header className="shrink-0 px-4 py-3 border-b border-amber-900/40 flex items-center justify-between gap-3 bg-black/50 backdrop-blur-sm">
         <div>
-          <p className="text-[10px] uppercase tracking-[0.3em] text-amber-400">
-            ♠ OBH Blackjack
+          <p className="text-[10px] uppercase tracking-[0.35em] text-amber-400">
+            ♠ Live Blackjack
           </p>
-          <p className="text-xs text-emerald-200/70 mt-0.5">
+          <p className="text-[11px] text-neutral-400 mt-0.5">
             Top 10 each round →{" "}
-            <Link href="/giveawaywheel" className="underline text-amber-300">
+            <Link href="/giveawaywheel" className="text-amber-300 hover:underline">
               Giveaway Wheel
             </Link>
           </p>
         </div>
         {state.currentRound && (
-          <div className="text-right">
-            <p className="text-[9px] uppercase tracking-widest text-neutral-400">
-              Next hand in
+          <div className="text-right bj-casino-panel px-3 py-2">
+            <p className="text-[8px] uppercase tracking-widest text-neutral-500">
+              Next hand
             </p>
-            <p className="font-mono text-lg text-amber-300 tabular-nums">
+            <p className="font-mono text-lg text-amber-300 tabular-nums leading-tight">
               {formatTime(secondsLeft)}
             </p>
-            <p className="text-[9px] text-neutral-500">
-              {state.currentRound.entryCount} played
+            <p className="text-[8px] text-neutral-500">
+              {state.currentRound.entryCount} at the table
             </p>
           </div>
         )}
       </header>
 
-      <div className="flex-1 flex flex-col items-center justify-center p-4 gap-6 max-w-lg mx-auto w-full">
-        <div className="w-full rounded-xl border border-emerald-700/40 bg-gradient-to-b from-emerald-900/80 to-emerald-950 p-5 shadow-2xl">
-          <p className="text-center text-[10px] uppercase tracking-widest text-emerald-300/80 mb-4">
-            {state.prizeTitle}
-          </p>
-
-          {/* Dealer */}
-          <div className="mb-6">
-            <p className="text-[10px] uppercase tracking-widest text-neutral-400 mb-2 text-center">
-              Dealer
-            </p>
-            <div className="flex justify-center gap-2 min-h-[6rem]">
-              {myEntry ? (
-                <>
-                  {myEntry.dealerCards.map((c, i) => (
-                    <PlayingCard key={i} card={c} />
-                  ))}
-                  {myEntry.dealerHidden && <PlayingCard hidden />}
-                </>
-              ) : (
-                <p className="text-sm text-neutral-500 self-center">
-                  Join to be dealt in
-                </p>
-              )}
-            </div>
-          </div>
-
-          {/* Player */}
-          <div>
-            <p className="text-[10px] uppercase tracking-widest text-neutral-400 mb-2 text-center">
-              Your hand
-              {myEntry && (
-                <span className="ml-2 text-amber-300">{myEntry.handValue}</span>
-              )}
-            </p>
-            <div className="flex justify-center gap-2 min-h-[6rem]">
-              {myEntry ? (
-                myEntry.playerCards.map((c, i) => (
-                  <PlayingCard key={i} card={c} />
-                ))
-              ) : (
-                <p className="text-sm text-neutral-500 self-center">
-                  One hand per round
-                </p>
-              )}
-            </div>
-          </div>
-
-          {finished && myEntry?.outcome && (
-            <p className="text-center mt-4 text-sm font-bold text-amber-300">
-              {outcomeLabel(myEntry.outcome)}
-              {myEntry.placement != null && (
-                <span className="block text-[11px] font-normal text-neutral-400 mt-1">
-                  Rank #{myEntry.placement} this round
-                </span>
-              )}
-              {myEntry.wheelCode && (
-                <span className="block mt-2 text-emerald-300 font-mono text-xs">
-                  Wheel code: {myEntry.wheelCode}
-                  <Link
-                    href="/giveawaywheel"
-                    className="block text-[10px] underline mt-1 font-sans"
-                  >
-                    Spin at /giveawaywheel →
-                  </Link>
-                </span>
-              )}
-            </p>
-          )}
-        </div>
+      <div className="flex-1 flex flex-col items-center p-4 gap-5 max-w-xl mx-auto w-full">
+        <BlackjackTable
+          entry={myEntry ?? null}
+          prizeTitle={state.prizeTitle}
+          outcomeLabel={
+            finished && myEntry?.outcome
+              ? outcomeLabel(myEntry.outcome)
+              : null
+          }
+          placement={finished ? myEntry?.placement : null}
+          anim={dealAnim}
+        />
 
         {error && (
-          <p className="text-sm text-red-400 text-center">{error}</p>
+          <p className="text-sm text-red-400 text-center bj-casino-panel px-4 py-2 w-full">
+            {error}
+          </p>
         )}
 
         {!myEntry && (
-          <form onSubmit={joinTable} className="w-full space-y-3">
+          <form onSubmit={joinTable} className="w-full space-y-3 bj-casino-panel p-4">
+            <p className="text-[10px] uppercase tracking-widest text-amber-400/80 text-center">
+              Join the table
+            </p>
             <input
               type="email"
               required
               placeholder="Email (for wheel code if you win)"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full bg-black/40 border border-emerald-800 px-3 py-2.5 text-sm rounded"
+              className="bj-casino-input"
             />
             <input
               type="text"
@@ -287,14 +267,14 @@ export default function BlackjackClient({ initialState }: BlackjackClientProps) 
               value={displayName}
               onChange={(e) => setDisplayName(e.target.value)}
               maxLength={32}
-              className="w-full bg-black/40 border border-emerald-800 px-3 py-2.5 text-sm rounded"
+              className="bj-casino-input"
             />
             <button
               type="submit"
               disabled={loading || secondsLeft <= 0}
-              className="w-full py-3 bg-amber-500 text-black font-bold text-xs uppercase tracking-widest rounded disabled:opacity-40"
+              className="bj-casino-btn bj-btn-deal"
             >
-              {loading ? "Dealing…" : "Deal me in"}
+              {loading ? "Shuffling…" : "Place bet · Deal me in"}
             </button>
           </form>
         )}
@@ -303,47 +283,42 @@ export default function BlackjackClient({ initialState }: BlackjackClientProps) 
           <div className="flex gap-3 w-full">
             <button
               type="button"
-              disabled={actionLoading}
+              disabled={controlsLocked}
               onClick={() => doAction("hit")}
-              className="flex-1 py-3 border-2 border-amber-500 text-amber-300 font-bold text-xs uppercase tracking-widest rounded disabled:opacity-40"
+              className="bj-casino-btn bj-btn-hit"
             >
               Hit
             </button>
             <button
               type="button"
-              disabled={actionLoading}
+              disabled={controlsLocked}
               onClick={() => doAction("stand")}
-              className="flex-1 py-3 bg-amber-500 text-black font-bold text-xs uppercase tracking-widest rounded disabled:opacity-40"
+              className="bj-casino-btn bj-btn-stand"
             >
               Stand
             </button>
           </div>
         )}
 
-        {resultEntry?.wheelCode && !myEntry && (
-          <div className="w-full border border-emerald-600/50 rounded p-4 bg-black/30 text-center">
-            <p className="text-[10px] uppercase tracking-widest text-emerald-400 mb-2">
-              Last round — you placed #{resultEntry.placement}
-            </p>
-            <p className="font-mono text-amber-300">{resultEntry.wheelCode}</p>
-            <Link
-              href="/giveawaywheel"
-              className="block text-[11px] underline mt-2 text-emerald-300"
-            >
-              Spin at /giveawaywheel →
-            </Link>
-          </div>
+        {dealAnim.isDealing && playing && (
+          <p className="text-[10px] text-amber-400/70 tracking-widest uppercase">
+            Cards in play…
+          </p>
         )}
 
-        {finished && !myEntry?.wheelCode && !state.recentResult?.wheelCode && (
-          <p className="text-[11px] text-neutral-400 text-center">
+        {wheelCode && (
+          <WheelCodeWinner code={wheelCode} placement={wheelPlacement} />
+        )}
+
+        {finished && !wheelCode && (
+          <p className="text-[11px] text-neutral-500 text-center">
             Hand locked in. Top 10 get wheel codes when the round ends.
           </p>
         )}
 
         {state.lastWinners.length > 0 && (
-          <div className="w-full border border-emerald-800/50 rounded p-4 bg-black/20">
-            <p className="text-[10px] uppercase tracking-widest text-neutral-400 mb-2">
+          <div className="w-full bj-casino-panel p-4">
+            <p className="text-[10px] uppercase tracking-widest text-neutral-500 mb-2">
               Last round — top 10
             </p>
             <ol className="space-y-1 text-[11px]">
