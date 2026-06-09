@@ -4,7 +4,7 @@ import { gameFontVariables } from "@/lib/game-fonts";
 export const metadata = {
   title: "Blackjack — OBJECTSBYHYPE",
   description:
-    "One hand every 3 minutes. Top 10 players win a spin on the giveaway wheel.",
+    "One hand every 2 minutes. Top 10 players win a spin on the giveaway wheel.",
 };
 
 export const viewport: Viewport = {

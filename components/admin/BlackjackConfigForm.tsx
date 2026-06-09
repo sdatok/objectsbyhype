@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   BLACKJACK_DEFAULT_ROUND_SECONDS,
-  BLACKJACK_WHEEL_WINNERS,
 } from "@/lib/blackjack-types";
 
 interface InitialConfig {
@@ -13,7 +12,7 @@ interface InitialConfig {
   prizeDescription: string;
   roundSeconds: number;
   roundEndsAt: string | null;
-  entryCount: number;
+  seatedCount: number;
 }
 
 interface BlackjackConfigFormProps {
@@ -160,15 +159,15 @@ export default function BlackjackConfigForm({
           }
         />
         <p className="text-[10px] text-neutral-400 mt-1">
-          Default 180 = one hand every 3 minutes. Top {BLACKJACK_WHEEL_WINNERS}{" "}
-          hands win a giveaway wheel spin.
+          Round timer for inactivity kicks. Players inactive for 3 rounds lose
+          their seat.
         </p>
       </div>
 
       {initialConfig.roundEndsAt && (
         <p className="text-[11px] text-neutral-600">
           Current round: <span className="font-mono">{remaining}</span> left ·{" "}
-          {initialConfig.entryCount} hands played
+          {initialConfig.seatedCount} players seated
         </p>
       )}
 

@@ -3,18 +3,17 @@ import {
   ensureOpenRound,
   getOrCreateBlackjackConfig,
 } from "@/lib/blackjack-config";
-import { sitAtTable } from "@/lib/blackjack-table";
+import { setBetAmount } from "@/lib/blackjack-table";
 
 export const dynamic = "force-dynamic";
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-interface JoinBody {
+interface BetBody {
   email?: string;
-  displayName?: string;
+  bet?: number;
 }
 
-/** @deprecated Use POST /api/blackjack/sit */
 export async function POST(request: Request) {
   try {
     const config = await getOrCreateBlackjackConfig();
@@ -25,31 +24,27 @@ export async function POST(request: Request) {
       );
     }
 
-    const body = (await request.json()) as JoinBody;
+    const body = (await request.json()) as BetBody;
     const email = (body.email ?? "").trim().toLowerCase();
+    const bet = Number(body.bet);
+
     if (!EMAIL_REGEX.test(email)) {
-      return NextResponse.json(
-        { error: "Enter a valid email." },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Invalid email" }, { status: 400 });
+    }
+    if (!Number.isFinite(bet)) {
+      return NextResponse.json({ error: "Invalid bet" }, { status: 400 });
     }
 
-    const displayNameRaw = (body.displayName ?? "").trim();
-    const displayName = displayNameRaw
-      ? displayNameRaw.slice(0, 32)
-      : email.split("@")[0] ?? "Player";
-
     await ensureOpenRound(config);
-    const seat = await sitAtTable({ email, displayName });
+    const seat = await setBetAmount(email, Math.floor(bet));
 
     return NextResponse.json({
-      seatIndex: seat.seatIndex,
+      currentBet: seat.currentBet,
       stackCredits: seat.stackCredits,
     });
   } catch (err) {
-    const message =
-      err instanceof Error ? err.message : "Could not take a seat";
-    console.error("[POST /api/blackjack/join]", err);
+    const message = err instanceof Error ? err.message : "Could not set bet";
+    console.error("[POST /api/blackjack/bet]", err);
     return NextResponse.json({ error: message }, { status: 409 });
   }
 }

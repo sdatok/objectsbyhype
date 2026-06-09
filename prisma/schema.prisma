@@ -505,8 +505,11 @@ model BlackjackConfig {
   enabled          Boolean  @default(false)
   prizeTitle       String   @default("Giveaway Wheel Spin")
   prizeDescription String?  @db.Text
-  /// Seconds each round stays open for one hand (default 3 minutes).
-  roundSeconds     Int      @default(180)
+  roundSeconds     Int      @default(120)
+  /// Table seats (default 10).
+  tableSeats       Int      @default(10)
+  /// Kick seated players after this many rounds without playing a hand.
+  inactiveRoundKick Int     @default(3)
   currentRoundId   String?
   updatedAt        DateTime @updatedAt
 }
@@ -518,8 +521,9 @@ model BlackjackRound {
   startedAt  DateTime             @default(now())
   endsAt     DateTime
   settledAt  DateTime?
-  entries    BlackjackEntry[]
-  createdAt  DateTime             @default(now())
+  entries      BlackjackEntry[]
+  chatMessages BlackjackChatMessage[]
+  createdAt    DateTime             @default(now())
 
   @@index([status])
   @@index([endsAt])
@@ -533,6 +537,8 @@ model BlackjackEntry {
   round       BlackjackRound    @relation(fields: [roundId], references: [id], onDelete: Cascade)
   email       String
   displayName String
+  /// Seat 0–6 at the seven-seat table.
+  seatIndex   Int
   /// JSON array of { rank: 1-13, suit: 0-3 } cards.
   playerCards Json
   dealerCards Json
@@ -547,8 +553,64 @@ model BlackjackEntry {
   joinedAt    DateTime          @default(now())
 
   @@unique([roundId, email])
+  @@unique([roundId, seatIndex])
   @@index([roundId])
   @@index([email])
+}
+
+/// Table chat scoped to the current open round.
+model BlackjackChatMessage {
+  id          String         @id @default(cuid())
+  roundId     String
+  round       BlackjackRound @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  displayName String
+  email       String
+  body        String         @db.VarChar(280)
+  createdAt   DateTime       @default(now())
+
+  @@index([roundId, createdAt])
+}
+
+/// Persistent internet-monies wallet per player.
+model BlackjackWallet {
+  email              String   @id
+  displayName        String   @default("")
+  savedCredits       Int      @default(0)
+  peakStack          Int      @default(0)
+  lastDailyGrantDate String?
+  milestonesJson     Json?
+  updatedAt          DateTime @updatedAt
+  seat               BlackjackSeat?
+
+  @@index([peakStack])
+}
+
+enum BlackjackHandPhase {
+  IDLE
+  PLAYING
+  SETTLED
+}
+
+/// Live seat at the table (max 10). One row per seated player.
+model BlackjackSeat {
+  id              String             @id @default(cuid())
+  email           String             @unique
+  wallet          BlackjackWallet    @relation(fields: [email], references: [email], onDelete: Cascade)
+  displayName     String
+  seatIndex       Int                @unique
+  stackCredits    Int                @default(0)
+  currentBet      Int                @default(0)
+  handPhase       BlackjackHandPhase @default(IDLE)
+  handJson        Json?
+  playedThisRound Boolean            @default(false)
+  missedRounds    Int                @default(0)
+  pendingGwCode   String?
+  pendingWohCode  String?
+  lastActiveAt    DateTime           @default(now())
+  seatedAt        DateTime           @default(now())
+
+  @@index([seatIndex])
+  @@index([stackCredits])
 }
 
 // ---------- Wheel of Hype (pro-member monthly spin) ----------

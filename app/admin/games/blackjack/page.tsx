@@ -1,10 +1,15 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import {
-  BLACKJACK_WHEEL_WINNERS,
   getOrCreateBlackjackConfig,
   ensureOpenRound,
 } from "@/lib/blackjack-config";
+import {
+  IM_DAILY_GRANT,
+  IM_MILESTONE_GIVEAWAY,
+  IM_MILESTONE_WOH,
+} from "@/lib/blackjack-economy";
+import { getLeaderboard } from "@/lib/blackjack-economy";
 import BlackjackConfigForm from "@/components/admin/BlackjackConfigForm";
 
 export const dynamic = "force-dynamic";
@@ -13,21 +18,8 @@ export default async function AdminBlackjackPage() {
   let config = await getOrCreateBlackjackConfig();
   const { round: current } = await ensureOpenRound(config);
 
-  const entryCount = await prisma.blackjackEntry.count({
-    where: { roundId: current.id },
-  });
-
-  const recentRounds = await prisma.blackjackRound.findMany({
-    where: { status: "SETTLED" },
-    orderBy: { settledAt: "desc" },
-    take: 5,
-    include: {
-      entries: {
-        where: { placement: { lte: BLACKJACK_WHEEL_WINNERS } },
-        orderBy: { placement: "asc" },
-      },
-    },
-  });
+  const seatedCount = await prisma.blackjackSeat.count();
+  const leaderboard = await getLeaderboard(5);
 
   return (
     <div>
@@ -40,12 +32,16 @@ export default async function AdminBlackjackPage() {
         </Link>
         <h1 className="text-[18px] font-bold mt-3">Blackjack</h1>
         <p className="text-[12px] text-neutral-500 mt-0.5">
-          One hand every 3 minutes at <code>/blackjack</code>. Top{" "}
-          {BLACKJACK_WHEEL_WINNERS} hands each round win a{" "}
+          Live table at <code>/blackjack</code>. Players get {IM_DAILY_GRANT}{" "}
+          internet monies daily. Hit {IM_MILESTONE_GIVEAWAY} IM for a{" "}
           <Link href="/giveawaywheel" className="underline">
             giveaway wheel
           </Link>{" "}
-          spin.
+          spin, {IM_MILESTONE_WOH} IM for{" "}
+          <Link href="/wheelofhype" className="underline">
+            Wheel of Hype
+          </Link>
+          .
         </p>
       </div>
 
@@ -57,63 +53,39 @@ export default async function AdminBlackjackPage() {
             prizeDescription: config.prizeDescription ?? "",
             roundSeconds: config.roundSeconds,
             roundEndsAt: current.endsAt.toISOString(),
-            entryCount,
+            seatedCount,
           }}
         />
 
         <div>
           <h2 className="text-[11px] uppercase tracking-widest font-bold mb-4">
-            Recent rounds
+            Leaderboard (peak stack)
           </h2>
-          {recentRounds.length === 0 ? (
+          {leaderboard.length === 0 ? (
             <p className="text-[11px] text-neutral-400 italic">
-              No settled rounds yet.
+              No players on the board yet.
             </p>
           ) : (
-            <div className="space-y-5">
-              {recentRounds.map((round) => (
-                <div
-                  key={round.id}
-                  className="bg-white border border-neutral-200 rounded p-4"
+            <ol className="space-y-1.5 bg-white border border-neutral-200 rounded p-4">
+              {leaderboard.map((row) => (
+                <li
+                  key={row.rank}
+                  className="flex items-center justify-between text-[12px] border-b border-neutral-100 pb-1.5 last:border-0"
                 >
-                  <div className="flex items-baseline justify-between gap-3 mb-3">
-                    <p className="text-[11px] uppercase tracking-widest font-bold">
-                      Settled
-                      <span className="ml-2 text-neutral-400 font-normal">
-                        · {round.entries.length} wheel winners
-                      </span>
-                    </p>
-                    <p className="text-[10px] text-neutral-400">
-                      {round.settledAt?.toLocaleString()}
-                    </p>
-                  </div>
-                  <ol className="space-y-1.5">
-                    {round.entries.map((e) => (
-                      <li
-                        key={e.id}
-                        className="flex items-center justify-between text-[12px] border-b border-neutral-100 pb-1.5"
-                      >
-                        <span>
-                          <span className="text-[10px] text-neutral-400 w-6 inline-block">
-                            #{e.placement}
-                          </span>
-                          <span className="font-medium">{e.displayName}</span>{" "}
-                          <span className="text-neutral-500">{e.email}</span>
-                        </span>
-                        <span className="font-mono text-[10px]">
-                          {e.outcome} · {e.handValue}
-                          {e.wheelCode && (
-                            <span className="ml-2 text-emerald-600">
-                              {e.wheelCode}
-                            </span>
-                          )}
-                        </span>
-                      </li>
-                    ))}
-                  </ol>
-                </div>
+                  <span>
+                    <span className="text-[10px] text-neutral-400 w-6 inline-block">
+                      #{row.rank}
+                    </span>
+                    <span className="font-medium">{row.displayName}</span>{" "}
+                    <span className="text-neutral-500">{row.email}</span>
+                  </span>
+                  <span className="font-mono text-[10px]">
+                    {row.peakStack} IM peak
+                    {row.savedCredits > 0 && ` · ${row.savedCredits} banked`}
+                  </span>
+                </li>
               ))}
-            </div>
+            </ol>
           )}
         </div>
       </div>

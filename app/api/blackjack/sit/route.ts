@@ -9,12 +9,11 @@ export const dynamic = "force-dynamic";
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-interface JoinBody {
+interface SitBody {
   email?: string;
   displayName?: string;
 }
 
-/** @deprecated Use POST /api/blackjack/sit */
 export async function POST(request: Request) {
   try {
     const config = await getOrCreateBlackjackConfig();
@@ -25,7 +24,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const body = (await request.json()) as JoinBody;
+    const body = (await request.json()) as SitBody;
     const email = (body.email ?? "").trim().toLowerCase();
     if (!EMAIL_REGEX.test(email)) {
       return NextResponse.json(
@@ -49,7 +48,7 @@ export async function POST(request: Request) {
   } catch (err) {
     const message =
       err instanceof Error ? err.message : "Could not take a seat";
-    console.error("[POST /api/blackjack/join]", err);
+    console.error("[POST /api/blackjack/sit]", err);
     return NextResponse.json({ error: message }, { status: 409 });
   }
 }

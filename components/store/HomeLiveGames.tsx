@@ -98,7 +98,7 @@ export default async function HomeLiveGames() {
             >
               Blackjack
               <span className="block mt-1 text-[10px] font-normal tracking-widest text-amber-200/80 normal-case">
-                1 hand every 3 min · top 10 win a wheel spin
+                1 hand every 2 min · live 7-seat table · top 10 win wheel spin
               </span>
             </Link>
           )}

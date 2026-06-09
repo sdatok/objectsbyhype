@@ -3,18 +3,17 @@ import {
   ensureOpenRound,
   getOrCreateBlackjackConfig,
 } from "@/lib/blackjack-config";
-import { sitAtTable } from "@/lib/blackjack-table";
+import { startDeal } from "@/lib/blackjack-table";
 
 export const dynamic = "force-dynamic";
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-interface JoinBody {
+interface DealBody {
   email?: string;
-  displayName?: string;
+  bet?: number;
 }
 
-/** @deprecated Use POST /api/blackjack/sit */
 export async function POST(request: Request) {
   try {
     const config = await getOrCreateBlackjackConfig();
@@ -25,31 +24,34 @@ export async function POST(request: Request) {
       );
     }
 
-    const body = (await request.json()) as JoinBody;
+    const body = (await request.json()) as DealBody;
     const email = (body.email ?? "").trim().toLowerCase();
+    const bet =
+      body.bet != null && Number.isFinite(body.bet)
+        ? Math.floor(body.bet)
+        : undefined;
+
     if (!EMAIL_REGEX.test(email)) {
+      return NextResponse.json({ error: "Invalid email" }, { status: 400 });
+    }
+
+    const { round } = await ensureOpenRound(config);
+    if (Date.now() >= round.endsAt.getTime()) {
       return NextResponse.json(
-        { error: "Enter a valid email." },
-        { status: 400 }
+        { error: "Round just ended — refresh for the next round." },
+        { status: 409 }
       );
     }
 
-    const displayNameRaw = (body.displayName ?? "").trim();
-    const displayName = displayNameRaw
-      ? displayNameRaw.slice(0, 32)
-      : email.split("@")[0] ?? "Player";
-
-    await ensureOpenRound(config);
-    const seat = await sitAtTable({ email, displayName });
+    const seat = await startDeal(email, bet);
 
     return NextResponse.json({
-      seatIndex: seat.seatIndex,
+      handPhase: seat.handPhase,
       stackCredits: seat.stackCredits,
     });
   } catch (err) {
-    const message =
-      err instanceof Error ? err.message : "Could not take a seat";
-    console.error("[POST /api/blackjack/join]", err);
+    const message = err instanceof Error ? err.message : "Could not deal";
+    console.error("[POST /api/blackjack/deal]", err);
     return NextResponse.json({ error: message }, { status: 409 });
   }
 }

@@ -91,8 +91,8 @@ export async function POST() {
         where: { id: config.currentRoundId },
       });
       if (current?.status === "OPEN") {
-        const { settleBlackjackRound } = await import("@/lib/blackjack-config");
-        await settleBlackjackRound(current.id);
+        const { forceFinishCurrentRound } = await import("@/lib/blackjack-config");
+        await forceFinishCurrentRound();
       }
     }
 

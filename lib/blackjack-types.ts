@@ -1,28 +1,80 @@
 export const BLACKJACK_CONFIG_ID = "default";
-export const BLACKJACK_DEFAULT_ROUND_SECONDS = 180;
-export const BLACKJACK_WHEEL_WINNERS = 10;
+export const BLACKJACK_DEFAULT_ROUND_SECONDS = 120;
 
-export interface PublicBlackjackEntry {
-  id: string;
-  displayName: string;
-  email: string;
+import {
+  BLACKJACK_TABLE_SEATS,
+  IM_DAILY_GRANT,
+  IM_MAX_BET,
+  IM_MILESTONE_GIVEAWAY,
+  IM_MILESTONE_WOH,
+  IM_MIN_BET,
+} from "@/lib/blackjack-economy";
+
+export {
+  BLACKJACK_TABLE_SEATS,
+  IM_DAILY_GRANT,
+  IM_MAX_BET,
+  IM_MILESTONE_GIVEAWAY,
+  IM_MILESTONE_WOH,
+  IM_MIN_BET,
+};
+
+export interface PublicBlackjackHandResult {
+  outcomes: string[];
+  netChange: number;
+  payout: number;
+}
+
+/** Your full seat state including dealer hand and wallet info. */
+export interface PublicBlackjackMySeat {
+  seatIndex: number;
+  stackCredits: number;
+  savedCredits: number;
+  currentBet: number;
+  handPhase: "IDLE" | "PLAYING" | "SETTLED";
   playerCards: { rank: number; suit: number }[];
   dealerCards: { rank: number; suit: number }[];
   dealerHidden: boolean;
-  outcome: string | null;
   handValue: number;
-  placement: number | null;
-  wheelCode: string | null;
+  activeHandIndex: number;
+  handCount: number;
   finished: boolean;
+  lastResult: PublicBlackjackHandResult | null;
+  pendingGwCode: string | null;
+  pendingWohCode: string | null;
+  canPlayToday: boolean;
+  nextGrantAt: string | null;
+  missedRounds: number;
+  inactiveKick: number;
 }
 
-export interface PublicBlackjackLeader {
-  placement: number;
+/** Another player visible at the table. */
+export interface PublicBlackjackSeatPlayer {
+  seatIndex: number;
   displayName: string;
   email: string;
-  outcome: string;
+  stackCredits: number;
+  handPhase: string;
+  playerCards: { rank: number; suit: number }[];
   handValue: number;
-  wheelCode: string | null;
+  finished: boolean;
+  isViewer: boolean;
+}
+
+export interface PublicBlackjackLeaderboardEntry {
+  rank: number;
+  displayName: string;
+  email: string;
+  peakStack: number;
+  savedCredits: number;
+}
+
+export interface PublicBlackjackChatMessage {
+  id: string;
+  displayName: string;
+  body: string;
+  createdAt: string;
+  isViewer: boolean;
 }
 
 export interface PublicBlackjackState {
@@ -30,16 +82,22 @@ export interface PublicBlackjackState {
   prizeTitle: string;
   prizeDescription: string | null;
   roundSeconds: number;
+  tableSeats: number;
+  imDailyGrant: number;
+  imMilestoneGiveaway: number;
+  imMilestoneWoh: number;
+  imMinBet: number;
+  imMaxBet: number;
+  inactiveKick: number;
   currentRound: {
     id: string;
     status: string;
     startedAt: string;
     endsAt: string;
     secondsRemaining: number;
-    entryCount: number;
+    seatedCount: number;
   } | null;
-  myEntry: PublicBlackjackEntry | null;
-  lastWinners: PublicBlackjackLeader[];
-  /** Most recent settled hand for this viewer (wheel code persists after round rolls). */
-  recentResult: PublicBlackjackEntry | null;
+  seats: Array<PublicBlackjackSeatPlayer | null>;
+  mySeat: PublicBlackjackMySeat | null;
+  leaderboard: PublicBlackjackLeaderboardEntry[];
 }

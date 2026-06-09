@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { PublicBlackjackEntry } from "@/lib/blackjack-types";
+import type { PublicBlackjackMySeat } from "@/lib/blackjack-types";
 
 export interface DealAnimationState {
   playerCount: number;
@@ -21,6 +21,10 @@ const INITIAL: DealAnimationState = {
 
 const DEAL_GAP = 480;
 const DEAL_START = 180;
+
+function handKey(seat: PublicBlackjackMySeat): string {
+  return `${seat.handPhase}-${seat.playerCards.length}-${seat.dealerCards.length}-${seat.finished}`;
+}
 
 function revealDealerHand(
   dealerLen: number,
@@ -51,10 +55,10 @@ function revealDealerHand(
   );
 }
 
-export function useBlackjackDealAnimation(entry: PublicBlackjackEntry | null) {
+export function useBlackjackDealAnimation(seat: PublicBlackjackMySeat | null) {
   const [anim, setAnim] = useState<DealAnimationState>(INITIAL);
   const prevRef = useRef<{
-    id: string;
+    key: string;
     playerLen: number;
     dealerLen: number;
     dealerHidden: boolean;
@@ -65,7 +69,7 @@ export function useBlackjackDealAnimation(entry: PublicBlackjackEntry | null) {
     timersRef.current.forEach(clearTimeout);
     timersRef.current = [];
 
-    if (!entry) {
+    if (!seat || seat.handPhase === "IDLE") {
       setAnim(INITIAL);
       prevRef.current = null;
       return;
@@ -76,11 +80,12 @@ export function useBlackjackDealAnimation(entry: PublicBlackjackEntry | null) {
     };
 
     const prev = prevRef.current;
-    const isNewHand = !prev || prev.id !== entry.id;
-    const playerLen = entry.playerCards.length;
-    const dealerLen = entry.dealerCards.length;
+    const key = handKey(seat);
+    const isNewHand = !prev || prev.key !== key;
+    const playerLen = seat.playerCards.length;
+    const dealerLen = seat.dealerCards.length;
 
-    if (isNewHand) {
+    if (isNewHand && playerLen >= 2) {
       setAnim({ ...INITIAL, isDealing: true });
       schedule(
         () => setAnim((a) => ({ ...a, playerCount: Math.min(1, playerLen) })),
@@ -99,7 +104,7 @@ export function useBlackjackDealAnimation(entry: PublicBlackjackEntry | null) {
         DEAL_START + DEAL_GAP * 2
       );
 
-      if (entry.dealerHidden) {
+      if (seat.dealerHidden) {
         schedule(
           () =>
             setAnim((a) => ({
@@ -116,7 +121,7 @@ export function useBlackjackDealAnimation(entry: PublicBlackjackEntry | null) {
         );
       }
 
-      if (entry.finished && !entry.dealerHidden) {
+      if (seat.finished && !seat.dealerHidden) {
         revealDealerHand(
           dealerLen,
           setAnim,
@@ -126,15 +131,15 @@ export function useBlackjackDealAnimation(entry: PublicBlackjackEntry | null) {
       }
 
       prevRef.current = {
-        id: entry.id,
+        key,
         playerLen,
         dealerLen,
-        dealerHidden: entry.dealerHidden,
+        dealerHidden: seat.dealerHidden,
       };
       return () => timersRef.current.forEach(clearTimeout);
     }
 
-    if (playerLen > prev.playerLen) {
+    if (prev && playerLen > prev.playerLen) {
       setAnim((a) => ({ ...a, isDealing: true }));
       for (let i = prev.playerLen; i < playerLen; i++) {
         const target = i + 1;
@@ -150,25 +155,25 @@ export function useBlackjackDealAnimation(entry: PublicBlackjackEntry | null) {
       }
     }
 
-    if (prev.dealerHidden && !entry.dealerHidden) {
+    if (prev && prev.dealerHidden && !seat.dealerHidden) {
       setAnim((a) => ({ ...a, isDealing: true, showHoleBack: false }));
       revealDealerHand(dealerLen, setAnim, schedule, 350);
     }
 
     prevRef.current = {
-      id: entry.id,
+      key,
       playerLen,
       dealerLen,
-      dealerHidden: entry.dealerHidden,
+      dealerHidden: seat.dealerHidden,
     };
 
     return () => timersRef.current.forEach(clearTimeout);
   }, [
-    entry?.id,
-    entry?.playerCards.length,
-    entry?.dealerCards.length,
-    entry?.dealerHidden,
-    entry?.finished,
+    seat?.handPhase,
+    seat?.playerCards.length,
+    seat?.dealerCards.length,
+    seat?.dealerHidden,
+    seat?.finished,
   ]);
 
   return anim;

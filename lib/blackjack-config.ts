@@ -1,42 +1,45 @@
 import { prisma } from "@/lib/db";
-import { Prisma } from "@prisma/client";
-import { createGiveawayPlayCode } from "@/lib/giveaway-wheel-codes";
 import { maskEmail } from "@/lib/game-config";
-import type {
-  BlackjackConfig,
-  BlackjackEntry,
-  BlackjackRound,
-} from "@prisma/client";
+import type { BlackjackConfig, BlackjackRound, BlackjackSeat } from "@prisma/client";
 import {
-  compareEntries,
-  parseCards,
-  sessionFromEntry,
-  standSession,
-  cardsToJson,
-  type BJCard,
-} from "@/lib/blackjack-engine";
+  getLeaderboard,
+  IM_DAILY_GRANT,
+  IM_MAX_BET,
+  IM_MILESTONE_GIVEAWAY,
+  IM_MILESTONE_WOH,
+  IM_MIN_BET,
+  INACTIVE_ROUNDS_KICK,
+  nextUtcMidnightMs,
+  canReceiveDailyGrant,
+} from "@/lib/blackjack-economy";
+import { seatedCount } from "@/lib/blackjack-seats";
+import {
+  dealerCardsForPublic,
+  handValueFromSeat,
+  lastResultFromHand,
+  parseHandJson,
+  playerCardsFromSeat,
+  tickRoundInactivity,
+} from "@/lib/blackjack-table";
 import {
   BLACKJACK_CONFIG_ID,
   BLACKJACK_DEFAULT_ROUND_SECONDS,
-  BLACKJACK_WHEEL_WINNERS,
-  type PublicBlackjackEntry,
-  type PublicBlackjackLeader,
+  BLACKJACK_TABLE_SEATS,
+  type PublicBlackjackMySeat,
+  type PublicBlackjackSeatPlayer,
   type PublicBlackjackState,
 } from "@/lib/blackjack-types";
 
 export {
   BLACKJACK_CONFIG_ID,
   BLACKJACK_DEFAULT_ROUND_SECONDS,
-  BLACKJACK_WHEEL_WINNERS,
+  BLACKJACK_TABLE_SEATS,
 };
-export type { PublicBlackjackEntry, PublicBlackjackLeader, PublicBlackjackState };
 
 const MIN_ROUND_SECONDS = 60;
 const MAX_ROUND_SECONDS = 3600;
 
-export async function getOrCreateBlackjackConfig(): Promise<
-  import("@prisma/client").BlackjackConfig
-> {
+export async function getOrCreateBlackjackConfig(): Promise<BlackjackConfig> {
   const existing = await prisma.blackjackConfig.findUnique({
     where: { id: BLACKJACK_CONFIG_ID },
   });
@@ -51,97 +54,16 @@ export function clampRoundSeconds(n: number): number {
   );
 }
 
-function toPublicEntry(
-  entry: BlackjackEntry,
-  revealDealer: boolean
-): PublicBlackjackEntry {
-  const playerCards = parseCards(entry.playerCards);
-  const dealerCards = parseCards(entry.dealerCards);
-  const finished = entry.outcome != null;
-  return {
-    id: entry.id,
-    displayName: entry.displayName,
-    email: maskEmail(entry.email),
-    playerCards,
-    dealerCards:
-      finished || revealDealer
-        ? dealerCards
-        : dealerCards.length > 0
-          ? [dealerCards[0]!]
-          : [],
-    dealerHidden: !finished && !revealDealer && dealerCards.length > 1,
-    outcome: entry.outcome,
-    handValue: entry.handValue,
-    placement: entry.placement,
-    wheelCode: entry.wheelCode,
-    finished,
-  };
-}
-
-async function finishEntry(entry: BlackjackEntry): Promise<BlackjackEntry> {
-  if (entry.outcome) return entry;
-  const session = standSession(sessionFromEntry(entry));
-  const resolved = session.state;
-  return prisma.blackjackEntry.update({
-    where: { id: entry.id },
-    data: {
-      playerCards: cardsToJson(resolved.playerCards),
-      dealerCards: cardsToJson(resolved.dealerCards),
-      deckRemaining: Prisma.DbNull,
-      outcome: resolved.outcome,
-      handValue: resolved.handValue,
-      finishedAt: new Date(),
-    },
-  });
-}
-
-export async function settleBlackjackRound(roundId: string): Promise<void> {
-  const round = await prisma.blackjackRound.findUnique({
-    where: { id: roundId },
-    include: { entries: true },
-  });
+async function finishRound(roundId: string, inactiveKick: number): Promise<void> {
+  const round = await prisma.blackjackRound.findUnique({ where: { id: roundId } });
   if (!round || round.status === "SETTLED") return;
 
-  const unfinished = round.entries.filter((e) => e.outcome == null);
-  for (const entry of unfinished) {
-    await finishEntry(entry);
-  }
-
-  const entries = await prisma.blackjackEntry.findMany({
-    where: { roundId },
-  });
-
-  const ranked = [...entries].sort(compareEntries);
-  for (let i = 0; i < ranked.length; i++) {
-    const placement = i + 1;
-    await prisma.blackjackEntry.update({
-      where: { id: ranked[i]!.id },
-      data: { placement },
-    });
-  }
+  await tickRoundInactivity(inactiveKick);
 
   await prisma.blackjackRound.update({
     where: { id: roundId },
     data: { status: "SETTLED", settledAt: new Date() },
   });
-
-  const top = ranked.slice(0, BLACKJACK_WHEEL_WINNERS);
-  for (const entry of top) {
-    const current = await prisma.blackjackEntry.findUnique({
-      where: { id: entry.id },
-    });
-    if (!current || current.wheelCode) continue;
-    const code = await createGiveawayPlayCode({
-      winnerName: current.displayName,
-      winnerEmail: current.email,
-      source: "Blackjack",
-      notes: `round:${roundId} placement:${current.placement}`,
-    });
-    await prisma.blackjackEntry.update({
-      where: { id: current.id },
-      data: { wheelCode: code.code },
-    });
-  }
 }
 
 export async function ensureOpenRound(
@@ -153,8 +75,10 @@ export async function ensureOpenRound(
       })
     : null;
 
+  const inactiveKick = config.inactiveRoundKick ?? INACTIVE_ROUNDS_KICK;
+
   if (current?.status === "OPEN" && Date.now() >= current.endsAt.getTime()) {
-    await settleBlackjackRound(current.id);
+    await finishRound(current.id, inactiveKick);
     current = await prisma.blackjackRound.findUnique({
       where: { id: current.id },
     });
@@ -179,6 +103,67 @@ export async function ensureOpenRound(
   return { config: updated, round };
 }
 
+function toPublicSeatPlayer(
+  seat: BlackjackSeat,
+  viewerEmail?: string | null
+): PublicBlackjackSeatPlayer {
+  const hand = parseHandJson(seat.handJson);
+  const playerCards =
+    seat.handPhase === "IDLE" ? [] : playerCardsFromSeat(seat);
+  const finished =
+    seat.handPhase === "SETTLED" || Boolean(hand?.finished);
+
+  return {
+    seatIndex: seat.seatIndex,
+    displayName: seat.displayName,
+    email: maskEmail(seat.email),
+    stackCredits: seat.stackCredits,
+    handPhase: seat.handPhase,
+    playerCards,
+    handValue: playerCards.length ? handValueFromSeat(seat) : 0,
+    finished,
+    isViewer: viewerEmail ? seat.email === viewerEmail : false,
+  };
+}
+
+async function toPublicMySeat(
+  seat: BlackjackSeat,
+  inactiveKick: number
+): Promise<PublicBlackjackMySeat> {
+  const wallet = await prisma.blackjackWallet.findUnique({
+    where: { email: seat.email },
+  });
+  const hand = parseHandJson(seat.handJson);
+  const dealer = dealerCardsForPublic(hand, seat.handPhase);
+  const playerCards = playerCardsFromSeat(seat);
+  const canGrant = await canReceiveDailyGrant(seat.email);
+  const canPlay = seat.stackCredits > 0 || canGrant;
+
+  return {
+    seatIndex: seat.seatIndex,
+    stackCredits: seat.stackCredits,
+    savedCredits: wallet?.savedCredits ?? 0,
+    currentBet: seat.currentBet,
+    handPhase: seat.handPhase,
+    playerCards,
+    dealerCards: dealer.cards,
+    dealerHidden: dealer.hidden,
+    handValue: playerCards.length ? handValueFromSeat(seat) : 0,
+    activeHandIndex: hand?.activeHandIndex ?? 0,
+    handCount: hand?.hands.length ?? 0,
+    finished: seat.handPhase === "SETTLED" || Boolean(hand?.finished),
+    lastResult: lastResultFromHand(hand),
+    pendingGwCode: seat.pendingGwCode,
+    pendingWohCode: seat.pendingWohCode,
+    canPlayToday: canPlay,
+    nextGrantAt: canPlay
+      ? null
+      : new Date(nextUtcMidnightMs()).toISOString(),
+    missedRounds: seat.missedRounds,
+    inactiveKick,
+  };
+}
+
 export async function buildPublicBlackjackState(
   viewerEmail?: string | null
 ): Promise<PublicBlackjackState> {
@@ -186,56 +171,31 @@ export async function buildPublicBlackjackState(
   const { config: syncedConfig, round: current } = await ensureOpenRound(config);
   config = syncedConfig;
 
-  const entryCount = await prisma.blackjackEntry.count({
-    where: { roundId: current.id },
+  const tableSeats = config.tableSeats ?? BLACKJACK_TABLE_SEATS;
+  const inactiveKick = config.inactiveRoundKick ?? INACTIVE_ROUNDS_KICK;
+
+  const allSeats = await prisma.blackjackSeat.findMany({
+    orderBy: { seatIndex: "asc" },
   });
 
-  let myEntry: PublicBlackjackEntry | null = null;
-  let recentResult: PublicBlackjackEntry | null = null;
-  if (viewerEmail) {
-    const mine = await prisma.blackjackEntry.findUnique({
-      where: {
-        roundId_email: { roundId: current.id, email: viewerEmail },
-      },
-    });
-    if (mine) myEntry = toPublicEntry(mine, false);
-
-    const lastMine = await prisma.blackjackEntry.findFirst({
-      where: {
-        email: viewerEmail,
-        round: { status: "SETTLED" },
-      },
-      orderBy: { finishedAt: "desc" },
-    });
-    if (lastMine && lastMine.roundId !== current.id) {
-      recentResult = toPublicEntry(lastMine, true);
+  const seats: Array<PublicBlackjackSeatPlayer | null> = Array.from(
+    { length: tableSeats },
+    () => null
+  );
+  for (const row of allSeats) {
+    if (row.seatIndex >= 0 && row.seatIndex < tableSeats) {
+      seats[row.seatIndex] = toPublicSeatPlayer(row, viewerEmail);
     }
   }
 
-  const lastSettled = await prisma.blackjackRound.findFirst({
-    where: { status: "SETTLED" },
-    orderBy: { settledAt: "desc" },
-  });
-
-  let lastWinners: PublicBlackjackLeader[] = [];
-  if (lastSettled) {
-    const winners = await prisma.blackjackEntry.findMany({
-      where: {
-        roundId: lastSettled.id,
-        placement: { lte: BLACKJACK_WHEEL_WINNERS },
-        outcome: { not: null },
-      },
-      orderBy: { placement: "asc" },
-    });
-    lastWinners = winners.map((w) => ({
-      placement: w.placement!,
-      displayName: w.displayName,
-      email: maskEmail(w.email),
-      outcome: w.outcome!,
-      handValue: w.handValue,
-      wheelCode: w.wheelCode,
-    }));
+  let mySeat: PublicBlackjackMySeat | null = null;
+  if (viewerEmail) {
+    const mine = allSeats.find((s) => s.email === viewerEmail) ?? null;
+    if (mine) mySeat = await toPublicMySeat(mine, inactiveKick);
   }
+
+  const leaderboard = await getLeaderboard(10);
+  const count = await seatedCount();
 
   const secondsRemaining = Math.max(
     0,
@@ -247,16 +207,37 @@ export async function buildPublicBlackjackState(
     prizeTitle: config.prizeTitle,
     prizeDescription: config.prizeDescription,
     roundSeconds: config.roundSeconds,
+    tableSeats,
+    imDailyGrant: IM_DAILY_GRANT,
+    imMilestoneGiveaway: IM_MILESTONE_GIVEAWAY,
+    imMilestoneWoh: IM_MILESTONE_WOH,
+    imMinBet: IM_MIN_BET,
+    imMaxBet: IM_MAX_BET,
+    inactiveKick,
     currentRound: {
       id: current.id,
       status: current.status,
       startedAt: current.startedAt.toISOString(),
       endsAt: current.endsAt.toISOString(),
       secondsRemaining,
-      entryCount,
+      seatedCount: count,
     },
-    myEntry,
-    lastWinners,
-    recentResult,
+    seats,
+    mySeat,
+    leaderboard,
   };
+}
+
+export async function forceFinishCurrentRound(): Promise<void> {
+  const config = await getOrCreateBlackjackConfig();
+  if (!config.currentRoundId) return;
+  const current = await prisma.blackjackRound.findUnique({
+    where: { id: config.currentRoundId },
+  });
+  if (current?.status === "OPEN") {
+    await finishRound(
+      current.id,
+      config.inactiveRoundKick ?? INACTIVE_ROUNDS_KICK
+    );
+  }
 }
